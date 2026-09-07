@@ -5,6 +5,11 @@
   the cache immediately -- so the app opens instantly and works on a train --
   while a fresh copy is fetched in the background for next time. Bumping
   CACHE on a release retires every older cache in the activate step.
+
+  A new worker deliberately does NOT skip waiting on its own. Taking over
+  mid-session would leave the open page mixing old markup with new assets, so
+  it waits until the page offers the reader the update and they accept it,
+  which arrives here as a SKIP_WAITING message.
 */
 
 const CACHE = "remembre-v2";
@@ -32,8 +37,11 @@ self.addEventListener("install", (event) => {
     caches.open(CACHE)
       // Individually, so one missing file cannot fail the whole install.
       .then((cache) => Promise.allSettled(SHELL.map((url) => cache.add(url))))
-      .then(() => self.skipWaiting())
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

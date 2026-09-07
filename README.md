@@ -76,6 +76,12 @@ Safari), tap Share, then *Add to Home Screen*. On Android, Chrome offers
 *Install app* from its menu. Either way it gets its own icon, launches without
 browser chrome, and works with no connection.
 
+Because the app serves itself from its own cache, a deploy is not visible the
+moment it lands. A new version downloads in the background, then waits: a bar
+appears offering **Reload now** or **Later**, and nothing is swapped underneath
+you until you accept. Postponing applies it the next time the app is opened.
+
+One caveat worth knowing: tasks live in the browser's storage on that device.
 ## Moving work between devices
 
 Remembre has no server, so nothing syncs by itself. Instead it moves work as a

@@ -1624,12 +1624,66 @@ function init() {
   Register the service worker only for the hosted, installable copy. The
   single-file build has no manifest link and no sw.js beside it, so the check
   below keeps it from logging a failed registration there.
+
+  Because the app is served from its own cache, a deploy is invisible until the
+  stored copy is replaced. Rather than let that happen silently underfoot, a
+  freshly downloaded version waits, and the reader is offered it.
 */
+
+/** True when this page was already under a worker, so a change of controller
+    means an update rather than the very first install. */
+let hadController = false;
+let reloadingForUpdate = false;
+
+function showUpdateBar(worker) {
+  const bar = $("update-bar");
+  if (!bar.hidden) return;
+  bar.hidden = false;
+  announce("A new version of Remembre is ready. Reload to update.");
+
+  $("update-reload").onclick = () => {
+    $("update-reload").disabled = true;
+    // The worker calls skipWaiting, which changes the controller, and the
+    // listener below reloads the page onto the new version.
+    worker.postMessage({ type: "SKIP_WAITING" });
+  };
+  $("update-dismiss").onclick = () => {
+    bar.hidden = true;
+    announce("Update postponed. It will be applied next time you open Remembre.");
+    $("add-task-top").focus();
+  };
+}
+
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   if (!document.querySelector('link[rel="manifest"]')) return;
   if (!window.isSecureContext) return;
-  navigator.serviceWorker.register("sw.js").catch((err) => {
+
+  hadController = Boolean(navigator.serviceWorker.controller);
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    // On a first install the controller also changes; only an update reloads.
+    if (!hadController || reloadingForUpdate) return;
+    reloadingForUpdate = true;
+    window.location.reload();
+  });
+
+  navigator.serviceWorker.register("sw.js").then((registration) => {
+    // A version downloaded on an earlier visit and still waiting.
+    if (registration.waiting && navigator.serviceWorker.controller) {
+      showUpdateBar(registration.waiting);
+    }
+
+    registration.addEventListener("updatefound", () => {
+      const installing = registration.installing;
+      if (!installing) return;
+      installing.addEventListener("statechange", () => {
+        if (installing.state === "installed" && navigator.serviceWorker.controller) {
+          showUpdateBar(installing);
+        }
+      });
+    });
+  }).catch((err) => {
     console.warn("Offline support is unavailable:", err);
   });
 }

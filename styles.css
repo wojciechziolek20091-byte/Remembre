@@ -488,6 +488,27 @@ kbd {
 
 .app-bar-add { flex-shrink: 0; }
 
+/* ---------- Update bar ---------- */
+
+.update-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem .75rem;
+  max-width: 82rem;
+  margin: 0 auto;
+  padding: .7rem 1.25rem;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--line);
+  font-size: .9rem;
+}
+
+.update-text {
+  margin: 0;
+  flex: 1 1 14rem;
+  font-weight: 600;
+}
+
 /* ---------- Layout ---------- */
 
 /*

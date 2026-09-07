@@ -61,6 +61,7 @@ const PAIRS = [
   ["--accent-ink", "--accent", 4.5, "primary button label"],
   ["--accent-ink", "--accent-hover", 4.5, "primary button label, hovered"],
   ["--accent", "--surface", 4.5, "accent text on paper"],
+  ["--ink", "--accent-soft", 4.5, "update bar text"],
   ["--danger", "--surface", 4.5, "error text on paper"],
   ["--danger", "--surface-2", 4.5, "error text on panels"],
   ["--t-test-ink", "--t-test", 4.5, "test chip label"],
