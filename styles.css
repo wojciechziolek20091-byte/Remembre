@@ -1287,6 +1287,13 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 
 .site-footer p { margin: 0; }
 
+.version {
+  margin-top: .35rem !important;
+  font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+  opacity: .8;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 62rem) {

@@ -24,6 +24,10 @@
 
 /* ---------- Constants ---------- */
 
+/* Shown in the footer so it is always possible to tell, on the device itself,
+   which release is actually running. Bump it on every deploy. */
+const APP_VERSION = "2026.09.07-7";
+
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
 const SYNC_KEY = "remembre.sync.v1";
@@ -1948,6 +1952,7 @@ function restorePrefs() {
 }
 
 function init() {
+  $("app-version").textContent = APP_VERSION;
   state.tasks = loadTasks();
   const today = todayISO();
   state.focusDate = today;

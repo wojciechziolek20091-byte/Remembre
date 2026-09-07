@@ -94,10 +94,18 @@ Safari), tap Share, then *Add to Home Screen*. On Android, Chrome offers
 *Install app* from its menu. Either way it gets its own icon, launches without
 browser chrome, and works with no connection.
 
-Because the app serves itself from its own cache, a deploy is not visible the
-moment it lands. A new version downloads in the background, then waits: a bar
-appears offering **Reload now** or **Later**, and nothing is swapped underneath
-you until you accept. Postponing applies it the next time the app is opened.
+The document, stylesheet and script are fetched from the network first, with
+the cache as a fallback when the network fails or is slow, so a release is
+visible the next time the app is opened. Fonts and icons, which are large and
+change rarely, are served from the cache and refreshed in the background, so
+the app still opens with no connection at all.
+
+When a new service worker itself downloads, it waits rather than taking over: a
+bar appears offering **Reload now** or **Later**, and nothing is swapped
+underneath you mid-session.
+
+The footer shows the running version, which is the quickest way to tell whether
+a device is actually on the latest release.
 
 One caveat worth knowing: tasks live in the browser's storage on that device.
 ## Moving work between devices

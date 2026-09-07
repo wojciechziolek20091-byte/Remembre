@@ -1,10 +1,20 @@
 /*
   Offline support for the installed app.
 
-  Strategy: stale-while-revalidate for same-origin GETs. A visit is served from
-  the cache immediately -- so the app opens instantly and works on a train --
-  while a fresh copy is fetched in the background for next time. Bumping
-  CACHE on a release retires every older cache in the activate step.
+  Two strategies, split by what the file is.
+
+  The shell -- the document, the stylesheet and the script -- is fetched from
+  the network first, falling back to the cache when that fails or takes too
+  long. Serving those from the cache first, as this once did, meant a release
+  was never visible on the launch that downloaded it: the fresh copy only
+  landed in the cache for next time, so every update needed two clean launches
+  and an installed app that is resumed rather than relaunched could sit on an
+  old version indefinitely.
+
+  Everything else -- the fonts, the icons, the manifest -- is content-stable
+  and large, so it is served from the cache and refreshed in the background.
+
+  Bumping CACHE on a release retires every older cache in the activate step.
 
   A new worker deliberately does NOT skip waiting on its own. Taking over
   mid-session would leave the open page mixing old markup with new assets, so
@@ -12,7 +22,14 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "remembre-v2";
+const CACHE = "remembre-v3";
+
+/* How long to wait for the network before falling back to the cached shell.
+   Long enough for a slow connection, short enough not to feel broken. */
+const NETWORK_TIMEOUT = 3500;
+
+/* The parts that change on a release and must never be served stale. */
+const SHELL_PATTERN = /(?:\/|\.html|\.css|\.js)$/;
 
 const SHELL = [
   "./",
@@ -52,24 +69,60 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+async function putInCache(request, response) {
+  if (!response || !response.ok) return;
+  const cache = await caches.open(CACHE);
+  await cache.put(request, response.clone());
+}
+
+/** Network first, with the cache as a fallback for failure and for slowness. */
+function networkFirst(request) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (response) => {
+      if (settled || !response) return;
+      settled = true;
+      resolve(response);
+    };
+
+    const fallback = setTimeout(async () => {
+      const cached = await caches.match(request);
+      finish(cached);
+    }, NETWORK_TIMEOUT);
+
+    fetch(request)
+      .then((response) => {
+        clearTimeout(fallback);
+        putInCache(request, response);
+        finish(response);
+      })
+      .catch(async () => {
+        clearTimeout(fallback);
+        const cached = await caches.match(request);
+        // Nothing cached and no network: let the browser report the failure.
+        finish(cached || Response.error());
+      });
+  });
+}
+
+/** Cache first, refreshed in the background, for files that rarely change. */
+async function staleWhileRevalidate(request) {
+  const cached = await caches.match(request);
+  const network = fetch(request)
+    .then((response) => {
+      putInCache(request, response);
+      return response;
+    })
+    .catch(() => cached);
+  return cached || network;
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
-  if (new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-
-      return cached || network;
-    })
-  );
+  const isShell = request.mode === "navigate" || SHELL_PATTERN.test(url.pathname);
+  event.respondWith(isShell ? networkFirst(request) : staleWhileRevalidate(request));
 });

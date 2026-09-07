@@ -65,18 +65,21 @@ const page = await context.newPage();
 console.log("\nupdate bar");
 
 await page.goto(base);
-await page.waitForSelector(".day");
+await page.waitForSelector(".tt-lesson");
 await page.evaluate(() => navigator.serviceWorker.ready);
 // Reload so the page starts out controlled, as an installed app always is.
 await page.reload();
-await page.waitForSelector(".day");
+await page.waitForSelector(".tt-lesson");
 await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
 check("the bar stays out of the way when nothing has changed", await page.locator("#update-bar").isVisible(), false);
 
 const before = await page.evaluate(() => document.querySelector(".signature").textContent);
 
 // A deploy: the worker and a visible asset both change on disk.
-await writeFile(join(site, "sw.js"), (await readFile(join(site, "sw.js"), "utf8")).replace('"remembre-v2"', '"remembre-v3"'));
+// Any byte change to sw.js is what makes the browser treat it as a new
+// worker, so bump whatever cache name is in there rather than a fixed one.
+await writeFile(join(site, "sw.js"),
+  (await readFile(join(site, "sw.js"), "utf8")).replace(/remembre-v\d+/, "remembre-test-build-2"));
 await writeFile(join(site, "index.html"), (await readFile(join(site, "index.html"), "utf8")).replace("by Wojciech Ziolek", "by A New Version"));
 
 await page.evaluate(async () => { const r = await navigator.serviceWorker.ready; await r.update(); });
@@ -105,12 +108,45 @@ await Promise.all([
   page.waitForNavigation({ timeout: 20000 }),
   page.click("#update-reload"),
 ]);
-await page.waitForSelector(".day");
+await page.waitForSelector(".tt-lesson");
 check("reloading lands on the new version",
   await page.evaluate(() => document.querySelector(".signature").textContent), "by A New Version");
 check("the bar is gone afterwards", await page.locator("#update-bar").isVisible(), false);
 check("and nothing is left waiting",
   await page.evaluate(async () => Boolean((await navigator.serviceWorker.ready).waiting)), false);
+
+console.log("\na release is visible on the next launch");
+// Reset to a clean install of the current files, then deploy a change and
+// reload exactly once -- the case that was broken.
+await context.close();
+const fresh = await browser.newContext();
+const page2 = await fresh.newPage();
+await page2.goto(base);
+await page2.waitForSelector(".tt-lesson");
+await page2.evaluate(() => navigator.serviceWorker.ready);
+await page2.reload();
+await page2.waitForSelector(".tt-lesson");
+await page2.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+
+await writeFile(join(site, "index.html"),
+  (await readFile(join(site, "index.html"), "utf8")).replace("by A New Version", "by Second Release"));
+await page2.reload();
+await page2.waitForSelector(".tt-lesson");
+check("one reload is enough to see a change",
+  await page2.evaluate(() => document.querySelector(".signature").textContent), "by Second Release");
+
+console.log("\nstill works with no network");
+await fresh.setOffline(true);
+await page2.reload();
+await page2.waitForSelector(".tt-lesson", { timeout: 20000 });
+check("the app still opens offline",
+  await page2.evaluate(() => document.querySelectorAll(".tt-lesson").length > 0), true);
+check("and its fonts come from the cache",
+  await page2.evaluate(() => document.fonts.check('600 1rem Fraunces')), true);
+await fresh.setOffline(false);
+await fresh.close();
+
+
 
 await browser.close();
 server.close();
