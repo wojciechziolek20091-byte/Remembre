@@ -22,8 +22,10 @@ the browser's own storage, so nothing about your coursework leaves your device.
 - **Tick things off.** Completed tasks are hidden by default and can be shown
   again from the sidebar.
 - **Filter by type**, so a revision week can show only tests.
-- **Keep a backup.** Export writes a JSON file; import can either replace the
-  calendar or merge into it.
+- **Move work between devices.** Save a copy to iCloud Drive on one device and
+  load it on the other. Loading *merges*: tasks are matched by id, the newer
+  edit of each one wins, and deletions travel too, so neither device loses
+  work and loading the same file twice does nothing.
 
 ## Accessibility
 
@@ -70,10 +72,29 @@ Safari), tap Share, then *Add to Home Screen*. On Android, Chrome offers
 *Install app* from its menu. Either way it gets its own icon, launches without
 browser chrome, and works with no connection.
 
-One caveat worth knowing: tasks live in the browser's storage on that device.
-They do not sync between your iPad and your laptop, and iOS can clear a web
-app's storage if the app goes unused for a long stretch. Use **Export backup**
-now and then; that is what it is for.
+## Moving work between devices
+
+Remembre has no server, so nothing syncs by itself. Instead it moves work as a
+file, and does the merge properly:
+
+1. On the device you have been using, open **Sync and backup** and tap **Save a
+   copy**. On iOS this opens the share sheet, so you can put the file in iCloud
+   Drive or AirDrop it straight across.
+2. On the other device, tap **Load a copy** and pick that file.
+
+Loading merges rather than replaces. Every task carries an `updatedAt` stamp
+and is matched by id, so the newer edit of each task wins, tasks that exist on
+only one device are kept, and a task deleted on one device stays deleted rather
+than reappearing on the next merge. Loading the same file twice changes
+nothing.
+
+The panel tells you where you stand -- when you last saved a copy and how many
+tasks have changed since -- so it is obvious when the other device is behind.
+
+Two honest limits. If you edit the *same* task on both devices, the later edit
+wins and the earlier one is lost; there is no field-by-field merge. And iOS can
+clear a web app's storage after a long unused stretch, which is the other
+reason to save a copy occasionally.
 
 ## Running it
 

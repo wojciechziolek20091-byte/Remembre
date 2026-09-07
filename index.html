@@ -135,13 +135,14 @@
       </fieldset>
     </section>
 
-    <section class="panel" aria-labelledby="data-heading">
-      <h2 class="panel-title" id="data-heading">Your data</h2>
-      <p class="panel-hint" id="data-hint">Tasks are saved in this browser only &ndash; nothing is uploaded. Export a backup before clearing your browser data.</p>
-      <div class="panel-actions" aria-describedby="data-hint">
-        <button type="button" class="btn btn-quiet" id="export-data">Export backup</button>
-        <button type="button" class="btn btn-quiet" id="import-data">Import backup</button>
-        <input type="file" id="import-file" accept="application/json,.json" class="sr-only" tabindex="-1" aria-hidden="true">
+    <section class="panel" aria-labelledby="sync-heading">
+      <h2 class="panel-title" id="sync-heading">Sync and backup</h2>
+      <p class="panel-hint" id="sync-hint">Remembre saves on this device only. To move work between your iPad and your phone, save a copy to iCloud Drive here, then load it on the other device. Loading merges &ndash; the newer version of each task wins and nothing is lost.</p>
+      <p class="sync-status" id="sync-status" role="status"></p>
+      <div class="panel-actions" aria-describedby="sync-hint">
+        <button type="button" class="btn btn-quiet" id="save-copy">Save a copy</button>
+        <button type="button" class="btn btn-quiet" id="load-copy">Load a copy</button>
+        <input type="file" id="load-file" accept="application/json,.json" class="sr-only" tabindex="-1" aria-hidden="true">
       </div>
     </section>
 

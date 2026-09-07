@@ -8,7 +8,12 @@
   array of task objects:
 
     { id, title, type, course, date: "YYYY-MM-DD", time: "HH:MM" | "",
-      notes, done, createdAt }
+      notes, done, createdAt, updatedAt, deleted }
+
+  Every record carries updatedAt, and deleting sets `deleted` rather than
+  dropping the row. Both exist so a file saved on one device can be merged
+  into another without either losing work: newer wins per task, and a deletion
+  travels as a fact instead of silently reappearing on the next merge.
 
   Dates are handled as local "YYYY-MM-DD" strings and never as Date objects
   in storage, which keeps a task due on the 14th on the 14th regardless of
@@ -21,9 +26,13 @@
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
+const SYNC_KEY = "remembre.sync.v1";
 const LOCALE = "en-GB";
 const MAX_CHIPS = 3;
 const UPCOMING_LIMIT = 6;
+/* Tombstones are kept long enough to reach every device, then dropped. */
+const TOMBSTONE_DAYS = 90;
+const BACKUP_FILENAME = "remembre.json";
 
 const TYPES = {
   test: { label: "Test", order: 0 },
@@ -168,8 +177,12 @@ function normaliseTask(raw) {
   if (!raw || typeof raw !== "object") return null;
   const title = String(raw.title == null ? "" : raw.title).trim().slice(0, 120);
   const date = String(raw.date == null ? "" : raw.date);
-  if (!title || !isValidISO(date)) return null;
+  // A tombstone only has to carry an id and a timestamp to do its job.
+  if ((!title || !isValidISO(date)) && raw.deleted !== true) return null;
   const type = TYPE_KEYS.includes(raw.type) ? raw.type : "other";
+  const createdAt = typeof raw.createdAt === "string" && raw.createdAt
+    ? raw.createdAt
+    : new Date().toISOString();
   return {
     id: typeof raw.id === "string" && raw.id ? raw.id : newId(),
     title,
@@ -179,14 +192,33 @@ function normaliseTask(raw) {
     course: String(raw.course == null ? "" : raw.course).trim().slice(0, 60),
     notes: String(raw.notes == null ? "" : raw.notes).trim().slice(0, 500),
     done: raw.done === true,
-    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : new Date().toISOString(),
+    deleted: raw.deleted === true,
+    createdAt,
+    // A file written before updatedAt existed still merges: it simply loses
+    // every tie, which is the safe direction.
+    updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : createdAt,
   };
+}
+
+/* A deleted task keeps its row so the deletion can travel; the interface
+   never sees one. */
+function liveTasks() {
+  return state.tasks.filter((task) => !task.deleted);
+}
+
+function touch(task) {
+  task.updatedAt = new Date().toISOString();
+  return task;
 }
 
 function loadTasks() {
   const raw = readStore(STORAGE_KEY, []);
   if (!Array.isArray(raw)) return [];
-  return raw.map(normaliseTask).filter(Boolean);
+  const cutoff = new Date(Date.now() - TOMBSTONE_DAYS * 86400000).toISOString();
+  return raw
+    .map(normaliseTask)
+    .filter(Boolean)
+    .filter((task) => !task.deleted || task.updatedAt > cutoff);
 }
 
 function saveTasks() {
@@ -241,20 +273,20 @@ function sortTasks(a, b) {
 }
 
 function tasksOn(iso, { filtered = true } = {}) {
-  return state.tasks
+  return liveTasks()
     .filter((task) => task.date === iso && (!filtered || passesFilter(task)))
     .sort(sortTasks);
 }
 
 function tasksInMonth(monthStartIso) {
   const prefix = monthStartIso.slice(0, 7);
-  return state.tasks
+  return liveTasks()
     .filter((task) => task.date.slice(0, 7) === prefix && passesFilter(task))
     .sort(sortTasks);
 }
 
 function findTask(id) {
-  return state.tasks.find((task) => task.id === id) || null;
+  return liveTasks().find((task) => task.id === id) || null;
 }
 
 /* ---------- Announcements ---------- */
@@ -455,12 +487,12 @@ function buildEmptyMain() {
     "div",
     { class: "empty empty-main" },
     el("p", {
-      text: state.tasks.length === 0
+      text: liveTasks().length === 0
         ? "Nothing here yet. Add your first test or piece of homework to get started."
         : `No tasks in ${fmtMonthYear.format(fromISO(state.periodStart))} matching the filters in the sidebar.`,
     })
   );
-  if (state.tasks.length === 0) {
+  if (liveTasks().length === 0) {
     wrap.append(
       el("button", { type: "button", class: "btn btn-quiet", id: "load-examples", text: "Load a few example tasks" })
     );
@@ -473,7 +505,7 @@ function buildEmptyMain() {
 function renderUpcoming() {
   const wrap = $("upcoming-list");
   const today = todayISO();
-  const pending = state.tasks
+  const pending = liveTasks()
     .filter((task) => !task.done && state.typeFilter.includes(task.type))
     .sort(sortTasks);
 
@@ -484,7 +516,7 @@ function renderUpcoming() {
     wrap.replaceChildren(
       el("p", {
         class: "empty",
-        text: state.tasks.length === 0
+        text: liveTasks().length === 0
           ? "Nothing scheduled yet."
           : "Nothing outstanding. Every task matching your filters is done.",
       })
@@ -542,7 +574,7 @@ function renderPeriod() {
 }
 
 function renderCourseSuggestions() {
-  const courses = [...new Set(state.tasks.map((task) => task.course).filter(Boolean))].sort();
+  const courses = [...new Set(liveTasks().map((task) => task.course).filter(Boolean))].sort();
   $("course-suggestions").replaceChildren(...courses.map((course) => el("option", { value: course })));
 }
 
@@ -552,6 +584,7 @@ function renderAll() {
   renderAgenda();
   renderUpcoming();
   renderCourseSuggestions();
+  renderSyncPanel();
 }
 
 /* ---------- View switching ---------- */
@@ -707,6 +740,7 @@ function submitTaskForm(event) {
   const existing = state.editingId ? findTask(state.editingId) : null;
   if (existing) {
     Object.assign(existing, values);
+    touch(existing);
     announce(`Saved "${values.title}", due ${fmtFullDate.format(fromISO(values.date))}.`);
   } else {
     state.tasks.push(normaliseTask({ ...values, id: newId(), createdAt: new Date().toISOString() }));
@@ -726,7 +760,10 @@ function deleteCurrentTask() {
   if (!confirmed) return;
 
   const date = task.date;
-  state.tasks = state.tasks.filter((item) => item.id !== task.id);
+  // Kept as a tombstone, so the deletion survives a merge from another device
+  // instead of the task reappearing.
+  task.deleted = true;
+  touch(task);
   saveTasks();
   closeDialog($("task-dialog"));
   renderAll();
@@ -802,6 +839,7 @@ function toggleTaskDone(id, done) {
     : -1;
 
   task.done = done;
+  touch(task);
   saveTasks();
   renderAll();
   refreshDayDialog();
@@ -849,28 +887,110 @@ function applyTheme(theme) {
   savePrefs();
 }
 
-/* ---------- Import and export ---------- */
+/* ---------- Sync: saving and loading a file ---------- */
 
-function exportBackup() {
-  const payload = JSON.stringify({ app: "remembre", version: 1, tasks: state.tasks }, null, 2);
-  const blob = new Blob([payload], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = el("a", { href: url, download: `remembre-${todayISO()}.json` });
+function syncState() {
+  return readStore(SYNC_KEY, { lastSavedAt: "" });
+}
+
+/** How many tasks have changed since the last copy was saved out. */
+function pendingChangeCount() {
+  const { lastSavedAt } = syncState();
+  if (!lastSavedAt) return state.tasks.length;
+  return state.tasks.filter((task) => task.updatedAt > lastSavedAt).length;
+}
+
+function markSaved() {
+  writeStore(SYNC_KEY, { lastSavedAt: new Date().toISOString() });
+  renderSyncPanel();
+}
+
+function backupPayload() {
+  // Tombstones travel too, or a delete on one device would be undone by the
+  // next merge from the other.
+  return JSON.stringify({ app: "remembre", version: 2, savedAt: new Date().toISOString(), tasks: state.tasks }, null, 2);
+}
+
+async function saveCopy() {
+  const payload = backupPayload();
+
+  // On iOS the share sheet is the only route into iCloud Drive, and it also
+  // offers AirDrop straight to the other device. Build the File synchronously
+  // so the call still counts as coming from the tap.
+  if (typeof File === "function" && navigator.canShare) {
+    const file = new File([payload], BACKUP_FILENAME, { type: "application/json" });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: "Remembre" });
+        markSaved();
+        announce("Copy saved. Load it on your other device to merge.");
+        return;
+      } catch (err) {
+        // Dismissing the sheet is not a failure; anything else falls through
+        // to a plain download.
+        if (err && err.name === "AbortError") return;
+      }
+    }
+  }
+
+  const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+  const link = el("a", { href: url, download: BACKUP_FILENAME });
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  announce(`Exported ${state.tasks.length} ${state.tasks.length === 1 ? "task" : "tasks"}.`);
+  markSaved();
+  announce("Copy saved. Load it on your other device to merge.");
 }
 
-function importBackup(file) {
+/**
+ * Fold another device's file into this one. Tasks are matched by id and the
+ * newer updatedAt wins; anything unknown is added. Importing the same file
+ * twice changes nothing, and neither device loses work.
+ */
+function mergeTasks(incoming) {
+  const byId = new Map(state.tasks.map((task) => [task.id, task]));
+  const result = { added: 0, updated: 0, removed: 0, unchanged: 0 };
+
+  incoming.forEach((task) => {
+    const existing = byId.get(task.id);
+    if (!existing) {
+      state.tasks.push(task);
+      byId.set(task.id, task);
+      if (task.deleted) result.unchanged += 1;
+      else result.added += 1;
+      return;
+    }
+    if (task.updatedAt > existing.updatedAt) {
+      const wasLive = !existing.deleted;
+      Object.assign(existing, task);
+      if (task.deleted && wasLive) result.removed += 1;
+      else result.updated += 1;
+    } else {
+      result.unchanged += 1;
+    }
+  });
+
+  return result;
+}
+
+function describeMerge({ added, updated, removed, unchanged }) {
+  const parts = [];
+  if (added) parts.push(`${added} added`);
+  if (updated) parts.push(`${updated} updated`);
+  if (removed) parts.push(`${removed} removed`);
+  if (unchanged) parts.push(`${unchanged} already up to date`);
+  return parts.length ? parts.join(", ") : "nothing to change";
+}
+
+function loadCopy(file) {
   const reader = new FileReader();
   reader.onload = () => {
     let parsed;
     try {
       parsed = JSON.parse(String(reader.result));
     } catch (err) {
-      window.alert("That file is not a Remembre backup: it is not valid JSON.");
+      window.alert("That file is not a Remembre copy: it is not valid JSON.");
       return;
     }
     const list = Array.isArray(parsed) ? parsed : parsed && parsed.tasks;
@@ -883,26 +1003,38 @@ function importBackup(file) {
       window.alert("No readable tasks were found in that file.");
       return;
     }
-    const replace = window.confirm(
-      `Found ${incoming.length} ${incoming.length === 1 ? "task" : "tasks"}.\n\n` +
-      "OK: replace everything currently in this calendar.\n" +
-      "Cancel: add them alongside what is already here."
-    );
-    if (replace) {
-      state.tasks = incoming;
-    } else {
-      const known = new Set(state.tasks.map((task) => task.id));
-      incoming.forEach((task) => {
-        if (known.has(task.id)) task.id = newId();
-        state.tasks.push(task);
-      });
-    }
+
+    const result = mergeTasks(incoming);
     saveTasks();
     renderAll();
-    announce(`Imported ${incoming.length} ${incoming.length === 1 ? "task" : "tasks"}.`);
+    const summary = describeMerge(result);
+    announce(`Merged from file: ${summary}.`);
+    window.alert(`Merged.\n\n${summary}.`);
   };
   reader.onerror = () => window.alert("That file could not be read.");
   reader.readAsText(file);
+}
+
+function renderSyncPanel() {
+  const { lastSavedAt } = syncState();
+  const pending = pendingChangeCount();
+  const status = $("sync-status");
+  if (!status) return;
+
+  if (!lastSavedAt) {
+    status.textContent = liveTasks().length
+      ? "Not saved anywhere yet."
+      : "Nothing to save yet.";
+    status.classList.toggle("is-stale", liveTasks().length > 0);
+    return;
+  }
+
+  const days = daysBetween(lastSavedAt.slice(0, 10), todayISO());
+  const when = days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+  status.textContent = pending === 0
+    ? `Saved ${when}. Nothing has changed since.`
+    : `Saved ${when}. ${pending} ${pending === 1 ? "change" : "changes"} since then.`;
+  status.classList.toggle("is-stale", pending > 0);
 }
 
 function loadExamples() {
@@ -999,11 +1131,11 @@ function setupEvents() {
     }
   });
 
-  $("export-data").addEventListener("click", exportBackup);
-  $("import-data").addEventListener("click", () => $("import-file").click());
-  $("import-file").addEventListener("change", (event) => {
+  $("save-copy").addEventListener("click", saveCopy);
+  $("load-copy").addEventListener("click", () => $("load-file").click());
+  $("load-file").addEventListener("change", (event) => {
     const file = event.target.files && event.target.files[0];
-    if (file) importBackup(file);
+    if (file) loadCopy(file);
     event.target.value = "";
   });
 

@@ -160,6 +160,70 @@ for (const width of [1360, 900, 640, 390, 320]) {
     document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
 }
 
+console.log("\ntwo-device merge");
+/*
+  Simulates the real workflow: two devices from a common starting point, each
+  edited independently, then one device's file merged into the other. Calls the
+  page's own functions -- app.js is a classic script, so they are in scope --
+  rather than making production code export test hooks.
+*/
+const merged = await page.evaluate(() => {
+  const t = (id, title, updatedAt, extra = {}) => normaliseTask({
+    id, title, type: "homework", date: "2026-10-14", time: "", course: "", notes: "",
+    done: false, deleted: false, createdAt: "2026-10-01T00:00:00.000Z", updatedAt, ...extra,
+  });
+
+  // This device: edited "shared" late, has one of its own, deleted "gone".
+  state.tasks = [
+    t("shared", "Essay, final draft", "2026-10-05T10:00:00.000Z"),
+    t("ipad-only", "Chemistry lab", "2026-10-04T10:00:00.000Z"),
+    t("gone", "Cancelled trip", "2026-10-06T10:00:00.000Z", { deleted: true }),
+    t("older", "Keep this copy", "2026-10-07T10:00:00.000Z"),
+  ];
+
+  // The other device's file: an older "shared", its own task, "gone" still
+  // alive, and a stale copy of "older".
+  const other = [
+    t("shared", "Essay, first draft", "2026-10-02T10:00:00.000Z"),
+    t("phone-only", "French vocabulary", "2026-10-03T10:00:00.000Z"),
+    t("gone", "Cancelled trip", "2026-10-01T10:00:00.000Z"),
+    t("older", "Stale copy", "2026-10-02T10:00:00.000Z"),
+  ];
+
+  const first = mergeTasks(other);
+  const afterFirst = JSON.parse(JSON.stringify(state.tasks));
+  const second = mergeTasks(other);          // merging twice must be a no-op
+  const afterSecond = JSON.parse(JSON.stringify(state.tasks));
+  return { first, second, afterFirst, afterSecond };
+});
+
+const byId = (list, id) => list.find((task) => task.id === id);
+check("the newer edit wins", byId(merged.afterFirst, "shared").title, "Essay, final draft");
+check("a stale copy does not overwrite", byId(merged.afterFirst, "older").title, "Keep this copy");
+check("the other device's task is added", Boolean(byId(merged.afterFirst, "phone-only")), true);
+check("this device's own task survives", Boolean(byId(merged.afterFirst, "ipad-only")), true);
+check("a deletion is not undone by an older copy", byId(merged.afterFirst, "gone").deleted, true);
+check("merging the same file twice changes nothing",
+  JSON.stringify(merged.afterSecond), JSON.stringify(merged.afterFirst));
+check("the second merge reports no changes",
+  [merged.second.added, merged.second.updated, merged.second.removed], [0, 0, 0]);
+
+console.log("\ndeleting leaves a tombstone");
+const tomb = await page.evaluate(() => {
+  state.tasks = [normaliseTask({
+    id: "doomed", title: "Delete me", type: "test", date: "2026-10-20",
+    createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
+  })];
+  state.editingId = "doomed";
+  const realConfirm = window.confirm;
+  window.confirm = () => true;
+  deleteCurrentTask();
+  window.confirm = realConfirm;
+  return { rows: state.tasks.length, deleted: state.tasks[0].deleted, visible: liveTasks().length };
+});
+check("the row is kept so the deletion can travel", [tomb.rows, tomb.deleted], [1, true]);
+check("but it is gone from the interface", tomb.visible, 0);
+
 check("no console or page errors", problems, []);
 
 await browser.close();

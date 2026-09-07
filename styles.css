@@ -501,6 +501,17 @@ kbd {
   margin: .75rem 0;
 }
 
+.sync-status {
+  margin: 0 0 .75rem;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.sync-status.is-stale { color: var(--accent); }
+
+.sync-status:empty { display: none; }
+
 .panel-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .panel-actions .btn { flex: 1; font-size: .88rem; }
 
