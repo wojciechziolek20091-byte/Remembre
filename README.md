@@ -39,15 +39,10 @@ the browser's own storage, so nothing about your coursework leaves your device.
 
 The week view is driven by `TIMETABLE_ROWS` near the top of `app.js`: one row
 per period, five entries per row for Monday to Friday, `null` for a free
-period. `PERIOD_TIMES` holds the start time of each period and `PERIOD_BLOCKS`
-groups the periods taught as one: 0 alone, then 1-2, 3-4, 5-6 and 7-8. Edit
-those to change the timetable; `subject` on a lesson must be a key in
-`SUBJECTS`, or `""` for a lesson like tutor time that carries no coursework.
-
-A block whose halves hold the same lesson is drawn and chosen as one cell, so a
-double period is one lesson rather than two. A block whose halves differ, like
-Wednesday's maths followed by tutor time, stays as two. That is worked out from
-the timetable itself, so it follows whatever you put there.
+period. `PERIOD_TIMES` holds the start time of each period; periods 1-2, 3-4,
+5-6 and 7-8 are double blocks that share a start. Edit those two to change the
+timetable; `subject` on a lesson must be a key in `SUBJECTS`, or `""` for a
+lesson like tutor time that carries no coursework.
 
 A task sits on the day's first lesson in its subject, or on the lesson matching
 its time when it has one, so a subject taught twice in a day does not show the
