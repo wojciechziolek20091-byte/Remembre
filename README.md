@@ -1,4 +1,4 @@
-# Study Calendar
+# Remembre
 
 A personal work calendar for schoolwork: tests, homework and every other
 assignment in one month view, with a running list of what is due next.

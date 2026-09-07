@@ -1,6 +1,6 @@
 /*
-  Study Calendar
-  --------------
+  Remembre
+  --------
   A single-file, dependency-free calendar for schoolwork. Tasks live in
   localStorage on the reader's own machine; nothing is sent anywhere.
 
@@ -19,8 +19,8 @@
 
 /* ---------- Constants ---------- */
 
-const STORAGE_KEY = "studycal.tasks.v1";
-const PREFS_KEY = "studycal.prefs.v1";
+const STORAGE_KEY = "remembre.tasks.v1";
+const PREFS_KEY = "remembre.prefs.v1";
 const LOCALE = "en-GB";
 const MAX_CHIPS = 3;
 const UPCOMING_LIMIT = 6;
@@ -852,10 +852,10 @@ function applyTheme(theme) {
 /* ---------- Import and export ---------- */
 
 function exportBackup() {
-  const payload = JSON.stringify({ app: "study-calendar", version: 1, tasks: state.tasks }, null, 2);
+  const payload = JSON.stringify({ app: "remembre", version: 1, tasks: state.tasks }, null, 2);
   const blob = new Blob([payload], { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  const link = el("a", { href: url, download: `study-calendar-${todayISO()}.json` });
+  const link = el("a", { href: url, download: `remembre-${todayISO()}.json` });
   document.body.append(link);
   link.click();
   link.remove();
@@ -870,7 +870,7 @@ function importBackup(file) {
     try {
       parsed = JSON.parse(String(reader.result));
     } catch (err) {
-      window.alert("That file is not a Study Calendar backup: it is not valid JSON.");
+      window.alert("That file is not a Remembre backup: it is not valid JSON.");
       return;
     }
     const list = Array.isArray(parsed) ? parsed : parsed && parsed.tasks;

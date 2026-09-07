@@ -131,7 +131,7 @@ check("unchecking a type hides its chips", await page.locator(".chip-homework").
 await page.locator('.type-filter[value="homework"]').check();
 await page.reload();
 await page.waitForSelector(".day");
-check("tasks survive a reload", await page.evaluate(() => JSON.parse(localStorage.getItem("studycal.tasks.v1")).length), 7);
+check("tasks survive a reload", await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).length), 7);
 check("so do the filter settings", await page.locator('.type-filter[value="homework"]').isChecked(), true);
 
 console.log("\ncompleting a task");
@@ -141,7 +141,7 @@ const box = page.locator(".task-check").first();
 const toggledId = await box.getAttribute("data-toggle");
 await box.click();
 check("the task is stored as done", await page.evaluate(() =>
-  JSON.parse(localStorage.getItem("studycal.tasks.v1")).filter((t) => t.done).length), 1);
+  JSON.parse(localStorage.getItem("remembre.tasks.v1")).filter((t) => t.done).length), 1);
 check("its row is hidden, since completed tasks are off", await page.locator(`[data-toggle="${toggledId}"]`).count(), 0);
 check("and focus is not dropped on the body", await page.evaluate(() =>
   document.activeElement !== document.body && Boolean(document.activeElement.closest("#agenda"))), true);
