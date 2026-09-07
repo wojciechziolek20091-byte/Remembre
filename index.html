@@ -30,7 +30,9 @@
 
     <nav class="view-switch" aria-label="Calendar view">
       <div class="segmented" role="group">
-        <input type="radio" name="view" id="view-month" value="month" checked>
+        <input type="radio" name="view" id="view-week" value="week" checked>
+        <label for="view-week">Week</label>
+        <input type="radio" name="view" id="view-month" value="month">
         <label for="view-month">Month</label>
         <input type="radio" name="view" id="view-list" value="list">
         <label for="view-list">Agenda</label>
@@ -80,7 +82,20 @@
       </div>
     </div>
 
-    <section class="view" id="month-view" aria-labelledby="period-title">
+    <section class="view" id="week-view" aria-labelledby="period-title">
+      <p class="grid-hint" id="week-hint">
+        Choose a lesson to add homework or a test for it. The arrow keys move between lessons.
+      </p>
+      <div class="timetable-scroll">
+        <table class="timetable" id="timetable" aria-describedby="week-hint">
+          <caption class="sr-only" id="timetable-caption"></caption>
+          <thead><tr id="timetable-head"></tr></thead>
+          <tbody id="timetable-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="view" id="month-view" aria-labelledby="period-title" hidden>
       <p class="grid-hint" id="grid-hint">
         Use the arrow keys to move between dates, then press Enter to open a day.
       </p>

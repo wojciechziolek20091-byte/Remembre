@@ -18,6 +18,10 @@ the browser's own storage, so nothing about your coursework leaves your device.
   The other subjects ask nothing further. The task names itself from the
   answers, e.g. *Test Chapters 3-5 from Core Topics*, and the name stays
   editable.
+- **Work from your timetable.** The default view is your school week, period by
+  period. Choosing a lesson opens the form already knowing the subject, the
+  date and the period's start time, so adding homework takes one tap and three
+  answers. Work due shows against the lesson it belongs to.
 - **See the month at a glance.** Every day cell lists what is due, with today
   marked and weekends tinted.
 - **Know what is next.** The Upcoming panel puts overdue work first, then the
@@ -30,6 +34,20 @@ the browser's own storage, so nothing about your coursework leaves your device.
   load it on the other. Loading *merges*: tasks are matched by id, the newer
   edit of each one wins, and deletions travel too, so neither device loses
   work and loading the same file twice does nothing.
+
+## Your timetable
+
+The week view is driven by `TIMETABLE_ROWS` near the top of `app.js`: one row
+per period, five entries per row for Monday to Friday, `null` for a free
+period. `PERIOD_TIMES` holds the start time of each period; periods 1-2, 3-4,
+5-6 and 7-8 are double blocks that share a start. Edit those two to change the
+timetable; `subject` on a lesson must be a key in `SUBJECTS`, or `""` for a
+lesson like tutor time that carries no coursework.
+
+A task sits on the day's first lesson in its subject, or on the lesson matching
+its time when it has one, so a subject taught twice in a day does not show the
+same task twice. Work due on a day with no lesson in that subject appears in an
+"Also due" row beneath the grid rather than disappearing.
 
 ## Accessibility
 

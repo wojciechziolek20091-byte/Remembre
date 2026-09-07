@@ -806,6 +806,142 @@ kbd {
 .chip-project { --chip-bg: var(--t-project); --chip-ink: var(--t-project-ink); }
 .chip-other { --chip-bg: var(--t-other); --chip-ink: var(--t-other-ink); }
 
+/* ---------- Timetable ---------- */
+
+/* Five weekdays plus a period gutter will not shrink usefully, so the table
+   keeps its width and scrolls inside its own box rather than squeezing. */
+.timetable-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.timetable {
+  width: 100%;
+  min-width: 44rem;
+  table-layout: fixed;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+}
+
+.timetable th {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: .45rem .5rem;
+  text-align: left;
+}
+
+.tt-corner { width: 4.25rem; }
+
+.tt-day { }
+
+.tt-day-name {
+  display: block;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.tt-day-date {
+  display: block;
+  font-size: .85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.timetable th.is-today {
+  background: var(--today);
+  box-shadow: inset 0 -2px 0 var(--today-line);
+}
+
+.timetable th.is-today .tt-day-name { color: var(--accent); }
+
+.tt-period {
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.tt-period-num {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.tt-period-time {
+  display: block;
+  font-size: .76rem;
+  color: var(--ink-2);
+}
+
+.timetable td {
+  border: 1px solid var(--line);
+  padding: 0;
+  height: 3.9rem;
+  vertical-align: top;
+  background: var(--surface);
+}
+
+.timetable td.is-today { background: var(--today); }
+
+.tt-free { background: var(--surface-2); }
+.timetable td.tt-free.is-today { background: var(--today); }
+
+.tt-lesson {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  width: 100%;
+  height: 100%;
+  min-height: 3.9rem;
+  padding: .35rem .4rem;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 3px solid var(--accent-soft);
+  cursor: pointer;
+}
+
+.tt-lesson:hover { background: var(--accent-soft); }
+
+.tt-lesson.is-nosubject { border-left-color: var(--line); }
+
+.tt-name {
+  font-size: .8rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.tt-room {
+  font-size: .72rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.tt-chips {
+  display: grid;
+  gap: 2px;
+  margin-top: .15rem;
+}
+
+/* Work due on a day with no lesson to sit against. */
+.tt-extra-row th,
+.tt-extra-row td { border-top: 2px solid var(--line-strong); }
+
+.tt-extra-label {
+  font-size: .8rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.tt-extra { background: var(--surface-2); }
+
+.tt-extra-btn {
+  border-left-color: var(--line-strong);
+  justify-content: center;
+}
+
 /* ---------- Legend ---------- */
 
 .legend-title {
@@ -1163,11 +1299,20 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 }
 
 @media (max-width: 40rem) {
+  .timetable { min-width: 38rem; }
+  .tt-corner { width: 3.4rem; }
+  .timetable td, .tt-lesson { height: 3.4rem; min-height: 3.4rem; }
+  .tt-name { font-size: .74rem; }
+  .tt-chips .chip { padding: .05rem .2rem; font-size: 0; justify-content: center; min-height: 1rem; }
+  .tt-chips .chip-text { display: none; }
+  .tt-chips .chip-glyph { font-size: .68rem; }
   .app-bar-inner { padding: .85rem 1rem; }
   /* Narrow: the signature drops under the wordmark, the way a name is signed
      beneath what it signs. */
   .wordmark-group { width: 100%; margin-right: 0; gap: 0; }
-  .wordmark { font-size: 1.25rem; }
+  /* Full width forces the signature onto its own line instead of letting it
+     run up against the wordmark. */
+  .wordmark { width: 100%; font-size: 1.25rem; }
   .signature { font-size: 1.55rem; transform: translateY(0) rotate(-2deg); }
   .layout { padding: 1rem .75rem 1.5rem; gap: 1rem; }
   .main { padding: .9rem; }

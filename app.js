@@ -60,6 +60,42 @@ const SUBJECT_KEYS = Object.keys(SUBJECTS);
 const CHAPTER_MAX = 20;
 
 /*
+  The school timetable, as a grid of periods by weekday (Monday first).
+
+  Periods run 0 to 8 and sit in blocks that share a start time: 0 alone, then
+  1-2, 3-4, 5-6 and 7-8. Clicking a lesson opens the add form already knowing
+  the subject, the date of that weekday in the week on screen, and the block's
+  start time.
+
+  To change your timetable, edit TIMETABLE_ROWS. `subject` must be one of the
+  keys in SUBJECTS, or "" for a lesson that carries no coursework subject.
+*/
+const TIMETABLE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+const PERIOD_TIMES = ["08:00", "08:45", "08:45", "10:35", "10:35", "12:10", "12:10", "14:10", "14:10"];
+
+const lesson = (subject, label, room) => ({ subject, label, room });
+const maths = (room) => lesson("mathematics", "Maths AI HL", room);
+const econ = (room) => lesson("economics", "Economics HL", room);
+const eng = (room) => lesson("english", "English B HL", room);
+const pol = (room) => lesson("polish", "Polish A SL", room);
+const hist = (room) => lesson("history", "History SL", room);
+const ess = (room) => lesson("ess", "ESS SL", room);
+
+/* One row per period; five entries per row, Monday to Friday, null when free. */
+const TIMETABLE_ROWS = [
+  /* 0 */ [null, null, maths("R_36"), null, null],
+  /* 1 */ [null, econ("R_30"), maths("R_36"), null, null],
+  /* 2 */ [null, econ("R_30"), lesson("", "Tutor", "R_35"), null, null],
+  /* 3 */ [ess("R_36"), lesson("", "TOK", "R_b4"), null, hist("R_b2"), maths("R_b3")],
+  /* 4 */ [ess("R_36"), lesson("", "TOK", "R_b4"), null, hist("R_b2"), maths("R_b3")],
+  /* 5 */ [eng("R_36"), eng("R_35"), econ("R_30"), ess("R_b4"), eng("R_35")],
+  /* 6 */ [eng("R_36"), eng("R_35"), econ("R_30"), ess("R_b4"), eng("R_35")],
+  /* 7 */ [maths("R_36"), pol("R_36"), pol("R_36"), econ("R_30"), hist("R_b2")],
+  /* 8 */ [maths("R_36"), pol("R_36"), pol("R_36"), econ("R_30"), hist("R_b2")],
+];
+
+/*
   Two subjects ask follow-up questions. `kinds` is the first of them; a kind
   listed in `chaptersFor` (or any kind, when that is null) goes on to chapters.
   `sections` splits those chapters into named groups -- maths chapters belong
@@ -334,6 +370,10 @@ const state = {
   showDone: false,
   /** First day of the month currently on screen. */
   periodStart: "",
+  /** Monday of the week currently on screen. */
+  weekStart: "",
+  /** Which lesson owns the timetable's single tab stop. */
+  lessonFocus: { day: 0, period: 0 },
   /** The date that owns the calendar grid's single tab stop. */
   focusDate: "",
   editingId: null,
@@ -501,6 +541,260 @@ function buildDayCell(iso, monthPrefix, today) {
   return el("td", { class: classes.join(" ") }, button);
 }
 
+/* ---------- Rendering: the timetable ---------- */
+
+function weekStartFor(iso) {
+  return addDays(iso, -weekdayIndex(fromISO(iso)));
+}
+
+function weekTitle(start) {
+  const monday = fromISO(start);
+  const friday = fromISO(addDays(start, 4));
+  const day = new Intl.DateTimeFormat(LOCALE, { day: "numeric" });
+  const dayMonth = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "long" });
+  const full = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "long", year: "numeric" });
+  return monday.getMonth() === friday.getMonth()
+    ? `${day.format(monday)}\u2013${full.format(friday)}`
+    : `${dayMonth.format(monday)} \u2013 ${full.format(friday)}`;
+}
+
+/** The first lesson at or after a position, searching the whole grid. */
+function firstLesson() {
+  for (let period = 0; period < TIMETABLE_ROWS.length; period += 1) {
+    for (let day = 0; day < TIMETABLE_DAYS.length; day += 1) {
+      if (TIMETABLE_ROWS[period][day]) return { day, period };
+    }
+  }
+  return null;
+}
+
+/*
+  Places each of a day's tasks on exactly one lesson, so a subject taught twice
+  in a day does not show the same task twice. A task with a time goes to the
+  lesson at that time; otherwise it goes to the day's first lesson in that
+  subject. Anything with no lesson to sit on is returned separately rather than
+  being dropped, because a week view that hides due work is worse than useless.
+*/
+function assignTasksToLessons(iso, dayIndex) {
+  const byPeriod = new Map();
+  const unplaced = [];
+
+  tasksOn(iso).forEach((task) => {
+    const candidates = [];
+    if (task.subject) {
+      TIMETABLE_ROWS.forEach((row, period) => {
+        if (row[dayIndex] && row[dayIndex].subject === task.subject) candidates.push(period);
+      });
+    }
+    if (candidates.length === 0) {
+      unplaced.push(task);
+      return;
+    }
+    const atTime = task.time ? candidates.filter((period) => PERIOD_TIMES[period] === task.time) : [];
+    const period = (atTime.length > 0 ? atTime : candidates)[0];
+    if (!byPeriod.has(period)) byPeriod.set(period, []);
+    byPeriod.get(period).push(task);
+  });
+
+  return { byPeriod, unplaced };
+}
+
+function renderTimetable() {
+  const today = todayISO();
+  const start = state.weekStart;
+  const placement = TIMETABLE_DAYS.map((unused, dayIndex) =>
+    assignTasksToLessons(addDays(start, dayIndex), dayIndex));
+
+  if (!TIMETABLE_ROWS[state.lessonFocus.period] ||
+      !TIMETABLE_ROWS[state.lessonFocus.period][state.lessonFocus.day]) {
+    state.lessonFocus = firstLesson() || { day: 0, period: 0 };
+  }
+
+  $("timetable-head").replaceChildren(
+    el("th", { scope: "col", class: "tt-corner" }, el("span", { class: "sr-only", text: "Period" })),
+    ...TIMETABLE_DAYS.map((name, dayIndex) => {
+      const iso = addDays(start, dayIndex);
+      const isToday = iso === today;
+      // The column is today, not each of its lessons: marking every lesson
+      // would have a screen reader announce "current date" six times over.
+      const cell = el(
+        "th",
+        { scope: "col", class: `tt-day${isToday ? " is-today" : ""}` },
+        el("span", { class: "tt-day-name", text: name }),
+        el("span", { class: "tt-day-date", text: fmtShortDate.format(fromISO(iso)) })
+      );
+      if (isToday) cell.setAttribute("aria-current", "date");
+      return cell;
+    })
+  );
+
+  const rows = TIMETABLE_ROWS.map((row, period) => el(
+    "tr",
+    {},
+    el(
+      "th",
+      { scope: "row", class: "tt-period" },
+      el("span", { class: "tt-period-num", text: String(period) }),
+      el("span", { class: "tt-period-time", text: PERIOD_TIMES[period] })
+    ),
+    ...row.map((slot, dayIndex) => buildLessonCell(
+      slot, period, dayIndex, start, today,
+      placement[dayIndex].byPeriod.get(period) || []
+    ))
+  ));
+
+  // Only worth a row when something actually has nowhere else to go.
+  if (placement.some((day) => day.unplaced.length > 0)) {
+    rows.push(el(
+      "tr",
+      { class: "tt-extra-row" },
+      el("th", { scope: "row", class: "tt-period" },
+        el("span", { class: "tt-period-num tt-extra-label", text: "Also" }),
+        el("span", { class: "tt-period-time", text: "due" })),
+      ...TIMETABLE_DAYS.map((unused, dayIndex) =>
+        buildUnplacedCell(placement[dayIndex].unplaced, dayIndex, start, today))
+    ));
+  }
+
+  $("timetable-body").replaceChildren(...rows);
+
+  $("timetable-caption").textContent =
+    `School timetable for the week beginning ${fmtFullDate.format(fromISO(start))}`;
+}
+
+function taskChips(due, limit) {
+  const chips = el("span", { class: "tt-chips", "aria-hidden": "true" });
+  due.slice(0, limit).forEach((task) => {
+    chips.append(el(
+      "span",
+      { class: `chip chip-${task.type}${task.done ? " is-done" : ""}` },
+      el("span", { class: `chip-glyph glyph glyph-${task.done ? "done" : task.type}` }),
+      el("span", { class: "chip-text", text: task.title })
+    ));
+  });
+  if (due.length > limit) {
+    chips.append(el("span", { class: "chip-more", text: `+${due.length - limit} more` }));
+  }
+  return chips;
+}
+
+/** Tasks on a day with no lesson to sit against, kept visible in their own row. */
+function buildUnplacedCell(due, dayIndex, start, today) {
+  const iso = addDays(start, dayIndex);
+  const isToday = iso === today;
+  const classes = `tt-cell tt-extra${isToday ? " is-today" : ""}`;
+  if (due.length === 0) return el("td", { class: classes });
+
+  const label = `${fmtFullDate.format(fromISO(iso))}. ${due.length} ${due.length === 1 ? "task" : "tasks"} with no lesson this day: ${due.map(describeTask).join("; ")}. Open the day`;
+  return el("td", { class: classes }, el(
+    "button",
+    {
+      type: "button", class: "tt-lesson tt-extra-btn",
+      "aria-label": label, "aria-haspopup": "dialog", tabIndex: -1,
+      dataset: { openDay: iso },
+    },
+    taskChips(due, 2)
+  ));
+}
+
+function buildLessonCell(slot, period, dayIndex, start, today, due) {
+  const iso = addDays(start, dayIndex);
+  const isToday = iso === today;
+  if (!slot) return el("td", { class: `tt-cell tt-free${isToday ? " is-today" : ""}` });
+
+  const time = PERIOD_TIMES[period];
+
+  const chips = taskChips(due, 2);
+
+  const label = [
+    slot.label,
+    `room ${slot.room}`,
+    `${fmtFullDate.format(fromISO(iso))}, period ${period} at ${time}`,
+    due.length
+      ? `${due.length} due: ${due.map(describeTask).join("; ")}`
+      : null,
+    "Add a task for this lesson",
+  ].filter(Boolean).join(". ");
+
+  const focused = state.lessonFocus.day === dayIndex && state.lessonFocus.period === period;
+  const button = el(
+    "button",
+    {
+      type: "button",
+      class: `tt-lesson${slot.subject ? "" : " is-nosubject"}`,
+      "aria-label": label,
+      "aria-haspopup": "dialog",
+      tabIndex: focused ? 0 : -1,
+      dataset: {
+        day: String(dayIndex), period: String(period),
+        date: iso, time, subject: slot.subject,
+      },
+    },
+    el("span", { class: "tt-name", "aria-hidden": "true", text: slot.label }),
+    el("span", { class: "tt-room", "aria-hidden": "true", text: slot.room }),
+    chips
+  );
+  return el("td", { class: `tt-cell${isToday ? " is-today" : ""}` }, button);
+}
+
+/** Walks in a direction until it lands on a lesson, so gaps are skipped. */
+function nextLesson(day, period, stepDay, stepPeriod) {
+  let d = day + stepDay;
+  let p = period + stepPeriod;
+  while (d >= 0 && d < TIMETABLE_DAYS.length && p >= 0 && p < TIMETABLE_ROWS.length) {
+    if (TIMETABLE_ROWS[p][d]) return { day: d, period: p };
+    d += stepDay;
+    p += stepPeriod;
+  }
+  return null;
+}
+
+function focusLesson(day, period) {
+  const button = document.querySelector(`.tt-lesson[data-day="${day}"][data-period="${period}"]`);
+  if (button) button.focus();
+  return Boolean(button);
+}
+
+function onTimetableKeydown(event) {
+  const button = event.target.closest(".tt-lesson");
+  if (!button) return;
+  const day = Number(button.dataset.day);
+  const period = Number(button.dataset.period);
+  let target = null;
+
+  switch (event.key) {
+    case "ArrowRight": target = nextLesson(day, period, 1, 0); break;
+    case "ArrowLeft": target = nextLesson(day, period, -1, 0); break;
+    case "ArrowDown": target = nextLesson(day, period, 0, 1); break;
+    case "ArrowUp": target = nextLesson(day, period, 0, -1); break;
+    case "Home": target = nextLesson(-1, period, 1, 0); break;
+    case "End": target = nextLesson(TIMETABLE_DAYS.length, period, -1, 0); break;
+    case "PageUp":
+      event.preventDefault();
+      goToWeek(addDays(state.weekStart, -7));
+      focusLesson(state.lessonFocus.day, state.lessonFocus.period);
+      return;
+    case "PageDown":
+      event.preventDefault();
+      goToWeek(addDays(state.weekStart, 7));
+      focusLesson(state.lessonFocus.day, state.lessonFocus.period);
+      return;
+    default: return;
+  }
+
+  event.preventDefault();
+  if (!target) return;
+  state.lessonFocus = target;
+  renderTimetable();
+  focusLesson(target.day, target.period);
+}
+
+function goToWeek(iso, { announceChange = true } = {}) {
+  state.weekStart = weekStartFor(iso);
+  renderAll();
+  if (announceChange) announce(`Showing the week of ${weekTitle(state.weekStart)}.`);
+}
+
 /* ---------- Rendering: agenda ---------- */
 
 function renderAgenda() {
@@ -658,13 +952,20 @@ function buildUpcomingItem(task, today) {
 /* ---------- Rendering: chrome ---------- */
 
 function renderPeriod() {
-  const monthStart = fromISO(state.periodStart);
-  $("period-title").textContent = fmtMonthYear.format(monthStart);
+  $("period-title").textContent = state.view === "week"
+    ? weekTitle(state.weekStart)
+    : fmtMonthYear.format(fromISO(state.periodStart));
   $("today-label").textContent = fmtFullDate.format(new Date());
+
+  const unit = state.view === "week" ? "week" : "month";
+  $("prev-period").querySelector(".sr-only").textContent = `Previous ${unit}`;
+  $("next-period").querySelector(".sr-only").textContent = `Next ${unit}`;
+  $("go-today").textContent = state.view === "week" ? "This week" : "Today";
 }
 
 function renderAll() {
   renderPeriod();
+  renderTimetable();
   renderCalendar();
   renderAgenda();
   renderUpcoming();
@@ -675,9 +976,11 @@ function renderAll() {
 /* ---------- View switching ---------- */
 
 function setView(view) {
-  state.view = view === "list" ? "list" : "month";
+  state.view = ["week", "month", "list"].includes(view) ? view : "week";
+  $("week-view").hidden = state.view !== "week";
   $("month-view").hidden = state.view !== "month";
   $("list-view").hidden = state.view !== "list";
+  renderPeriod();
   savePrefs();
 }
 
@@ -1012,7 +1315,7 @@ function clearFieldErrors() {
   $("task-subject-error").textContent = "";
 }
 
-function openTaskDialog({ id = null, date = null, returnFocus = null } = {}) {
+function openTaskDialog({ id = null, date = null, time = null, subject = null, returnFocus = null } = {}) {
   const dialog = $("task-dialog");
   const task = id ? findTask(id) : null;
 
@@ -1028,7 +1331,7 @@ function openTaskDialog({ id = null, date = null, returnFocus = null } = {}) {
   // titleDirty starts true so building the form does not overwrite the title
   // being restored; the real value is worked out once everything is in place.
   state.form = {
-    subject: task ? task.subject : "",
+    subject: task ? task.subject : (subject || ""),
     detail: task && task.detail
       ? { kind: task.detail.kind, parts: task.detail.parts.map((part) => ({ ...part, chapters: [...part.chapters] })) }
       : emptyFormDetail(),
@@ -1041,7 +1344,7 @@ function openTaskDialog({ id = null, date = null, returnFocus = null } = {}) {
 
   $("task-title").value = task ? task.title : "";
   $("task-notes").value = task ? task.notes : "";
-  $("task-time").value = task ? task.time : "";
+  $("task-time").value = task ? task.time : (time || "");
   $("task-date").value = task ? task.date : date || state.focusDate || todayISO();
   $("task-done").checked = task ? task.done : false;
 
@@ -1150,6 +1453,10 @@ function restoreFocus(dateIso) {
   state.returnFocus = null;
   if (target === "add-button") {
     $("add-task-top").focus();
+    return;
+  }
+  if (target === "lesson" && state.view === "week"
+      && focusLesson(state.lessonFocus.day, state.lessonFocus.period)) {
     return;
   }
   if (state.view === "month" && dateIso && focusDayButton(dateIso)) return;
@@ -1490,11 +1797,20 @@ function setupEvents() {
     openTaskDialog({ date: state.focusDate || todayISO(), returnFocus: "add-button" });
   });
 
-  $("prev-period").addEventListener("click", () => goToPeriod(addMonths(state.periodStart, -1)));
-  $("next-period").addEventListener("click", () => goToPeriod(addMonths(state.periodStart, 1)));
+  $("prev-period").addEventListener("click", () => {
+    if (state.view === "week") goToWeek(addDays(state.weekStart, -7));
+    else goToPeriod(addMonths(state.periodStart, -1));
+  });
+  $("next-period").addEventListener("click", () => {
+    if (state.view === "week") goToWeek(addDays(state.weekStart, 7));
+    else goToPeriod(addMonths(state.periodStart, 1));
+  });
   $("go-today").addEventListener("click", () => {
-    goToPeriod(todayISO(), { focus: todayISO() });
-    if (state.view === "month") focusDayButton(todayISO());
+    const today = todayISO();
+    state.weekStart = weekStartFor(today);
+    goToPeriod(today, { focus: today });
+    if (state.view === "week") focusLesson(state.lessonFocus.day, state.lessonFocus.period);
+    else if (state.view === "month") focusDayButton(today);
   });
 
   document.querySelectorAll('input[name="view"]').forEach((input) => {
@@ -1510,6 +1826,24 @@ function setupEvents() {
 
   $("type-filters").addEventListener("change", readFilters);
   $("show-done").addEventListener("change", readFilters);
+
+  const timetable = $("timetable-body");
+  timetable.addEventListener("keydown", onTimetableKeydown);
+  timetable.addEventListener("click", (event) => {
+    const button = event.target.closest(".tt-lesson");
+    if (!button) return;
+    if (button.dataset.openDay) {
+      openDayDialog(button.dataset.openDay);
+      return;
+    }
+    state.lessonFocus = { day: Number(button.dataset.day), period: Number(button.dataset.period) };
+    openTaskDialog({
+      date: button.dataset.date,
+      time: button.dataset.time,
+      subject: button.dataset.subject || "",
+      returnFocus: "lesson",
+    });
+  });
 
   const grid = $("calendar-body");
   grid.addEventListener("keydown", onGridKeydown);
@@ -1578,8 +1912,11 @@ function setupEvents() {
       openTaskDialog({ date: state.focusDate || todayISO(), returnFocus: "add-button" });
     } else if (event.key === "t" || event.key === "T") {
       event.preventDefault();
-      goToPeriod(todayISO(), { focus: todayISO() });
-      if (state.view === "month") focusDayButton(todayISO());
+      const today = todayISO();
+      state.weekStart = weekStartFor(today);
+      goToPeriod(today, { focus: today });
+      if (state.view === "week") focusLesson(state.lessonFocus.day, state.lessonFocus.period);
+      else if (state.view === "month") focusDayButton(today);
     }
   });
 }
@@ -1595,7 +1932,7 @@ function restorePrefs() {
   const themeInput = document.querySelector(`input[name="theme"][value="${state.theme}"]`);
   if (themeInput) themeInput.checked = true;
 
-  setView(prefs.view === "list" ? "list" : "month");
+  setView(["week", "month", "list"].includes(prefs.view) ? prefs.view : "week");
   const viewInput = document.querySelector(`input[name="view"][value="${state.view}"]`);
   if (viewInput) viewInput.checked = true;
 
@@ -1614,6 +1951,7 @@ function init() {
   state.tasks = loadTasks();
   const today = todayISO();
   state.focusDate = today;
+  state.weekStart = weekStartFor(today);
   state.periodStart = today.slice(0, 8) + "01";
   restorePrefs();
   setupEvents();

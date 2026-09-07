@@ -64,6 +64,87 @@ page.on("console", (message) => {
 });
 
 await page.goto(base);
+await page.waitForSelector(".tt-lesson");
+
+console.log("\ntimetable");
+check("the timetable opens by default", await page.locator("#view-week").isChecked(), true);
+check("every lesson in the week is drawn", await page.locator(".tt-lesson").count(), 33);
+check("the timetable has one tab stop", await page.locator('.tt-lesson[tabindex="0"]').count(), 1);
+check("period 0 is the only lesson before 08:45",
+  await page.evaluate(() => [...document.querySelectorAll('.tt-lesson[data-period="0"]')].map((b) => b.dataset.time)),
+  ["08:00"]);
+check("the double periods share a start time",
+  await page.evaluate(() => [1, 2, 3, 4, 5, 6, 7, 8].map((p) => {
+    const b = document.querySelector(`.tt-lesson[data-period="${p}"]`);
+    return b ? b.dataset.time : null;
+  })),
+  ["08:45", "08:45", "10:35", "10:35", "12:10", "12:10", "14:10", "14:10"]);
+
+const weekBefore = await page.textContent("#period-title");
+await page.click("#next-period");
+const weekAfter = await page.textContent("#period-title");
+check("the arrows move a week at a time", weekBefore !== weekAfter, true);
+check("dates move with them",
+  await page.evaluate(() => document.querySelector('.tt-lesson[data-day="0"]') !== null), true);
+await page.click("#go-today");
+check("This week comes back", await page.textContent("#period-title"), weekBefore);
+
+console.log("\nadding from a lesson");
+await page.locator('.tt-lesson[data-day="2"][data-period="0"]').click();
+await page.waitForSelector("#task-dialog[open]");
+check("the subject comes from the lesson",
+  await page.evaluate(() => document.querySelector('input[name="subject"]:checked').value), "mathematics");
+check("the time comes from the period", await page.inputValue("#task-time"), "08:00");
+check("the date is that weekday in the week on screen",
+  await page.inputValue("#task-date"),
+  await page.evaluate(() => document.querySelector('.tt-lesson[data-day="2"][data-period="0"]').dataset.date));
+check("and the maths follow-ups are already showing",
+  await page.locator("#detail-steps fieldset").count(), 1);
+await page.keyboard.press("Escape");
+
+console.log("\nlesson keyboard");
+await page.locator('.tt-lesson[data-day="0"][data-period="3"]').focus();
+const step = async (key) => {
+  await page.keyboard.press(key);
+  return page.evaluate(() => `${document.activeElement.dataset.day}/${document.activeElement.dataset.period}`);
+};
+check("right moves along the period", await step("ArrowRight"), "1/3");
+check("down moves to the next period", await step("ArrowDown"), "1/4");
+check("free periods are skipped, not landed on", await step("ArrowRight"), "3/4");
+check("End reaches the last lesson of the period", await step("End"), "4/4");
+check("Home reaches the first", await step("Home"), "0/4");
+
+console.log("\nwhere a task appears in the week");
+const placed = await page.evaluate(() => {
+  const at = (day, period) => document.querySelector(`.tt-lesson[data-day="${day}"][data-period="${period}"]`);
+  const mk = (id, title, subject, date, time) => normaliseTask({
+    id, title, type: "homework", subject, course: subject, date, time,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  });
+  state.tasks = [
+    mk("m", "Maths work", "mathematics", at(2, 0).dataset.date, ""),
+    mk("t", "Maths at 10:35", "mathematics", at(4, 3).dataset.date, "10:35"),
+    mk("p", "Polish essay", "polish", at(0, 3).dataset.date, ""),
+  ];
+  saveTasks();
+  renderAll();
+  const chips = (day, period) => [...at(day, period).querySelectorAll(".chip-text")].map((n) => n.textContent);
+  return {
+    firstMaths: chips(2, 0),
+    secondMaths: chips(2, 1),
+    byTime: chips(4, 3),
+    extraRow: document.querySelectorAll(".tt-extra-row").length,
+    orphan: [...document.querySelectorAll(".tt-extra-btn .chip-text")].map((n) => n.textContent),
+  };
+});
+check("a task sits on the day's first lesson in its subject", placed.firstMaths, ["Maths work"]);
+check("and is not repeated at the second one that day", placed.secondMaths, []);
+check("a task with a time goes to the lesson at that time", placed.byTime, ["Maths at 10:35"]);
+check("a subject with no lesson that day still shows", placed.extraRow, 1);
+check("in its own row rather than vanishing", placed.orphan, ["Polish essay"]);
+
+await page.evaluate(() => { state.tasks = []; saveTasks(); renderAll(); });
+await page.click('label[for="view-month"]');
 await page.waitForSelector(".day");
 
 console.log("\nfirst run");
@@ -100,7 +181,8 @@ await page.fill("#task-title", "Physics problem set 7");
 await page.fill("#task-date", today);
 await page.click("#save-task");
 await page.waitForSelector("#task-dialog", { state: "hidden" });
-check("the new task appears in the grid", await page.locator(".chip-text", { hasText: "Physics problem set 7" }).count(), 1);
+check("the new task appears in the grid",
+  await page.locator("#month-view").locator(".chip-text", { hasText: "Physics problem set 7" }).count(), 1);
 await page.waitForTimeout(150);
 check("and is announced", (await page.textContent("#live-region")).startsWith('Added "Physics problem set 7"'), true);
 
