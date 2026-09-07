@@ -45,6 +45,28 @@
 }
 
 @font-face {
+  font-family: "Alex Brush";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/alexbrush-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Alex Brush";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/alexbrush-400-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
   font-family: "Inter";
   font-style: normal;
   font-weight: 100 900;
@@ -83,6 +105,7 @@
   --bar: #33505C;
   --bar-ink: #FFFFFF;
   --bar-ink-2: #D6E2E7;
+  --signature: #F0E2CE;
 
   --accent: #8E3F26;
   --accent-hover: #74331E;
@@ -120,6 +143,7 @@
 
   --font-display: "Fraunces", Georgia, "Times New Roman", serif;
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-signature: "Alex Brush", "Segoe Script", "Snell Roundhand", cursive;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -138,6 +162,7 @@
     --bar: #1F2E34;
     --bar-ink: #F2F6F7;
     --bar-ink-2: #B7C6CC;
+    --signature: #F0E2CE;
 
     --accent: #E8A488;
     --accent-hover: #F2B79E;
@@ -188,6 +213,7 @@
   --bar: #1F2E34;
   --bar-ink: #F2F6F7;
   --bar-ink-2: #B7C6CC;
+  --signature: #F0E2CE;
 
   --accent: #E8A488;
   --accent-hover: #F2B79E;
@@ -325,13 +351,40 @@ kbd {
   gap: 1rem 1.25rem;
 }
 
+/* The wordmark and the signature travel together and take the free space,
+   so the rest of the bar still sits hard right. */
+.wordmark-group {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 .6rem;
+  margin-right: auto;
+  min-width: 0;
+}
+
 .wordmark {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.5rem;
   font-variation-settings: "opsz" 40;
   letter-spacing: .005em;
-  margin-right: auto;
+}
+
+/*
+  A script face carries far less height per point than the text around it, so
+  the signature is set larger than the wordmark to sit level with it, and
+  nudged along the baseline the way a hand-signed name overlaps what it signs.
+*/
+.signature {
+  margin: 0;
+  font-family: var(--font-signature);
+  font-weight: 400;
+  font-size: 1.85rem;
+  line-height: 1;
+  color: var(--signature);
+  white-space: nowrap;
+  transform: translateY(.12em) rotate(-2deg);
+  transform-origin: left baseline;
 }
 
 .view-switch { display: flex; }
@@ -1056,7 +1109,11 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 
 @media (max-width: 40rem) {
   .app-bar-inner { padding: .85rem 1rem; }
-  .wordmark { font-size: 1.25rem; width: 100%; margin-right: 0; }
+  /* Narrow: the signature drops under the wordmark, the way a name is signed
+     beneath what it signs. */
+  .wordmark-group { width: 100%; margin-right: 0; gap: 0; }
+  .wordmark { font-size: 1.25rem; }
+  .signature { font-size: 1.55rem; transform: translateY(0) rotate(-2deg); }
   .layout { padding: 1rem .75rem 1.5rem; gap: 1rem; }
   .main { padding: .9rem; }
   .calendar th { font-size: .68rem; letter-spacing: .05em; text-align: center; }

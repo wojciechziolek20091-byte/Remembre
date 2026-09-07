@@ -7,7 +7,7 @@
   CACHE on a release retires every older cache in the activate step.
 */
 
-const CACHE = "remembre-v1";
+const CACHE = "remembre-v2";
 
 const SHELL = [
   "./",
@@ -23,6 +23,8 @@ const SHELL = [
   "./fonts/inter-var-latin-ext.woff2",
   "./fonts/fraunces-var-latin.woff2",
   "./fonts/fraunces-var-latin-ext.woff2",
+  "./fonts/alexbrush-400-latin.woff2",
+  "./fonts/alexbrush-400-latin-ext.woff2",
 ];
 
 self.addEventListener("install", (event) => {

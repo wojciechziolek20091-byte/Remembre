@@ -57,6 +57,7 @@ const PAIRS = [
   ["--ink-2", "--surface-3", 4.5, "muted text on the deepest tint"],
   ["--bar-ink", "--bar", 4.5, "wordmark on the app bar"],
   ["--bar-ink-2", "--bar", 4.5, "inactive view switch on the app bar"],
+  ["--signature", "--bar", 4.5, "signature on the app bar"],
   ["--accent-ink", "--accent", 4.5, "primary button label"],
   ["--accent-ink", "--accent-hover", 4.5, "primary button label, hovered"],
   ["--accent", "--surface", 4.5, "accent text on paper"],
