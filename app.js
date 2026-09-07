@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.07-8";
+const APP_VERSION = "2026.09.07-9";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -86,6 +86,9 @@ const pol = (room) => lesson("polish", "Polish A SL", room);
 const hist = (room) => lesson("history", "History SL", room);
 const ess = (room) => lesson("ess", "ESS SL", room);
 
+/* Periods that share a start time and are taught as one block. */
+const PERIOD_BLOCKS = [[0], [1, 2], [3, 4], [5, 6], [7, 8]];
+
 /* One row per period; five entries per row, Monday to Friday, null when free. */
 const TIMETABLE_ROWS = [
   /* 0 */ [null, null, maths("R_36"), null, null],
@@ -134,6 +137,56 @@ const SUBJECT_DETAIL = {
     sections: null,
   },
 };
+
+function sameLesson(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.subject === b.subject && a.label === b.label && a.room === b.room;
+}
+
+/*
+  Works out which cells the timetable actually draws. Both halves of a block
+  holding the same lesson become one cell -- a double period is one lesson, not
+  two -- while a block whose halves differ, like Wednesday's maths then tutor,
+  stays as two.
+
+  `owner[period][day]` gives the period that owns the cell covering that slot,
+  so navigation and lookups can resolve any half back to its whole.
+*/
+function buildTimetableCells() {
+  const owner = TIMETABLE_ROWS.map(() => new Array(TIMETABLE_DAYS.length).fill(null));
+  const blocks = PERIOD_BLOCKS.map((periods) => {
+    const days = TIMETABLE_DAYS.map((unused, day) => {
+      const slots = periods.map((period) => TIMETABLE_ROWS[period][day]);
+      const merged = periods.length === 2 && sameLesson(slots[0], slots[1]);
+      return { merged, free: slots.every((slot) => !slot), slots };
+    });
+    // A second row is only drawn when some day actually needs one.
+    const split = days.some((day) => !day.merged && !day.free);
+    return { periods, days, rows: split ? periods.length : 1 };
+  });
+
+  blocks.forEach(({ periods, days, rows }) => {
+    days.forEach((day, dayIndex) => {
+      if (day.free) return;
+      if (day.merged || rows === 1) {
+        periods.forEach((period) => { owner[period][dayIndex] = periods[0]; });
+      } else {
+        periods.forEach((period) => {
+          if (TIMETABLE_ROWS[period][dayIndex]) owner[period][dayIndex] = period;
+        });
+      }
+    });
+  });
+
+  return { owner, blocks };
+}
+
+const TIMETABLE_CELLS = buildTimetableCells();
+
+function blockLabel(periods) {
+  return periods.length === 1 ? String(periods[0]) : `${periods[0]}\u2013${periods[periods.length - 1]}`;
+}
 
 function detailSchema(subject) {
   return SUBJECT_DETAIL[subject] || null;
@@ -564,9 +617,10 @@ function weekTitle(start) {
 
 /** The first lesson at or after a position, searching the whole grid. */
 function firstLesson() {
+  const { owner } = TIMETABLE_CELLS;
   for (let period = 0; period < TIMETABLE_ROWS.length; period += 1) {
     for (let day = 0; day < TIMETABLE_DAYS.length; day += 1) {
-      if (TIMETABLE_ROWS[period][day]) return { day, period };
+      if (owner[period][day] === period) return { day, period };
     }
   }
   return null;
@@ -609,8 +663,9 @@ function renderTimetable() {
   const placement = TIMETABLE_DAYS.map((unused, dayIndex) =>
     assignTasksToLessons(addDays(start, dayIndex), dayIndex));
 
-  if (!TIMETABLE_ROWS[state.lessonFocus.period] ||
-      !TIMETABLE_ROWS[state.lessonFocus.period][state.lessonFocus.day]) {
+  const { owner } = TIMETABLE_CELLS;
+  const focused = state.lessonFocus;
+  if (!owner[focused.period] || owner[focused.period][focused.day] !== focused.period) {
     state.lessonFocus = firstLesson() || { day: 0, period: 0 };
   }
 
@@ -632,20 +687,43 @@ function renderTimetable() {
     })
   );
 
-  const rows = TIMETABLE_ROWS.map((row, period) => el(
-    "tr",
-    {},
-    el(
+  const rows = [];
+  TIMETABLE_CELLS.blocks.forEach(({ periods, days, rows: rowCount }) => {
+    const first = el("tr", {});
+    const second = rowCount === 2 ? el("tr", {}) : null;
+
+    const header = el(
       "th",
       { scope: "row", class: "tt-period" },
-      el("span", { class: "tt-period-num", text: String(period) }),
-      el("span", { class: "tt-period-time", text: PERIOD_TIMES[period] })
-    ),
-    ...row.map((slot, dayIndex) => buildLessonCell(
-      slot, period, dayIndex, start, today,
-      placement[dayIndex].byPeriod.get(period) || []
-    ))
-  ));
+      el("span", { class: "tt-period-num", text: blockLabel(periods) }),
+      el("span", { class: "tt-period-time", text: PERIOD_TIMES[periods[0]] })
+    );
+    if (rowCount === 2) header.rowSpan = 2;
+    first.append(header);
+
+    days.forEach((day, dayIndex) => {
+      // A free block, or one lesson filling the whole block, is a single cell.
+      if (day.free || day.merged || rowCount === 1) {
+        first.append(buildLessonCell(
+          day.slots[0], periods[0], dayIndex, start, today, rowCount,
+          placement[dayIndex].byPeriod.get(periods[0]) || []
+        ));
+        return;
+      }
+      // Halves that hold different lessons stay as two.
+      periods.forEach((period, half) => {
+        const cell = buildLessonCell(
+          TIMETABLE_ROWS[period][dayIndex], period, dayIndex, start, today, 1,
+          placement[dayIndex].byPeriod.get(period) || []
+        );
+        cell.classList.add("is-split");
+        (half === 0 ? first : second).append(cell);
+      });
+    });
+
+    rows.push(first);
+    if (second) rows.push(second);
+  });
 
   // Only worth a row when something actually has nowhere else to go.
   if (placement.some((day) => day.unplaced.length > 0)) {
@@ -664,6 +742,15 @@ function renderTimetable() {
 
   $("timetable-caption").textContent =
     `School timetable for the week beginning ${fmtFullDate.format(fromISO(start))}`;
+}
+
+/** "periods 5 to 6" for a whole block, "period 1" for a single one. */
+function describePeriod(period) {
+  const block = PERIOD_BLOCKS.find((periods) => periods[0] === period);
+  const owner = TIMETABLE_CELLS.owner;
+  const spansBlock = block && block.length === 2
+    && TIMETABLE_DAYS.some((unused, day) => owner[block[1]][day] === period);
+  return spansBlock ? `periods ${block[0]} to ${block[1]}` : `period ${period}`;
 }
 
 function taskChips(due, limit) {
@@ -701,10 +788,14 @@ function buildUnplacedCell(due, dayIndex, start, today) {
   ));
 }
 
-function buildLessonCell(slot, period, dayIndex, start, today, due) {
+function buildLessonCell(slot, period, dayIndex, start, today, rowSpan, due) {
   const iso = addDays(start, dayIndex);
   const isToday = iso === today;
-  if (!slot) return el("td", { class: `tt-cell tt-free${isToday ? " is-today" : ""}` });
+  if (!slot) {
+    const free = el("td", { class: `tt-cell tt-free${isToday ? " is-today" : ""}` });
+    if (rowSpan > 1) free.rowSpan = rowSpan;
+    return free;
+  }
 
   const time = PERIOD_TIMES[period];
 
@@ -713,7 +804,7 @@ function buildLessonCell(slot, period, dayIndex, start, today, due) {
   const label = [
     slot.label,
     `room ${slot.room}`,
-    `${fmtFullDate.format(fromISO(iso))}, period ${period} at ${time}`,
+    `${fmtFullDate.format(fromISO(iso))}, ${describePeriod(period)} at ${time}`,
     due.length
       ? `${due.length} due: ${due.map(describeTask).join("; ")}`
       : null,
@@ -738,15 +829,24 @@ function buildLessonCell(slot, period, dayIndex, start, today, due) {
     el("span", { class: "tt-room", "aria-hidden": "true", text: slot.room }),
     chips
   );
-  return el("td", { class: `tt-cell${isToday ? " is-today" : ""}` }, button);
+  const cell = el("td", { class: `tt-cell${isToday ? " is-today" : ""}` }, button);
+  if (rowSpan > 1) cell.rowSpan = rowSpan;
+  return cell;
 }
 
 /** Walks in a direction until it lands on a lesson, so gaps are skipped. */
+/*
+  Steps to the next cell rather than the next period, so a merged block counts
+  once: moving down out of a block skips the half it already covers.
+*/
 function nextLesson(day, period, stepDay, stepPeriod) {
+  const { owner } = TIMETABLE_CELLS;
   let d = day + stepDay;
   let p = period + stepPeriod;
   while (d >= 0 && d < TIMETABLE_DAYS.length && p >= 0 && p < TIMETABLE_ROWS.length) {
-    if (TIMETABLE_ROWS[p][d]) return { day: d, period: p };
+    const cell = owner[p][d];
+    // Still inside the cell we started from, so keep going.
+    if (cell !== null && !(d === day && cell === period)) return { day: d, period: cell };
     d += stepDay;
     p += stepPeriod;
   }

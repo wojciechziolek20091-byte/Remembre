@@ -68,17 +68,26 @@ await page.waitForSelector(".tt-lesson");
 
 console.log("\ntimetable");
 check("the timetable opens by default", await page.locator("#view-week").isChecked(), true);
-check("every lesson in the week is drawn", await page.locator(".tt-lesson").count(), 33);
+check("a double period is one selectable block, not two lessons",
+  await page.locator(".tt-lesson").count(), 18);
+check("the rows are labelled as blocks",
+  await page.locator(".tt-period-num").allInnerTexts(), ["0", "1\u20132", "3\u20134", "5\u20136", "7\u20138"]);
+check("a merged block occupies both its rows",
+  await page.evaluate(() => document.querySelector('.tt-lesson[data-day="1"][data-period="1"]').closest("td").rowSpan), 2);
+check("halves holding different lessons stay separate",
+  await page.evaluate(() => [...document.querySelectorAll(".is-split .tt-lesson")]
+    .map((n) => `${n.dataset.day}/${n.dataset.period} ${n.querySelector(".tt-name").textContent}`)),
+  ["2/1 Maths AI HL", "2/2 Tutor"]);
 check("the timetable has one tab stop", await page.locator('.tt-lesson[tabindex="0"]').count(), 1);
-check("period 0 is the only lesson before 08:45",
-  await page.evaluate(() => [...document.querySelectorAll('.tt-lesson[data-period="0"]')].map((b) => b.dataset.time)),
-  ["08:00"]);
-check("the double periods share a start time",
-  await page.evaluate(() => [1, 2, 3, 4, 5, 6, 7, 8].map((p) => {
+check("each block carries its own start time",
+  await page.evaluate(() => [0, 1, 3, 5, 7].map((p) => {
     const b = document.querySelector(`.tt-lesson[data-period="${p}"]`);
     return b ? b.dataset.time : null;
   })),
-  ["08:45", "08:45", "10:35", "10:35", "12:10", "12:10", "14:10", "14:10"]);
+  ["08:00", "08:45", "10:35", "12:10", "14:10"]);
+check("a block names itself by both its periods",
+  (await page.locator('.tt-lesson[data-day="0"][data-period="3"]').getAttribute("aria-label")).includes("periods 3 to 4"),
+  true);
 
 const weekBefore = await page.textContent("#period-title");
 await page.click("#next-period");
@@ -94,7 +103,7 @@ await page.locator('.tt-lesson[data-day="2"][data-period="0"]').click();
 await page.waitForSelector("#task-dialog[open]");
 check("the subject comes from the lesson",
   await page.evaluate(() => document.querySelector('input[name="subject"]:checked').value), "mathematics");
-check("the time comes from the period", await page.inputValue("#task-time"), "08:00");
+check("the time comes from the block", await page.inputValue("#task-time"), "08:00");
 check("the date is that weekday in the week on screen",
   await page.inputValue("#task-date"),
   await page.evaluate(() => document.querySelector('.tt-lesson[data-day="2"][data-period="0"]').dataset.date));
@@ -108,11 +117,12 @@ const step = async (key) => {
   await page.keyboard.press(key);
   return page.evaluate(() => `${document.activeElement.dataset.day}/${document.activeElement.dataset.period}`);
 };
-check("right moves along the period", await step("ArrowRight"), "1/3");
-check("down moves to the next period", await step("ArrowDown"), "1/4");
-check("free periods are skipped, not landed on", await step("ArrowRight"), "3/4");
-check("End reaches the last lesson of the period", await step("End"), "4/4");
-check("Home reaches the first", await step("Home"), "0/4");
+check("right moves along the block", await step("ArrowRight"), "1/3");
+check("a free block is skipped, not landed on", await step("ArrowRight"), "3/3");
+check("down leaves the block rather than stepping inside it", await step("ArrowDown"), "3/5");
+check("up returns to it", await step("ArrowUp"), "3/3");
+check("End reaches the last block of the row", await step("End"), "4/3");
+check("Home reaches the first", await step("Home"), "0/3");
 
 console.log("\nwhere a task appears in the week");
 const placed = await page.evaluate(() => {

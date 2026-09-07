@@ -877,7 +877,6 @@ kbd {
 .timetable td {
   border: 1px solid var(--line);
   padding: 0;
-  height: 3.9rem;
   vertical-align: top;
   background: var(--surface);
 }
@@ -893,7 +892,7 @@ kbd {
   gap: .1rem;
   width: 100%;
   height: 100%;
-  min-height: 3.9rem;
+  min-height: 4.6rem;
   padding: .35rem .4rem;
   text-align: left;
   background: none;
@@ -905,6 +904,9 @@ kbd {
 .tt-lesson:hover { background: var(--accent-soft); }
 
 .tt-lesson.is-nosubject { border-left-color: var(--line); }
+
+/* Half a block, where the two halves hold different lessons. */
+.is-split .tt-lesson { min-height: 2.4rem; }
 
 .tt-name {
   font-size: .8rem;
@@ -1337,7 +1339,8 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 @media (max-width: 40rem) {
   .timetable { min-width: 38rem; }
   .tt-corner { width: 3.4rem; }
-  .timetable td, .tt-lesson { height: 3.4rem; min-height: 3.4rem; }
+  .tt-lesson { min-height: 4rem; }
+  .is-split .tt-lesson { min-height: 2.1rem; }
   .tt-name { font-size: .74rem; }
   .tt-chips .chip { padding: .05rem .2rem; font-size: 0; justify-content: center; min-height: 1rem; }
   .tt-chips .chip-text { display: none; }
