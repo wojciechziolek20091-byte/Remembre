@@ -1,7 +1,9 @@
 # Publishes the site to GitHub Pages on every push to main.
 #
-# configure-pages runs with enablement: true, so the first run turns Pages on
-# for the repository itself rather than needing anyone to visit Settings.
+# Pages has to be switched on for the repository once, by hand, before this can
+# run: Settings -> Pages -> Source: GitHub Actions. A workflow token is not
+# allowed to do that itself ("Resource not accessible by integration"), so
+# there is no point asking configure-pages to try.
 
 name: Deploy to GitHub Pages
 
@@ -37,8 +39,6 @@ jobs:
           ls -R _site
 
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
