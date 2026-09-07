@@ -924,18 +924,13 @@ kbd {
   padding: .35rem .4rem;
   text-align: left;
   border: 0;
-  border-left: 3px solid var(--subject-color, var(--line-strong));
-  background: var(--subject-soft, transparent);
+  /* The grid itself stays neutral; colour belongs to the work due on it. */
+  border-left: 3px solid var(--line);
+  background: none;
   cursor: pointer;
 }
 
-.tt-lesson:hover { filter: brightness(.955); }
-
-:root[data-theme="dark"] .tt-lesson:hover { filter: brightness(1.2); }
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .tt-lesson:hover { filter: brightness(1.2); }
-}
+.tt-lesson:hover { background: var(--surface-3); }
 
 .tt-name {
   font-size: .8rem;

@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.07-11";
+const APP_VERSION = "2026.09.07-12";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -738,7 +738,6 @@ function buildLessonCell(slot, period, dayIndex, start, today, due) {
     {
       type: "button",
       class: "tt-lesson",
-      style: subjectVars(slot.subject),
       "aria-label": label,
       "aria-haspopup": "dialog",
       tabIndex: focused ? 0 : -1,

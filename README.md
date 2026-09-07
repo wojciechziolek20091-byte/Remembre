@@ -190,8 +190,10 @@ a task due on the 14th stays on the 14th in every time zone.
 
 The palette is cherry red for the header, warm oat and cream for the page, and
 one hue per subject: teal for Economics, indigo for Mathematics, plum for
-English, amber for Polish, slate for History and green for ESS. Every pairing
-is checked by `npm test` rather than eyeballed.
+English, amber for Polish, slate for History and green for ESS. Those hues
+belong to the work, not to the timetable: the grid stays neutral so the
+assignments on it are what catches the eye. Every pairing is checked by
+`npm test` rather than eyeballed.
 
 Type is [Fraunces](https://fonts.google.com/specimen/Fraunces) for the wordmark
 and month heading, [Inter](https://fonts.google.com/specimen/Inter) for
