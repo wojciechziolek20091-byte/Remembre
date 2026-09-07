@@ -170,6 +170,11 @@ There is nothing to build. Point any static host at the repository root; the
 included `vercel.json` sets long-lived caching for the fonts and the usual
 security headers.
 
+A GitHub Pages workflow lived at `.github/workflows/deploy.yml` until it was
+removed in favour of Vercel. It works, but only once Pages has been switched on
+by hand under Settings, Pages, Source: GitHub Actions -- a workflow token is
+not allowed to do that itself. Recover it from git history if you ever want it.
+
 ## How it is put together
 
 | File | What lives there |
