@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Study Calendar &ndash; tests, homework and assignments</title>
+<meta name="description" content="A personal academic calendar for tracking tests, homework and assignments. Add a task in seconds, see what is due next, and keep the whole term in one month view. Everything is stored on your own device.">
+<meta name="theme-color" content="#37535F">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preload" href="fonts/inter-var-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<a class="skip-link" href="#calendar-region">Skip to the calendar</a>
+
+<header class="app-bar">
+  <div class="app-bar-inner">
+    <h1 class="wordmark">Study&nbsp;Calendar</h1>
+
+    <nav class="view-switch" aria-label="Calendar view">
+      <div class="segmented" role="group">
+        <input type="radio" name="view" id="view-month" value="month" checked>
+        <label for="view-month">Month</label>
+        <input type="radio" name="view" id="view-list" value="list">
+        <label for="view-list">Agenda</label>
+      </div>
+    </nav>
+
+    <button type="button" class="btn btn-add app-bar-add" id="add-task-top">
+      <span class="btn-plus" aria-hidden="true">+</span> Add task
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <aside class="sidebar sidebar-upcoming" aria-label="Upcoming work">
+
+    <section class="panel" aria-labelledby="upcoming-heading">
+      <h2 class="panel-title" id="upcoming-heading">Upcoming</h2>
+      <p class="panel-hint" id="upcoming-hint">What is due next, soonest first.</p>
+      <div id="upcoming-list" aria-describedby="upcoming-hint"></div>
+    </section>
+
+  </aside>
+
+  <main id="calendar-region" class="main" tabindex="-1">
+
+    <div class="period-bar">
+      <div class="period-headings">
+        <p class="eyebrow" id="today-label"></p>
+        <h2 class="period-title" id="period-title">Calendar</h2>
+      </div>
+
+      <div class="period-nav">
+        <button type="button" class="btn btn-icon" id="prev-period">
+          <span aria-hidden="true">&#8592;</span><span class="sr-only">Previous month</span>
+        </button>
+        <button type="button" class="btn btn-quiet" id="go-today">Today</button>
+        <button type="button" class="btn btn-icon" id="next-period">
+          <span aria-hidden="true">&#8594;</span><span class="sr-only">Next month</span>
+        </button>
+      </div>
+    </div>
+
+    <section class="view" id="month-view" aria-labelledby="period-title">
+      <p class="grid-hint" id="grid-hint">
+        Use the arrow keys to move between dates, then press Enter to open a day.
+      </p>
+      <table class="calendar" id="calendar-table" aria-describedby="grid-hint">
+        <caption class="sr-only" id="calendar-caption">Month view</caption>
+        <thead>
+          <tr>
+            <th scope="col"><abbr title="Monday">Mon</abbr></th>
+            <th scope="col"><abbr title="Tuesday">Tue</abbr></th>
+            <th scope="col"><abbr title="Wednesday">Wed</abbr></th>
+            <th scope="col"><abbr title="Thursday">Thu</abbr></th>
+            <th scope="col"><abbr title="Friday">Fri</abbr></th>
+            <th scope="col"><abbr title="Saturday">Sat</abbr></th>
+            <th scope="col"><abbr title="Sunday">Sun</abbr></th>
+          </tr>
+        </thead>
+        <tbody id="calendar-body"></tbody>
+      </table>
+
+      <h3 class="legend-title" id="legend-heading">Key</h3>
+      <ul class="legend" aria-labelledby="legend-heading">
+        <li><span class="glyph glyph-test" aria-hidden="true"></span> Test</li>
+        <li><span class="glyph glyph-homework" aria-hidden="true"></span> Homework</li>
+        <li><span class="glyph glyph-project" aria-hidden="true"></span> Project</li>
+        <li><span class="glyph glyph-other" aria-hidden="true"></span> Other</li>
+        <li><span class="glyph glyph-done" aria-hidden="true"></span> Completed</li>
+      </ul>
+    </section>
+
+    <section class="view" id="list-view" aria-labelledby="period-title" hidden>
+      <div id="agenda" tabindex="-1"></div>
+    </section>
+
+  </main>
+
+  <aside class="sidebar sidebar-settings" aria-label="Filters and settings">
+
+    <section class="panel" aria-labelledby="filters-heading">
+      <h2 class="panel-title" id="filters-heading">Show</h2>
+      <fieldset class="filters">
+        <legend class="sr-only">Task types to show</legend>
+        <label class="check"><input type="checkbox" class="type-filter" value="test" checked> <span class="glyph glyph-test" aria-hidden="true"></span> Tests</label>
+        <label class="check"><input type="checkbox" class="type-filter" value="homework" checked> <span class="glyph glyph-homework" aria-hidden="true"></span> Homework</label>
+        <label class="check"><input type="checkbox" class="type-filter" value="project" checked> <span class="glyph glyph-project" aria-hidden="true"></span> Projects</label>
+        <label class="check"><input type="checkbox" class="type-filter" value="other" checked> <span class="glyph glyph-other" aria-hidden="true"></span> Other</label>
+      </fieldset>
+      <hr class="panel-rule">
+      <label class="check"><input type="checkbox" id="show-done"> Completed tasks</label>
+    </section>
+
+    <section class="panel" aria-labelledby="display-heading">
+      <h2 class="panel-title" id="display-heading">Display</h2>
+      <fieldset class="segmented segmented-block">
+        <legend class="sr-only">Colour theme</legend>
+        <input type="radio" name="theme" id="theme-auto" value="auto" checked>
+        <label for="theme-auto">Auto</label>
+        <input type="radio" name="theme" id="theme-light" value="light">
+        <label for="theme-light">Light</label>
+        <input type="radio" name="theme" id="theme-dark" value="dark">
+        <label for="theme-dark">Dark</label>
+      </fieldset>
+    </section>
+
+    <section class="panel" aria-labelledby="data-heading">
+      <h2 class="panel-title" id="data-heading">Your data</h2>
+      <p class="panel-hint" id="data-hint">Tasks are saved in this browser only &ndash; nothing is uploaded. Export a backup before clearing your browser data.</p>
+      <div class="panel-actions" aria-describedby="data-hint">
+        <button type="button" class="btn btn-quiet" id="export-data">Export backup</button>
+        <button type="button" class="btn btn-quiet" id="import-data">Import backup</button>
+        <input type="file" id="import-file" accept="application/json,.json" class="sr-only" tabindex="-1" aria-hidden="true">
+      </div>
+    </section>
+
+  </aside>
+
+</div>
+
+<footer class="site-footer">
+  <p>Study Calendar keeps everything on your own device. Press <kbd>N</kbd> at any time to add a task, or <kbd>T</kbd> to jump back to today.</p>
+</footer>
+
+<p class="sr-only" role="status" id="live-region"></p>
+
+<dialog class="dialog" id="task-dialog" aria-labelledby="task-dialog-title">
+  <form method="dialog" class="dialog-form" id="task-form" novalidate>
+    <div class="dialog-head">
+      <h2 class="dialog-title" id="task-dialog-title">Add a task</h2>
+      <button type="button" class="btn btn-icon dialog-close" data-close="task-dialog">
+        <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+      </button>
+    </div>
+
+    <div class="field">
+      <label for="task-title">Title <span class="req" aria-hidden="true">*</span></label>
+      <input type="text" id="task-title" name="title" required aria-required="true"
+             autocomplete="off" maxlength="120" aria-describedby="task-title-error"
+             placeholder="e.g. History essay, chapter 5">
+      <p class="field-error" id="task-title-error" role="alert"></p>
+    </div>
+
+    <fieldset class="field">
+      <legend>Type <span class="req" aria-hidden="true">*</span></legend>
+      <div class="type-choice">
+        <input type="radio" name="type" id="type-test" value="test" checked>
+        <label for="type-test"><span class="glyph glyph-test" aria-hidden="true"></span> Test</label>
+        <input type="radio" name="type" id="type-homework" value="homework">
+        <label for="type-homework"><span class="glyph glyph-homework" aria-hidden="true"></span> Homework</label>
+        <input type="radio" name="type" id="type-project" value="project">
+        <label for="type-project"><span class="glyph glyph-project" aria-hidden="true"></span> Project</label>
+        <input type="radio" name="type" id="type-other" value="other">
+        <label for="type-other"><span class="glyph glyph-other" aria-hidden="true"></span> Other</label>
+      </div>
+    </fieldset>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="task-date">Due date <span class="req" aria-hidden="true">*</span></label>
+        <input type="date" id="task-date" name="date" required aria-required="true"
+               aria-describedby="task-date-error">
+        <p class="field-error" id="task-date-error" role="alert"></p>
+      </div>
+      <div class="field">
+        <label for="task-time">Time <span class="optional">(optional)</span></label>
+        <input type="time" id="task-time" name="time">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="task-course">Subject or course <span class="optional">(optional)</span></label>
+      <input type="text" id="task-course" name="course" maxlength="60" list="course-suggestions"
+             autocomplete="off" placeholder="e.g. Biology">
+      <datalist id="course-suggestions"></datalist>
+    </div>
+
+    <div class="field">
+      <label for="task-notes">Notes <span class="optional">(optional)</span></label>
+      <textarea id="task-notes" name="notes" rows="3" maxlength="500"
+                placeholder="Chapters to revise, materials to bring, anything else."></textarea>
+    </div>
+
+    <label class="check check-done" id="done-wrap"><input type="checkbox" id="task-done"> Mark as completed</label>
+
+    <div class="dialog-actions">
+      <button type="button" class="btn btn-danger" id="delete-task" hidden>Delete</button>
+      <span class="dialog-actions-spacer"></span>
+      <button type="button" class="btn btn-quiet" data-close="task-dialog">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="save-task">Save task</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dialog" id="day-dialog" aria-labelledby="day-dialog-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="day-dialog-title">Day</h2>
+    <button type="button" class="btn btn-icon dialog-close" data-close="day-dialog">
+      <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+    </button>
+  </div>
+  <div id="day-dialog-body"></div>
+  <div class="dialog-actions">
+    <span class="dialog-actions-spacer"></span>
+    <button type="button" class="btn btn-primary" id="add-on-day">Add a task on this day</button>
+  </div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

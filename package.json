@@ -1,0 +1,14 @@
+{
+  "name": "study-calendar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A personal academic calendar for tests, homework and assignments.",
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server 8000",
+    "test": "node tools/check-contrast.mjs && node tools/smoke-test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

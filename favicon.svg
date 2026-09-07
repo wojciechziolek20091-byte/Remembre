@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Study Calendar">
+  <rect width="32" height="32" rx="6" fill="#33505C"/>
+  <rect x="5" y="8" width="22" height="19" rx="2.5" fill="#FCFBF8"/>
+  <rect x="5" y="8" width="22" height="5" rx="2.5" fill="#8E3F26"/>
+  <rect x="9.5" y="4.5" width="2.5" height="6" rx="1.25" fill="#EAE4D7"/>
+  <rect x="20" y="4.5" width="2.5" height="6" rx="1.25" fill="#EAE4D7"/>
+  <circle cx="11" cy="18" r="2" fill="#2C5165"/>
+  <circle cx="16" cy="18" r="2" fill="#8E3F26"/>
+  <circle cx="21" cy="18" r="2" fill="#35603F"/>
+  <circle cx="11" cy="23" r="2" fill="#5C4472"/>
+  <circle cx="16" cy="23" r="2" fill="#2C5165"/>
+</svg>
