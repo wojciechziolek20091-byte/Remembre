@@ -71,6 +71,16 @@ npm run serve     # then open http://localhost:8000
 Opening `index.html` straight from disk works too, except that browsers refuse
 to load the fonts over `file://`, so the page falls back to system faces.
 
+## A single-file build
+
+```sh
+npm run build      # writes dist/remembre.html
+```
+
+That bundles the stylesheet, the script and both typefaces into one HTML file
+with no external requests, so it runs from a double click with no server. Handy
+for a USB stick or an offline laptop.
+
 ## Tests
 
 ```sh

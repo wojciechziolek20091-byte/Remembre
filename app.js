@@ -1025,7 +1025,12 @@ function setupEvents() {
 
 function restorePrefs() {
   const prefs = readStore(PREFS_KEY, {});
-  applyTheme(prefs.theme || "auto");
+
+  // With no stored choice, leave data-theme exactly as we found it rather than
+  // clearing it: when this page is embedded somewhere that sets the attribute
+  // itself, removing it would override the host's theme on first load.
+  if (prefs.theme) applyTheme(prefs.theme);
+  else state.theme = "auto";
   const themeInput = document.querySelector(`input[name="theme"][value="${state.theme}"]`);
   if (themeInput) themeInput.checked = true;
 
