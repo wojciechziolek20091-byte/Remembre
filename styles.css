@@ -310,6 +310,9 @@ kbd {
   --focus-halo: rgba(0, 0, 0, .55);
   background: var(--bar);
   color: var(--bar-ink);
+  /* Installed on an iPad the page runs under the status bar, so the bar pays
+     for its own clearance rather than letting the wordmark sit beneath it. */
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .app-bar-inner {
@@ -444,7 +447,8 @@ kbd {
 .layout {
   max-width: 82rem;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 2rem;
+  padding: 1.5rem calc(1.25rem + env(safe-area-inset-right, 0px)) 2rem
+           calc(1.25rem + env(safe-area-inset-left, 0px));
   display: grid;
   grid-template-columns: 19rem minmax(0, 1fr);
   grid-template-areas:
@@ -954,7 +958,7 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 .site-footer {
   max-width: 82rem;
   margin: 0 auto;
-  padding: 0 1.25rem 2.5rem;
+  padding: 0 1.25rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
   font-size: .85rem;
   color: var(--ink-2);
 }

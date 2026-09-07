@@ -60,6 +60,21 @@ whatever text size you need. Concretely:
 
 Keyboard shortcuts: <kbd>N</kbd> adds a task, <kbd>T</kbd> jumps back to today.
 
+## Installing it on a phone or tablet
+
+Remembre is a Progressive Web App, so it installs to a home screen from the
+browser with no app store involved. It needs to be served over HTTPS first.
+
+On an iPhone or iPad, open the site **in Safari** (iOS only offers this from
+Safari), tap Share, then *Add to Home Screen*. On Android, Chrome offers
+*Install app* from its menu. Either way it gets its own icon, launches without
+browser chrome, and works with no connection.
+
+One caveat worth knowing: tasks live in the browser's storage on that device.
+They do not sync between your iPad and your laptop, and iOS can clear a web
+app's storage if the app goes unused for a long stretch. Use **Export backup**
+now and then; that is what it is for.
+
 ## Running it
 
 It is a static site, so any web server will do:

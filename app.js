@@ -1059,4 +1059,21 @@ function init() {
   renderAll();
 }
 
-document.addEventListener("DOMContentLoaded", init);
+/*
+  Register the service worker only for the hosted, installable copy. The
+  single-file build has no manifest link and no sw.js beside it, so the check
+  below keeps it from logging a failed registration there.
+*/
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (!document.querySelector('link[rel="manifest"]')) return;
+  if (!window.isSecureContext) return;
+  navigator.serviceWorker.register("sw.js").catch((err) => {
+    console.warn("Offline support is unavailable:", err);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  init();
+  registerServiceWorker();
+});
