@@ -1094,16 +1094,45 @@ kbd {
   font-weight: 600;
 }
 
-.dialog-form { display: grid; gap: 1rem; }
+/*
+  Two gaps do the grouping here, and the ratio between them is what makes a
+  question read as belonging to its answers: a question sits close to its own
+  controls, and further from the next question. Keep the outer roughly double
+  the inner.
+*/
+.dialog-form {
+  --form-gap: 1.35rem;
+  display: grid;
+  gap: var(--form-gap);
+}
 
-.field { display: grid; gap: .3rem; border: 0; margin: 0; padding: 0; min-width: 0; }
+/* The revealed follow-up questions live in a plain wrapper, so they need the
+   form's rhythm applying to them directly or they stack with no gap at all. */
+#detail-steps {
+  display: grid;
+  gap: var(--form-gap);
+}
+
+.field { display: grid; gap: .5rem; border: 0; margin: 0; padding: 0; min-width: 0; }
 
 .field > label,
 .field > legend {
   font-size: .88rem;
   font-weight: 600;
+  line-height: 1.35;
   padding: 0;
 }
+
+/*
+  A legend is rendered outside its fieldset's formatting context, so the grid
+  gap that spaces every label from its control never reached it -- which left
+  the questions sitting tighter than the plain labels. It has to carry the
+  spacing itself.
+*/
+.field > legend { margin-bottom: .5rem; }
+
+/* A hint belongs to the label above it, not to the control below. */
+.field > .field-hint { margin-top: -.15rem; }
 
 .req { color: var(--danger); }
 .optional { font-weight: 400; color: var(--ink-2); }
@@ -1147,7 +1176,7 @@ kbd {
 .field input::placeholder,
 .field textarea::placeholder { color: var(--ink-2); opacity: 1; }
 
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--form-gap); }
 
 .field-hint {
   margin: 0;
