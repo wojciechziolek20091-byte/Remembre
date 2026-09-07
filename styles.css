@@ -93,51 +93,62 @@
 :root {
   color-scheme: light;
 
-  --ground: #E5EAE1;
-  --surface: #FCFBF8;
-  --surface-2: #F4F0E7;
-  --surface-3: #EAE4D7;
-  --ink: #1D2927;
-  --ink-2: #4E5957;
-  --line: #D6CFC0;
-  --line-strong: #847B69;
+  --ground: #E7DED2;
+  --surface: #FDFBF7;
+  --surface-2: #F5EFE6;
+  --surface-3: #EAE1D3;
+  --ink: #2A1E1F;
+  --ink-2: #5A4B49;
+  --line: #DDD3C3;
+  --line-strong: #8B7C6B;
 
-  --bar: #33505C;
+  --bar: #A81D33;
   --bar-ink: #FFFFFF;
-  --bar-ink-2: #D6E2E7;
-  --signature: #F0E2CE;
+  --bar-ink-2: #F2CCD2;
+  --signature: #F7DFC9;
+  /* The primary button sits on the bar, so it cannot borrow the accent: the
+     accent is the bar. */
+  --bar-btn: #F7DFC9;
+  --bar-btn-hover: #EFCFB0;
+  --bar-btn-ink: #2A1E1F;
 
-  --accent: #8E3F26;
-  --accent-hover: #74331E;
+  --accent: #A81D33;
+  --accent-hover: #85162A;
   --accent-ink: #FFFFFF;
-  --accent-soft: #F3E3DB;
+  --accent-soft: #F8E4E5;
 
-  --danger: #8E2B2B;
+  --danger: #7C1D1D;
 
   --focus: #123E63;
   --focus-halo: #FFFFFF;
 
-  --t-test: #8E3F26;
-  --t-test-ink: #FFFFFF;
-  --t-test-soft: #F4E2DA;
-  --t-homework: #2C5165;
-  --t-homework-ink: #FFFFFF;
-  --t-homework-soft: #DEE8EE;
-  --t-project: #35603F;
-  --t-project-ink: #FFFFFF;
-  --t-project-soft: #DEEADF;
-  --t-other: #5C4472;
-  --t-other-ink: #FFFFFF;
-  --t-other-soft: #E7E0EE;
+  /* One hue per subject. Never the only signal: the name is always written
+     out, and the type keeps its own glyph on top. */
+  --s-economics: #0D6470;
+  --s-economics-soft: #DCEEF0;
+  --s-mathematics: #3A3E92;
+  --s-mathematics-soft: #E1E2F4;
+  --s-english: #7A2F66;
+  --s-english-soft: #F1E1ED;
+  --s-polish: #8A5A0B;
+  --s-polish-soft: #F6E9D3;
+  --s-history: #3E5871;
+  --s-history-soft: #E2E9F1;
+  --s-ess: #2B6B45;
+  --s-ess-soft: #DEEEE4;
+  --s-none: #6A5C58;
+  --s-none-soft: #EBE4E0;
+  --subject-ink: #FFFFFF;
 
   --done: #5A625F;
   --done-ink: #FFFFFF;
-  --done-soft: #E4E4E0;
+  --done-soft: #E6E2DC;
 
-  --today: #FBF1DC;
-  --today-line: #8E3F26;
+  --today: #FBEFD9;
+  --today-line: #A81D33;
 
-  --shadow: 0 1px 2px rgba(29, 41, 39, .07), 0 6px 18px rgba(29, 41, 39, .06);
+  --shadow: 0 1px 2px rgba(42, 30, 31, .07), 0 6px 18px rgba(42, 30, 31, .06);
+
   --radius: 6px;
   --radius-lg: 10px;
 
@@ -150,49 +161,55 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --ground: #121716;
-    --surface: #1B2220;
-    --surface-2: #222A28;
-    --surface-3: #2B3432;
-    --ink: #EDE8DE;
-    --ink-2: #B0B8B5;
-    --line: #3A4441;
-    --line-strong: #76837F;
+    --ground: #171213;
+    --surface: #201A1A;
+    --surface-2: #292222;
+    --surface-3: #332B2B;
+    --ink: #F1E8E2;
+    --ink-2: #B6A9A5;
+    --line: #3D3333;
+    --line-strong: #857672;
 
-    --bar: #1F2E34;
-    --bar-ink: #F2F6F7;
-    --bar-ink-2: #B7C6CC;
-    --signature: #F0E2CE;
+    --bar: #7E1527;
+    --bar-ink: #FFF5F6;
+    --bar-ink-2: #E9BEC5;
+    --signature: #F3D9C2;
+    --bar-btn: #F08098;
+    --bar-btn-hover: #F79BAE;
+    --bar-btn-ink: #2A0710;
 
-    --accent: #E8A488;
-    --accent-hover: #F2B79E;
-    --accent-ink: #26160F;
-    --accent-soft: #3A2820;
+    --accent: #F08098;
+    --accent-hover: #F79BAE;
+    --accent-ink: #2A0710;
+    --accent-soft: #3A1D22;
 
     --danger: #F0A0A0;
 
     --focus: #9FCBEC;
     --focus-halo: #000000;
 
-    --t-test: #E8A488;
-    --t-test-ink: #26160F;
-    --t-test-soft: #3B2A22;
-    --t-homework: #98C2DA;
-    --t-homework-ink: #0E1F28;
-    --t-homework-soft: #22333C;
-    --t-project: #9AC9A8;
-    --t-project-ink: #0E2114;
-    --t-project-soft: #23342A;
-    --t-other: #C7ABD8;
-    --t-other-ink: #1E1428;
-    --t-other-soft: #302840;
+    --s-economics: #6FC4CE;
+    --s-economics-soft: #1E3336;
+    --s-mathematics: #9CA4EE;
+    --s-mathematics-soft: #24263C;
+    --s-english: #DE9CCB;
+    --s-english-soft: #382634;
+    --s-polish: #E0B36A;
+    --s-polish-soft: #37301F;
+    --s-history: #9FBBDA;
+    --s-history-soft: #242F3A;
+    --s-ess: #8CCCA4;
+    --s-ess-soft: #21332A;
+    --s-none: #A79792;
+    --s-none-soft: #2E2725;
+    --subject-ink: #1A1214;
 
     --done: #99A29F;
     --done-ink: #171C1B;
-    --done-soft: #2A312F;
+    --done-soft: #2C2626;
 
-    --today: #35301F;
-    --today-line: #E8A488;
+    --today: #3A2A1C;
+    --today-line: #F08098;
 
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .35);
   }
@@ -201,49 +218,55 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --ground: #121716;
-  --surface: #1B2220;
-  --surface-2: #222A28;
-  --surface-3: #2B3432;
-  --ink: #EDE8DE;
-  --ink-2: #B0B8B5;
-  --line: #3A4441;
-  --line-strong: #76837F;
+  --ground: #171213;
+  --surface: #201A1A;
+  --surface-2: #292222;
+  --surface-3: #332B2B;
+  --ink: #F1E8E2;
+  --ink-2: #B6A9A5;
+  --line: #3D3333;
+  --line-strong: #857672;
 
-  --bar: #1F2E34;
-  --bar-ink: #F2F6F7;
-  --bar-ink-2: #B7C6CC;
-  --signature: #F0E2CE;
+  --bar: #7E1527;
+  --bar-ink: #FFF5F6;
+  --bar-ink-2: #E9BEC5;
+  --signature: #F3D9C2;
+  --bar-btn: #F08098;
+  --bar-btn-hover: #F79BAE;
+  --bar-btn-ink: #2A0710;
 
-  --accent: #E8A488;
-  --accent-hover: #F2B79E;
-  --accent-ink: #26160F;
-  --accent-soft: #3A2820;
+  --accent: #F08098;
+  --accent-hover: #F79BAE;
+  --accent-ink: #2A0710;
+  --accent-soft: #3A1D22;
 
   --danger: #F0A0A0;
 
   --focus: #9FCBEC;
   --focus-halo: #000000;
 
-  --t-test: #E8A488;
-  --t-test-ink: #26160F;
-  --t-test-soft: #3B2A22;
-  --t-homework: #98C2DA;
-  --t-homework-ink: #0E1F28;
-  --t-homework-soft: #22333C;
-  --t-project: #9AC9A8;
-  --t-project-ink: #0E2114;
-  --t-project-soft: #23342A;
-  --t-other: #C7ABD8;
-  --t-other-ink: #1E1428;
-  --t-other-soft: #302840;
+  --s-economics: #6FC4CE;
+  --s-economics-soft: #1E3336;
+  --s-mathematics: #9CA4EE;
+  --s-mathematics-soft: #24263C;
+  --s-english: #DE9CCB;
+  --s-english-soft: #382634;
+  --s-polish: #E0B36A;
+  --s-polish-soft: #37301F;
+  --s-history: #9FBBDA;
+  --s-history-soft: #242F3A;
+  --s-ess: #8CCCA4;
+  --s-ess-soft: #21332A;
+  --s-none: #A79792;
+  --s-none-soft: #2E2725;
+  --subject-ink: #1A1214;
 
   --done: #99A29F;
   --done-ink: #171C1B;
-  --done-soft: #2A312F;
+  --done-soft: #2C2626;
 
-  --today: #35301F;
-  --today-line: #E8A488;
+  --today: #3A2A1C;
+  --today-line: #F08098;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .35);
 }
@@ -486,7 +509,13 @@ kbd {
 
 .btn-plus { font-size: 1.15em; line-height: 1; }
 
-.app-bar-add { flex-shrink: 0; }
+.app-bar-add {
+  flex-shrink: 0;
+  background: var(--bar-btn);
+  color: var(--bar-btn-ink);
+}
+
+.app-bar-add:hover { background: var(--bar-btn-hover); }
 
 /* ---------- Update bar ---------- */
 
@@ -618,17 +647,18 @@ kbd {
 
 /* ---------- Type glyphs ---------- */
 
+/*
+  Colour now says which subject; the glyph says whether it is a test or
+  homework. Keeping those on separate channels means each survives on its own,
+  so a glyph simply takes the colour of whatever it sits on.
+*/
 .glyph { flex-shrink: 0; font-size: .8em; line-height: 1; }
 
-/* On a coloured chip the glyph must be drawn in the chip's ink, not in the
-   type colour, which is the chip's own background. */
-.chip .glyph::before,
-.type-choice input:checked + label .glyph::before { color: currentColor; }
-.glyph-test::before { content: "\2605"; color: var(--t-test); }
-.glyph-homework::before { content: "\25CF"; color: var(--t-homework); }
-.glyph-project::before { content: "\25C6"; color: var(--t-project); }
-.glyph-other::before { content: "\25B2"; color: var(--t-other); }
-.glyph-done::before { content: "\2713"; color: var(--done); }
+.glyph-test::before { content: "\2605"; }
+.glyph-homework::before { content: "\25CF"; }
+.glyph-project::before { content: "\25C6"; }
+.glyph-other::before { content: "\25B2"; }
+.glyph-done::before { content: "\2713"; }
 
 /* ---------- Upcoming list ---------- */
 
@@ -655,7 +685,7 @@ kbd {
   padding: .6rem .7rem .6rem .85rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--type-color, var(--line-strong));
+  border-left: 4px solid var(--subject-color, var(--line-strong));
   border-radius: var(--radius);
   cursor: pointer;
 }
@@ -801,10 +831,7 @@ kbd {
   padding-left: .3rem;
 }
 
-.chip-test { --chip-bg: var(--t-test); --chip-ink: var(--t-test-ink); }
-.chip-homework { --chip-bg: var(--t-homework); --chip-ink: var(--t-homework-ink); }
-.chip-project { --chip-bg: var(--t-project); --chip-ink: var(--t-project-ink); }
-.chip-other { --chip-bg: var(--t-other); --chip-ink: var(--t-other-ink); }
+.chip { --chip-bg: var(--subject-color); --chip-ink: var(--subject-ink); }
 
 /* ---------- Timetable ---------- */
 
@@ -896,15 +923,19 @@ kbd {
   min-height: 3.9rem;
   padding: .35rem .4rem;
   text-align: left;
-  background: none;
   border: 0;
-  border-left: 3px solid var(--accent-soft);
+  border-left: 3px solid var(--subject-color, var(--line-strong));
+  background: var(--subject-soft, transparent);
   cursor: pointer;
 }
 
-.tt-lesson:hover { background: var(--accent-soft); }
+.tt-lesson:hover { filter: brightness(.955); }
 
-.tt-lesson.is-nosubject { border-left-color: var(--line); }
+:root[data-theme="dark"] .tt-lesson:hover { filter: brightness(1.2); }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .tt-lesson:hover { filter: brightness(1.2); }
+}
 
 .tt-name {
   font-size: .8rem;
@@ -966,6 +997,16 @@ kbd {
 
 .legend li { display: flex; align-items: center; gap: .4rem; }
 
+.legend-subjects { margin-bottom: .5rem; }
+
+.swatch {
+  width: .85rem;
+  height: .85rem;
+  border-radius: 3px;
+  background: var(--subject-color);
+  flex-shrink: 0;
+}
+
 /* ---------- Agenda ---------- */
 
 .agenda-group { margin-bottom: 1.5rem; }
@@ -993,7 +1034,7 @@ kbd {
   padding: .6rem .75rem;
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--type-color, var(--line-strong));
+  border-left: 4px solid var(--subject-color, var(--line-strong));
   border-radius: var(--radius);
 }
 
@@ -1043,10 +1084,12 @@ kbd {
   border-radius: 999px;
   font-size: .74rem;
   font-weight: 600;
-  background: var(--type-soft, var(--surface-3));
+  background: var(--subject-soft, var(--surface-3));
   color: var(--ink);
-  border: 1px solid var(--type-color, var(--line-strong));
+  border: 1px solid var(--subject-color, var(--line-strong));
 }
+
+.type-tag { display: inline-flex; align-items: center; gap: .3rem; }
 
 .task-notes { margin: .35rem 0 0; font-size: .86rem; color: var(--ink-2); white-space: pre-wrap; }
 

@@ -216,9 +216,13 @@ await page.keyboard.press("Escape");
 await page.click("#go-today");
 
 console.log("\nfilters and persistence");
+// Chips are coloured by subject now, so type is read from the glyph inside.
+const homeworkChips = () => page.locator("#month-view .chip .glyph-homework").count();
+check("there are homework chips to hide in the first place", (await homeworkChips()) > 0, true);
 await page.locator('.type-filter[value="homework"]').uncheck();
-check("unchecking a type hides its chips", await page.locator(".chip-homework").count(), 0);
+check("unchecking a type hides its chips", await homeworkChips(), 0);
 await page.locator('.type-filter[value="homework"]').check();
+check("and checking it brings them back", (await homeworkChips()) > 0, true);
 const beforeReload = await page.evaluate(() =>
   JSON.parse(localStorage.getItem("remembre.tasks.v1")).length);
 await page.reload();

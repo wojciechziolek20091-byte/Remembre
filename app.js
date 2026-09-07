@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.07-10";
+const APP_VERSION = "2026.09.07-11";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -438,14 +438,26 @@ function announce(message) {
 
 /* ---------- Rendering: shared pieces ---------- */
 
-function typeVars(type) {
-  return `--type-color: var(--t-${type}); --type-soft: var(--t-${type}-soft);`;
+/** Every subject has its own hue; anything without one falls back to neutral. */
+function subjectVars(subject) {
+  const key = subject && SUBJECTS[subject] ? subject : "none";
+  return `--subject-color: var(--s-${key}); --subject-soft: var(--s-${key}-soft);`;
 }
 
-function typeBadge(task) {
+function subjectLabel(task) {
+  if (task.subject && SUBJECTS[task.subject]) return SUBJECTS[task.subject].label;
+  return task.course || "No subject";
+}
+
+/** The coloured badge names the subject; the tag beside it names the type. */
+function subjectBadge(task) {
+  return el("span", { class: "badge", style: subjectVars(task.subject) }, subjectLabel(task));
+}
+
+function typeTag(task) {
   return el(
     "span",
-    { class: "badge", style: typeVars(task.type) },
+    { class: "type-tag" },
     el("span", { class: `glyph glyph-${task.type}`, "aria-hidden": "true" }),
     TYPES[task.type].label
   );
@@ -507,7 +519,7 @@ function buildDayCell(iso, monthPrefix, today) {
     chips.append(
       el(
         "span",
-        { class: `chip chip-${task.type}${task.done ? " is-done" : ""}` },
+        { class: `chip${task.done ? " is-done" : ""}`, style: subjectVars(task.subject) },
         el("span", { class: `chip-glyph glyph glyph-${task.done ? "done" : task.type}` }),
         el("span", { class: "chip-text", text: task.title })
       )
@@ -671,7 +683,7 @@ function taskChips(due, limit) {
   due.slice(0, limit).forEach((task) => {
     chips.append(el(
       "span",
-      { class: `chip chip-${task.type}${task.done ? " is-done" : ""}` },
+      { class: `chip${task.done ? " is-done" : ""}`, style: subjectVars(task.subject) },
       el("span", { class: `chip-glyph glyph glyph-${task.done ? "done" : task.type}` }),
       el("span", { class: "chip-text", text: task.title })
     ));
@@ -725,7 +737,8 @@ function buildLessonCell(slot, period, dayIndex, start, today, due) {
     "button",
     {
       type: "button",
-      class: `tt-lesson${slot.subject ? "" : " is-nosubject"}`,
+      class: "tt-lesson",
+      style: subjectVars(slot.subject),
       "aria-label": label,
       "aria-haspopup": "dialog",
       tabIndex: focused ? 0 : -1,
@@ -838,13 +851,12 @@ function renderAgenda() {
 
 function buildTaskRow(task) {
   const checkboxId = `done-${task.id}`;
-  const meta = el("p", { class: "task-meta" }, typeBadge(task));
-  if (task.course) meta.append(el("span", { text: task.course }));
+  const meta = el("p", { class: "task-meta" }, subjectBadge(task), typeTag(task));
   if (task.time) meta.append(el("span", { text: formatTime(task.time) }));
 
   const row = el(
     "li",
-    { class: `task-row${task.done ? " is-done" : ""}`, style: typeVars(task.type) },
+    { class: `task-row${task.done ? " is-done" : ""}`, style: subjectVars(task.subject) },
     el("input", {
       type: "checkbox",
       class: "task-check",
@@ -940,15 +952,15 @@ function buildUpcomingItem(task, today) {
       {
         type: "button",
         class: `up-btn${overdue ? " is-overdue" : ""}`,
-        style: typeVars(task.type),
+        style: subjectVars(task.subject),
         "aria-haspopup": "dialog",
-        "aria-label": `${task.title}. ${TYPES[task.type].label}${task.course ? `, ${task.course}` : ""}. ${when}, ${fmtFullDate.format(fromISO(task.date))}${task.time ? `, at ${formatTime(task.time)}` : ""}. Open to edit.`,
+        "aria-label": `${task.title}. ${TYPES[task.type].label}, ${subjectLabel(task)}. ${when}, ${fmtFullDate.format(fromISO(task.date))}${task.time ? `, at ${formatTime(task.time)}` : ""}. Open to edit.`,
         dataset: { edit: task.id },
       },
       el("span", { class: "up-title", "aria-hidden": "true" },
         el("span", { class: `glyph glyph-${task.type}` }), " ", task.title),
       el("span", { "aria-hidden": "true" }, meta),
-      task.course ? el("span", { class: "up-meta", "aria-hidden": "true", text: task.course }) : null
+      el("span", { class: "up-meta", "aria-hidden": "true", text: subjectLabel(task) })
     )
   );
 }
@@ -967,6 +979,15 @@ function renderPeriod() {
   $("go-today").textContent = state.view === "week" ? "This week" : "Today";
 }
 
+function renderSubjectLegend() {
+  $("subject-legend").replaceChildren(...SUBJECT_KEYS.map((key) => el(
+    "li",
+    {},
+    el("span", { class: "swatch", "aria-hidden": "true", style: subjectVars(key) }),
+    SUBJECTS[key].label
+  )));
+}
+
 function renderAll() {
   renderPeriod();
   renderTimetable();
@@ -974,6 +995,7 @@ function renderAll() {
   renderAgenda();
   renderUpcoming();
   renderTypeFilters();
+  renderSubjectLegend();
   renderSyncPanel();
 }
 

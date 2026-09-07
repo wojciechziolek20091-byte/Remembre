@@ -64,9 +64,10 @@ whatever text size you need. Concretely:
   <kbd>Page&nbsp;Down</kbd> by month (hold <kbd>Shift</kbd> for a year), and
   <kbd>Enter</kbd> to open a day. Crossing a month boundary moves the calendar
   and keeps focus on the date you navigated to.
-- **Colour is never the only signal.** Each type also carries a distinct glyph
-  (★ test, ● homework, ◆ project, ▲ other) and a spelled-out label, in the
-  sidebar, the chips, the key and the badges.
+- **Colour is never the only signal.** Colour says which subject; a glyph says
+  whether it is a test (★) or homework (●). The two sit on separate channels,
+  so each survives without the other, and both are spelled out in words in the
+  key, the badges and the sidebar.
 - **Contrast meets WCAG 2.1 AA** in both themes &ndash; verified, not assumed.
   `npm test` reads the colour tokens straight out of `styles.css` and checks
   every foreground/background pair the interface uses.
@@ -186,6 +187,11 @@ not allowed to do that itself. Recover it from git history if you ever want it.
 
 Dates are stored as local `YYYY-MM-DD` strings and never as `Date` objects, so
 a task due on the 14th stays on the 14th in every time zone.
+
+The palette is cherry red for the header, warm oat and cream for the page, and
+one hue per subject: teal for Economics, indigo for Mathematics, plum for
+English, amber for Polish, slate for History and green for ESS. Every pairing
+is checked by `npm test` rather than eyeballed.
 
 Type is [Fraunces](https://fonts.google.com/specimen/Fraunces) for the wordmark
 and month heading, [Inter](https://fonts.google.com/specimen/Inter) for
