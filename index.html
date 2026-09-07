@@ -111,13 +111,7 @@
 
     <section class="panel" aria-labelledby="filters-heading">
       <h2 class="panel-title" id="filters-heading">Show</h2>
-      <fieldset class="filters">
-        <legend class="sr-only">Task types to show</legend>
-        <label class="check"><input type="checkbox" class="type-filter" value="test" checked> <span class="glyph glyph-test" aria-hidden="true"></span> Tests</label>
-        <label class="check"><input type="checkbox" class="type-filter" value="homework" checked> <span class="glyph glyph-homework" aria-hidden="true"></span> Homework</label>
-        <label class="check"><input type="checkbox" class="type-filter" value="project" checked> <span class="glyph glyph-project" aria-hidden="true"></span> Projects</label>
-        <label class="check"><input type="checkbox" class="type-filter" value="other" checked> <span class="glyph glyph-other" aria-hidden="true"></span> Other</label>
-      </fieldset>
+      <fieldset class="filters" id="type-filters"></fieldset>
       <hr class="panel-rule">
       <label class="check"><input type="checkbox" id="show-done"> Completed tasks</label>
     </section>
@@ -165,27 +159,33 @@
       </button>
     </div>
 
-    <div class="field">
-      <label for="task-title">Title <span class="req" aria-hidden="true">*</span></label>
-      <input type="text" id="task-title" name="title" required aria-required="true"
-             autocomplete="off" maxlength="120" aria-describedby="task-title-error"
-             placeholder="e.g. History essay, chapter 5">
-      <p class="field-error" id="task-title-error" role="alert"></p>
-    </div>
-
     <fieldset class="field">
-      <legend>Type <span class="req" aria-hidden="true">*</span></legend>
-      <div class="type-choice">
-        <input type="radio" name="type" id="type-test" value="test" checked>
-        <label for="type-test"><span class="glyph glyph-test" aria-hidden="true"></span> Test</label>
-        <input type="radio" name="type" id="type-homework" value="homework">
+      <legend>Is it homework or a test? <span class="req" aria-hidden="true">*</span></legend>
+      <div class="type-choice" id="type-choice">
+        <input type="radio" name="type" id="type-homework" value="homework" checked>
         <label for="type-homework"><span class="glyph glyph-homework" aria-hidden="true"></span> Homework</label>
-        <input type="radio" name="type" id="type-project" value="project">
-        <label for="type-project"><span class="glyph glyph-project" aria-hidden="true"></span> Project</label>
-        <input type="radio" name="type" id="type-other" value="other">
-        <label for="type-other"><span class="glyph glyph-other" aria-hidden="true"></span> Other</label>
+        <input type="radio" name="type" id="type-test" value="test">
+        <label for="type-test"><span class="glyph glyph-test" aria-hidden="true"></span> Test</label>
       </div>
     </fieldset>
+
+    <fieldset class="field">
+      <legend>Subject <span class="req" aria-hidden="true">*</span></legend>
+      <div class="type-choice" id="subject-choice"></div>
+      <p class="field-error" id="task-subject-error" role="alert"></p>
+    </fieldset>
+
+    <div id="detail-steps"></div>
+
+    <div class="field">
+      <label for="task-title">Name <span class="req" aria-hidden="true">*</span></label>
+      <input type="text" id="task-title" name="title" required aria-required="true"
+             autocomplete="off" maxlength="120"
+             aria-describedby="task-title-hint task-title-error"
+             placeholder="e.g. History essay, chapter 5">
+      <p class="field-hint" id="task-title-hint">Written for you from the choices above. Edit it if you want something different.</p>
+      <p class="field-error" id="task-title-error" role="alert"></p>
+    </div>
 
     <div class="field-row">
       <div class="field">
@@ -198,13 +198,6 @@
         <label for="task-time">Time <span class="optional">(optional)</span></label>
         <input type="time" id="task-time" name="time">
       </div>
-    </div>
-
-    <div class="field">
-      <label for="task-course">Subject or course <span class="optional">(optional)</span></label>
-      <input type="text" id="task-course" name="course" maxlength="60" list="course-suggestions"
-             autocomplete="off" placeholder="e.g. Biology">
-      <datalist id="course-suggestions"></datalist>
     </div>
 
     <div class="field">

@@ -76,8 +76,11 @@ console.log("\nexample data");
 await page.click('label[for="view-list"]');
 await page.click("#load-examples");
 await page.waitForSelector(".task-row");
-check("six example tasks land in the agenda", await page.locator("#agenda .task-row").count(), 6);
-check("and in the upcoming panel", await page.locator("#upcoming-list .up-btn").count(), 6);
+check("the example tasks are stored",
+  await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).length), 8);
+check("the upcoming panel fills to its limit", await page.locator("#upcoming-list .up-btn").count(), 6);
+check("every example carries a subject",
+  await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).every((t) => t.subject)), true);
 
 console.log("\nadding a task");
 const today = await page.evaluate(() => {
@@ -88,12 +91,13 @@ const today = await page.evaluate(() => {
 await page.click('label[for="view-month"]');
 await page.click("#add-task-top");
 await page.waitForSelector("#task-dialog[open]");
-check("the dialog focuses the title field", await page.evaluate(() => document.activeElement.id), "task-title");
+check("the dialog opens on the first question", await page.evaluate(() => document.activeElement.id), "type-homework");
+check("only homework and test are offered", await page.locator("#type-choice input").count(), 2);
 check("delete is hidden when adding", await page.locator("#delete-task").isVisible(), false);
-await page.fill("#task-title", "Physics problem set 7");
 await page.click('label[for="type-homework"]');
+await page.click('label[for="subject-english"]');
+await page.fill("#task-title", "Physics problem set 7");
 await page.fill("#task-date", today);
-await page.fill("#task-course", "Physics");
 await page.click("#save-task");
 await page.waitForSelector("#task-dialog", { state: "hidden" });
 check("the new task appears in the grid", await page.locator(".chip-text", { hasText: "Physics problem set 7" }).count(), 1);
@@ -102,6 +106,10 @@ check("and is announced", (await page.textContent("#live-region")).startsWith('A
 
 console.log("\nvalidation");
 await page.click("#add-task-top");
+await page.fill("#task-date", today);
+await page.click("#save-task");
+check("a missing subject is rejected", (await page.textContent("#task-subject-error")).length > 0, true);
+await page.click('label[for="subject-polish"]');
 await page.fill("#task-title", "   ");
 await page.click("#save-task");
 check("a blank title is rejected", await page.locator("#task-dialog[open]").count(), 1);
@@ -129,9 +137,12 @@ console.log("\nfilters and persistence");
 await page.locator('.type-filter[value="homework"]').uncheck();
 check("unchecking a type hides its chips", await page.locator(".chip-homework").count(), 0);
 await page.locator('.type-filter[value="homework"]').check();
+const beforeReload = await page.evaluate(() =>
+  JSON.parse(localStorage.getItem("remembre.tasks.v1")).length);
 await page.reload();
 await page.waitForSelector(".day");
-check("tasks survive a reload", await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).length), 7);
+check("tasks survive a reload",
+  await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).length), beforeReload);
 check("so do the filter settings", await page.locator('.type-filter[value="homework"]').isChecked(), true);
 
 console.log("\ncompleting a task");
@@ -159,6 +170,98 @@ for (const width of [1360, 900, 640, 390, 320]) {
   check(`no horizontal scrolling at ${width}px`, await page.evaluate(() =>
     document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
 }
+
+console.log("\nsubject branches in the form");
+await page.click("#add-task-top");
+await page.waitForSelector("#task-dialog[open]");
+check("no follow-up questions before a subject is picked",
+  await page.locator("#detail-steps fieldset").count(), 0);
+check("the six subjects are offered",
+  await page.locator("#subject-choice label").allInnerTexts(),
+  ["Economics", "Mathematics", "English", "Polish", "History", "ESS"]);
+
+await page.click('label[for="subject-mathematics"]');
+check("maths asks for a kind",
+  await page.locator("#detail-steps label").allInnerTexts(), ["Test", "Short test", "Study", "Other"]);
+await page.click('label[for="kind-test"]');
+check("then for the part of the course",
+  await page.locator('#detail-steps input[name="detail-section"]').count(), 2);
+check("chapters stay hidden until a part is chosen", await page.locator(".chapter-grid").count(), 0);
+
+await page.click('label[for="section-core"]');
+check("choosing a part reveals 20 chapters", await page.locator(".chapter-grid label").count(), 20);
+for (const n of [3, 4, 5]) await page.click(`label[for="chapter-core-${n}"]`);
+check("the name is written from the choices",
+  await page.inputValue("#task-title"), "Test Chapters 3\u20135 from Core Topics");
+
+await page.click('label[for="section-hlai"]');
+await page.click('label[for="chapter-hlai-7"]');
+check("both parts of the course can be used at once",
+  await page.inputValue("#task-title"),
+  "Test Chapters 3\u20135 from Core Topics; Chapters 7 from HL AI");
+await page.click('[data-chapter-action="all"][data-chapter-section="hlai"]');
+check("All selects every chapter",
+  await page.inputValue("#task-title"),
+  "Test Chapters 3\u20135 from Core Topics; Chapters 1\u201320 from HL AI");
+await page.click('[data-chapter-action="none"][data-chapter-section="hlai"]');
+await page.click('label[for="section-hlai"]');
+
+await page.fill("#task-date", today);
+await page.click("#save-task");
+await page.waitForSelector("#task-dialog", { state: "hidden" });
+const mathsTask = await page.evaluate(() =>
+  JSON.parse(localStorage.getItem("remembre.tasks.v1")).find((t) => t.subject === "mathematics" && t.detail && t.detail.kind === "test" && t.detail.parts.length === 1));
+check("the structured choices are stored, not just the name",
+  [mathsTask.detail.kind, mathsTask.detail.parts[0].section, mathsTask.detail.parts[0].chapters],
+  ["test", "core", [3, 4, 5]]);
+check("the subject also fills the course label shown on the task", mathsTask.course, "Mathematics");
+
+await page.click("#add-task-top");
+await page.click('label[for="subject-economics"]');
+check("economics asks for its own kinds",
+  await page.locator("#detail-steps label").allInnerTexts(), ["Self Study", "Practice paper", "Other"]);
+await page.click('label[for="kind-other"]');
+check("economics Other asks for no chapters", await page.locator(".chapter-grid").count(), 0);
+await page.click('label[for="kind-self-study"]');
+check("Self Study does ask for chapters", await page.locator(".chapter-grid label").count(), 20);
+for (const n of [11, 12]) await page.click(`label[for="chapter-all-${n}"]`);
+check("and names itself without a course part",
+  await page.inputValue("#task-title"), "Self Study Chapters 11\u201312");
+
+await page.click('label[for="subject-history"]');
+check("a subject with no follow-ups asks nothing further",
+  await page.locator("#detail-steps fieldset").count(), 0);
+check("and clears the name generated for the previous subject",
+  await page.inputValue("#task-title"), "");
+await page.fill("#task-title", "Wording of my own");
+await page.click('label[for="subject-mathematics"]');
+await page.click('label[for="kind-study"]');
+check("a name typed by hand is not overwritten",
+  await page.inputValue("#task-title"), "Wording of my own");
+await page.keyboard.press("Escape");
+
+console.log("\nediting a structured task");
+await page.evaluate(() => {
+  state.tasks = [normaliseTask({
+    id: "edit-me", title: "Short test Chapters 2\u20133 from HL AI", type: "test",
+    subject: "mathematics", course: "Mathematics", date: "2026-10-14",
+    detail: { kind: "short-test", parts: [{ section: "hlai", chapters: [2, 3] }] },
+    createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
+  })];
+  saveTasks();
+  renderAll();
+  openTaskDialog({ id: "edit-me" });
+});
+await page.waitForSelector("#task-dialog[open]");
+check("editing restores the subject", await page.locator("#subject-mathematics").isChecked(), true);
+check("editing restores the kind", await page.locator("#kind-short-test").isChecked(), true);
+check("editing restores the part of the course", await page.locator("#section-hlai").isChecked(), true);
+check("editing restores the chapters",
+  await page.evaluate(() => [...document.querySelectorAll('[data-chapter-section="hlai"]')]
+    .filter((box) => box.checked).map((box) => Number(box.value))), [2, 3]);
+check("and the name is left alone", await page.inputValue("#task-title"),
+  "Short test Chapters 2\u20133 from HL AI");
+await page.keyboard.press("Escape");
 
 console.log("\ntwo-device merge");
 /*

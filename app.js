@@ -35,13 +35,75 @@ const TOMBSTONE_DAYS = 90;
 const BACKUP_FILENAME = "remembre.json";
 
 const TYPES = {
-  test: { label: "Test", order: 0 },
-  homework: { label: "Homework", order: 1 },
-  project: { label: "Project", order: 2 },
-  other: { label: "Other", order: 3 },
+  homework: { label: "Homework", plural: "Homework", order: 0 },
+  test: { label: "Test", plural: "Tests", order: 1 },
+  project: { label: "Project", plural: "Projects", order: 2 },
+  other: { label: "Other", plural: "Other", order: 3 },
 };
 
 const TYPE_KEYS = Object.keys(TYPES);
+/* Only these two can be created now. The other two stay in TYPES so tasks made
+   before the form changed still render and still filter. */
+const FORM_TYPES = ["homework", "test"];
+
+const SUBJECTS = {
+  economics: { label: "Economics" },
+  mathematics: { label: "Mathematics" },
+  english: { label: "English" },
+  polish: { label: "Polish" },
+  history: { label: "History" },
+  ess: { label: "ESS" },
+};
+
+const SUBJECT_KEYS = Object.keys(SUBJECTS);
+
+const CHAPTER_MAX = 20;
+
+/*
+  Two subjects ask follow-up questions. `kinds` is the first of them; a kind
+  listed in `chaptersFor` (or any kind, when that is null) goes on to chapters.
+  `sections` splits those chapters into named groups -- maths chapters belong
+  either to the core topics or to HL AI, and a piece of work can span both --
+  while a subject with no sections collects one unnamed set.
+*/
+const SUBJECT_DETAIL = {
+  mathematics: {
+    kindLegend: "What kind of maths work?",
+    kinds: [
+      { id: "test", label: "Test" },
+      { id: "short-test", label: "Short test" },
+      { id: "study", label: "Study" },
+      { id: "other", label: "Other" },
+    ],
+    chaptersFor: null,
+    sectionLegend: "Which part of the course?",
+    sectionHint: "Pick either, or both if the work spans them.",
+    sections: [
+      { id: "core", label: "Core Topics" },
+      { id: "hlai", label: "HL AI" },
+    ],
+  },
+  economics: {
+    kindLegend: "What kind of economics work?",
+    kinds: [
+      { id: "self-study", label: "Self Study" },
+      { id: "practice-paper", label: "Practice paper" },
+      { id: "other", label: "Other" },
+    ],
+    chaptersFor: ["self-study", "practice-paper"],
+    sections: null,
+  },
+};
+
+function detailSchema(subject) {
+  return SUBJECT_DETAIL[subject] || null;
+}
+
+/** Does this kind go on to ask for chapters? */
+function kindTakesChapters(schema, kind) {
+  if (!schema || !kind) return false;
+  return schema.chaptersFor === null || schema.chaptersFor.includes(kind);
+}
 
 const fmtMonthYear = new Intl.DateTimeFormat(LOCALE, { month: "long", year: "numeric" });
 const fmtFullDate = new Intl.DateTimeFormat(LOCALE, {
@@ -183,10 +245,13 @@ function normaliseTask(raw) {
   const createdAt = typeof raw.createdAt === "string" && raw.createdAt
     ? raw.createdAt
     : new Date().toISOString();
+  const subject = SUBJECT_KEYS.includes(raw.subject) ? raw.subject : "";
   return {
     id: typeof raw.id === "string" && raw.id ? raw.id : newId(),
     title,
     type,
+    subject,
+    detail: normaliseDetail(subject, raw.detail),
     date,
     time: /^\d{2}:\d{2}$/.test(raw.time || "") ? raw.time : "",
     course: String(raw.course == null ? "" : raw.course).trim().slice(0, 60),
@@ -198,6 +263,29 @@ function normaliseTask(raw) {
     // every tie, which is the safe direction.
     updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : createdAt,
   };
+}
+
+/** Trims a stored detail down to what the subject's schema actually allows. */
+function normaliseDetail(subject, raw) {
+  const schema = detailSchema(subject);
+  if (!schema || !raw || typeof raw !== "object") return null;
+  const kind = schema.kinds.some((option) => option.id === raw.kind) ? raw.kind : "";
+  if (!kind) return null;
+
+  const parts = [];
+  (Array.isArray(raw.parts) ? raw.parts : []).forEach((part) => {
+    if (!part || typeof part !== "object") return;
+    const section = schema.sections ? String(part.section || "") : "";
+    if (schema.sections && !schema.sections.some((option) => option.id === section)) return;
+    if (parts.some((existing) => existing.section === section)) return;
+    const chapters = [...new Set((Array.isArray(part.chapters) ? part.chapters : [])
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= CHAPTER_MAX))]
+      .sort((x, y) => x - y);
+    parts.push({ section, chapters });
+  });
+
+  return { kind, parts };
 }
 
 /* A deleted task keeps its row so the deletion can travel; the interface
@@ -249,6 +337,8 @@ const state = {
   /** The date that owns the calendar grid's single tab stop. */
   focusDate: "",
   editingId: null,
+  /** Working copy of the add / edit form's branching answers. */
+  form: { subject: "", detail: { kind: "", parts: [] }, titleDirty: false },
   dayDialogDate: "",
   /** Where to send focus after the task dialog closes. */
   returnFocus: null,
@@ -573,17 +663,12 @@ function renderPeriod() {
   $("today-label").textContent = fmtFullDate.format(new Date());
 }
 
-function renderCourseSuggestions() {
-  const courses = [...new Set(liveTasks().map((task) => task.course).filter(Boolean))].sort();
-  $("course-suggestions").replaceChildren(...courses.map((course) => el("option", { value: course })));
-}
-
 function renderAll() {
   renderPeriod();
   renderCalendar();
   renderAgenda();
   renderUpcoming();
-  renderCourseSuggestions();
+  renderTypeFilters();
   renderSyncPanel();
 }
 
@@ -648,6 +733,262 @@ function onGridKeydown(event) {
   moveGridFocus(next);
 }
 
+/* ---------- Naming a task from its choices ---------- */
+
+/** [1,2,3,5,6,9] -> "1-3, 5-6, 9", using an en dash. */
+function chapterRange(numbers) {
+  const sorted = [...numbers].sort((x, y) => x - y);
+  const runs = [];
+  sorted.forEach((n) => {
+    const last = runs[runs.length - 1];
+    if (last && n === last[1] + 1) last[1] = n;
+    else runs.push([n, n]);
+  });
+  return runs.map(([from, to]) => (from === to ? `${from}` : `${from}\u2013${to}`)).join(", ");
+}
+
+/**
+ * Turns the structured choices into the name shown on the task, e.g.
+ * "Test Chapters 3-5 from Core Topics", or with both parts of the course,
+ * "Test Chapters 3-5 from Core Topics; Chapters 7 from HL AI".
+ */
+function buildTaskName(subject, detail) {
+  const schema = detailSchema(subject);
+  if (!schema || !detail || !detail.kind) return "";
+  const kind = schema.kinds.find((option) => option.id === detail.kind);
+  if (!kind) return "";
+
+  const sectionLabel = (id) => {
+    const found = schema.sections && schema.sections.find((option) => option.id === id);
+    return found ? found.label : "";
+  };
+
+  const withChapters = (detail.parts || []).filter((part) => part.chapters.length > 0);
+  if (withChapters.length > 0) {
+    const pieces = withChapters.map((part) => {
+      const chapters = `Chapters ${chapterRange(part.chapters)}`;
+      const label = sectionLabel(part.section);
+      return label ? `${chapters} from ${label}` : chapters;
+    });
+    return `${kind.label} ${pieces.join("; ")}`;
+  }
+
+  // A section chosen but no chapters yet still names the work usefully.
+  const labels = (detail.parts || []).map((part) => sectionLabel(part.section)).filter(Boolean);
+  if (labels.length > 0) return `${kind.label} from ${labels.join(" and ")}`;
+  return kind.label;
+}
+
+/* ---------- The add / edit form ---------- */
+
+/*
+  The form asks its questions in order and only reveals the next one once the
+  previous is answered: type, subject, then whatever that subject needs. Only
+  maths and economics ask anything further.
+*/
+
+function emptyFormDetail() {
+  return { kind: "", parts: [] };
+}
+
+function renderTypeChoice(currentType) {
+  const keys = [...FORM_TYPES];
+  // An older task may carry a type the form no longer offers. Show it rather
+  // than silently rewriting the task when it is saved.
+  if (currentType && !keys.includes(currentType)) keys.push(currentType);
+
+  $("type-choice").replaceChildren(...keys.flatMap((key) => {
+    const id = `type-${key}`;
+    return [
+      el("input", { type: "radio", name: "type", id, value: key, checked: currentType === key }),
+      el("label", { for: id },
+        el("span", { class: `glyph glyph-${key}`, "aria-hidden": "true" }), " ", TYPES[key].label),
+    ];
+  }));
+}
+
+function renderSubjectChoice() {
+  $("subject-choice").replaceChildren(...SUBJECT_KEYS.flatMap((key) => {
+    const id = `subject-${key}`;
+    return [
+      el("input", { type: "radio", name: "subject", id, value: key, checked: state.form.subject === key }),
+      el("label", { for: id, text: SUBJECTS[key].label }),
+    ];
+  }));
+}
+
+function chapterFieldset(legendText, sectionId, part) {
+  const grid = el("div", { class: "chapter-grid" });
+  for (let n = 1; n <= CHAPTER_MAX; n += 1) {
+    const id = `chapter-${sectionId || "all"}-${n}`;
+    grid.append(
+      el("input", {
+        type: "checkbox", id, value: String(n),
+        checked: part.chapters.includes(n),
+        dataset: { chapterSection: sectionId },
+      }),
+      el("label", { for: id, text: String(n) })
+    );
+  }
+
+  return el(
+    "fieldset",
+    { class: "field detail-step" },
+    el("legend", {}, legendText, " ", el("span", { class: "optional", text: "(choose as many as you like)" })),
+    el(
+      "div",
+      { class: "chapter-tools" },
+      el("button", {
+        type: "button", class: "btn btn-quiet btn-tiny", text: "All",
+        dataset: { chapterAction: "all", chapterSection: sectionId },
+      }),
+      el("button", {
+        type: "button", class: "btn btn-quiet btn-tiny", text: "None",
+        dataset: { chapterAction: "none", chapterSection: sectionId },
+      })
+    ),
+    grid
+  );
+}
+
+function renderDetailSteps({ keepFocus = true } = {}) {
+  const wrap = $("detail-steps");
+  const activeId = keepFocus && document.activeElement ? document.activeElement.id : "";
+  const schema = detailSchema(state.form.subject);
+
+  if (!schema) {
+    wrap.replaceChildren();
+    syncGeneratedName();
+    return;
+  }
+
+  const detail = state.form.detail;
+  const blocks = [];
+
+  blocks.push(el(
+    "fieldset",
+    { class: "field detail-step" },
+    el("legend", {}, schema.kindLegend, " ", el("span", { class: "req", "aria-hidden": "true", text: "*" })),
+    el("div", { class: "type-choice" }, schema.kinds.flatMap((option) => {
+      const id = `kind-${option.id}`;
+      return [
+        el("input", { type: "radio", name: "detail-kind", id, value: option.id, checked: detail.kind === option.id }),
+        el("label", { for: id, text: option.label }),
+      ];
+    }))
+  ));
+
+  if (detail.kind && kindTakesChapters(schema, detail.kind)) {
+    if (schema.sections) {
+      blocks.push(el(
+        "fieldset",
+        { class: "field detail-step" },
+        el("legend", {}, schema.sectionLegend),
+        schema.sectionHint ? el("p", { class: "field-hint", text: schema.sectionHint }) : null,
+        el("div", { class: "type-choice" }, schema.sections.flatMap((section) => {
+          const id = `section-${section.id}`;
+          return [
+            el("input", {
+              type: "checkbox", name: "detail-section", id, value: section.id,
+              checked: detail.parts.some((part) => part.section === section.id),
+            }),
+            el("label", { for: id, text: section.label }),
+          ];
+        }))
+      ));
+
+      schema.sections.forEach((section) => {
+        const part = detail.parts.find((entry) => entry.section === section.id);
+        if (part) blocks.push(chapterFieldset(`Chapters in ${section.label}`, section.id, part));
+      });
+    } else {
+      let part = detail.parts.find((entry) => entry.section === "");
+      if (!part) {
+        part = { section: "", chapters: [] };
+        detail.parts.push(part);
+      }
+      blocks.push(chapterFieldset("Chapters", "", part));
+    }
+  }
+
+  wrap.replaceChildren(...blocks);
+  syncGeneratedName();
+
+  if (activeId) {
+    const restored = document.getElementById(activeId);
+    if (restored) restored.focus();
+  }
+}
+
+/** Keeps the name field in step with the choices, until the reader edits it. */
+function syncGeneratedName() {
+  const generated = buildTaskName(state.form.subject, state.form.detail);
+  // An untouched field always mirrors the current choices, including when
+  // those choices stop generating a name -- otherwise switching from a subject
+  // that names itself to one that does not would leave the old name behind.
+  if (!state.form.titleDirty) $("task-title").value = generated;
+  $("task-title-hint").hidden = !generated;
+}
+
+function onFormChange(event) {
+  const target = event.target;
+  const detail = state.form.detail;
+
+  if (target.name === "subject") {
+    state.form.subject = target.value;
+    state.form.detail = emptyFormDetail();
+    renderDetailSteps();
+    const schema = detailSchema(target.value);
+    announce(schema
+      ? `${SUBJECTS[target.value].label} selected. ${schema.kindLegend}`
+      : `${SUBJECTS[target.value].label} selected.`);
+    return;
+  }
+
+  if (target.name === "detail-kind") {
+    detail.kind = target.value;
+    if (!kindTakesChapters(detailSchema(state.form.subject), target.value)) detail.parts = [];
+    renderDetailSteps();
+    return;
+  }
+
+  if (target.name === "detail-section") {
+    if (target.checked) {
+      if (!detail.parts.some((part) => part.section === target.value)) {
+        detail.parts.push({ section: target.value, chapters: [] });
+      }
+    } else {
+      state.form.detail.parts = detail.parts.filter((part) => part.section !== target.value);
+    }
+    renderDetailSteps();
+    return;
+  }
+
+  if (target.type === "checkbox" && target.dataset.chapterSection !== undefined) {
+    const part = detail.parts.find((entry) => entry.section === target.dataset.chapterSection);
+    if (!part) return;
+    const chapter = Number(target.value);
+    if (target.checked) {
+      if (!part.chapters.includes(chapter)) part.chapters.push(chapter);
+    } else {
+      part.chapters = part.chapters.filter((n) => n !== chapter);
+    }
+    part.chapters.sort((x, y) => x - y);
+    syncGeneratedName();
+  }
+}
+
+function onFormClick(event) {
+  const button = event.target.closest("[data-chapter-action]");
+  if (!button) return;
+  const part = state.form.detail.parts.find((entry) => entry.section === button.dataset.chapterSection);
+  if (!part) return;
+  part.chapters = button.dataset.chapterAction === "all"
+    ? Array.from({ length: CHAPTER_MAX }, (unused, index) => index + 1)
+    : [];
+  renderDetailSteps();
+}
+
 /* ---------- Task dialog ---------- */
 
 function openDialog(dialog) {
@@ -668,6 +1009,7 @@ function clearFieldErrors() {
     $(id).removeAttribute("aria-invalid");
     $(`${id}-error`).textContent = "";
   });
+  $("task-subject-error").textContent = "";
 }
 
 function openTaskDialog({ id = null, date = null, returnFocus = null } = {}) {
@@ -683,18 +1025,36 @@ function openTaskDialog({ id = null, date = null, returnFocus = null } = {}) {
   $("delete-task").hidden = !task;
   $("done-wrap").hidden = !task;
 
+  // titleDirty starts true so building the form does not overwrite the title
+  // being restored; the real value is worked out once everything is in place.
+  state.form = {
+    subject: task ? task.subject : "",
+    detail: task && task.detail
+      ? { kind: task.detail.kind, parts: task.detail.parts.map((part) => ({ ...part, chapters: [...part.chapters] })) }
+      : emptyFormDetail(),
+    titleDirty: true,
+  };
+
+  renderTypeChoice(task ? task.type : FORM_TYPES[0]);
+  renderSubjectChoice();
+  renderDetailSteps({ keepFocus: false });
+
   $("task-title").value = task ? task.title : "";
-  $("task-course").value = task ? task.course : "";
   $("task-notes").value = task ? task.notes : "";
   $("task-time").value = task ? task.time : "";
   $("task-date").value = task ? task.date : date || state.focusDate || todayISO();
   $("task-done").checked = task ? task.done : false;
-  const type = task ? task.type : "test";
-  const typeInput = document.querySelector(`input[name="type"][value="${type}"]`);
-  if (typeInput) typeInput.checked = true;
+
+  // A name the reader wrote themselves must not be overwritten by the
+  // generated one; an untouched generated name may keep updating.
+  state.form.titleDirty = task
+    ? task.title !== buildTaskName(state.form.subject, state.form.detail)
+    : false;
+  syncGeneratedName();
 
   openDialog(dialog);
-  $("task-title").focus();
+  const firstType = $("type-choice").querySelector("input");
+  if (firstType) firstType.focus();
 }
 
 function validateTaskForm() {
@@ -704,8 +1064,19 @@ function validateTaskForm() {
   const title = $("task-title").value.trim();
   if (!title) {
     $("task-title").setAttribute("aria-invalid", "true");
-    $("task-title-error").textContent = "Give the task a title so you can recognise it later.";
+    $("task-title-error").textContent = "Give the task a name so you can recognise it later.";
     firstInvalid = firstInvalid || $("task-title");
+  }
+
+  const subject = state.form.subject;
+  if (!subject) {
+    $("task-subject-error").textContent = "Pick the subject this belongs to.";
+    firstInvalid = firstInvalid || $("subject-choice").querySelector("input");
+  }
+
+  const schema = detailSchema(subject);
+  if (schema && !state.form.detail.kind) {
+    firstInvalid = firstInvalid || $("detail-steps").querySelector("input");
   }
 
   const date = $("task-date").value;
@@ -724,9 +1095,12 @@ function validateTaskForm() {
   return {
     title,
     date,
-    type: selectedType ? selectedType.value : "other",
+    type: selectedType ? selectedType.value : FORM_TYPES[0],
+    subject,
+    detail: schema ? state.form.detail : null,
     time: $("task-time").value || "",
-    course: $("task-course").value.trim(),
+    // course carries the plain label the rest of the interface already shows.
+    course: subject ? SUBJECTS[subject].label : "",
     notes: $("task-notes").value.trim(),
     done: $("task-done").checked,
   };
@@ -870,6 +1244,38 @@ function restoreAgendaFocus(id, index) {
 }
 
 /* ---------- Filters and theme ---------- */
+
+/*
+  Homework and Test are always offered. The two retired types appear only while
+  tasks created before the form changed still use them, so the panel never
+  shows a filter that cannot match anything.
+*/
+function neededFilterTypes() {
+  const used = new Set(state.tasks.map((task) => task.type));
+  return TYPE_KEYS.filter((key) => FORM_TYPES.includes(key) || used.has(key));
+}
+
+function renderTypeFilters() {
+  const keys = neededFilterTypes();
+  const wrap = $("type-filters");
+  if (wrap.dataset.keys === keys.join(",")) return;   // avoid stealing focus
+  wrap.dataset.keys = keys.join(",");
+
+  wrap.replaceChildren(
+    el("legend", { class: "sr-only", text: "Task types to show" }),
+    ...keys.map((key) => el(
+      "label",
+      { class: "check" },
+      el("input", {
+        type: "checkbox", class: "type-filter", value: key,
+        checked: state.typeFilter.includes(key),
+      }),
+      el("span", { class: `glyph glyph-${key}`, "aria-hidden": "true" }),
+      " ",
+      TYPES[key].plural
+    ))
+  );
+}
 
 function readFilters() {
   state.typeFilter = [...document.querySelectorAll(".type-filter")]
@@ -1040,15 +1446,37 @@ function renderSyncPanel() {
 function loadExamples() {
   const today = todayISO();
   const examples = [
-    { title: "History essay, chapter 5", type: "homework", course: "History", date: addDays(today, 2), time: "09:00" },
-    { title: "Chemistry lab report", type: "project", course: "Chemistry", date: addDays(today, 5), notes: "Include the titration graph and the error analysis." },
-    { title: "Algebra test", type: "test", course: "Mathematics", date: addDays(today, 7), time: "11:30", notes: "Quadratics and simultaneous equations." },
-    { title: "Read Chapters 3 to 4", type: "homework", course: "English", date: addDays(today, 1) },
-    { title: "Biology presentation", type: "project", course: "Biology", date: addDays(today, 12), time: "14:00" },
-    { title: "Return library books", type: "other", date: addDays(today, 3) },
+    {
+      type: "test", subject: "mathematics", date: addDays(today, 7), time: "11:30",
+      detail: { kind: "test", parts: [{ section: "core", chapters: [3, 4, 5] }] },
+      notes: "Quadratics and simultaneous equations.",
+    },
+    {
+      type: "homework", subject: "mathematics", date: addDays(today, 2),
+      detail: { kind: "study", parts: [{ section: "hlai", chapters: [1, 2] }] },
+    },
+    {
+      type: "homework", subject: "economics", date: addDays(today, 3),
+      detail: { kind: "self-study", parts: [{ section: "", chapters: [11, 12] }] },
+    },
+    {
+      type: "test", subject: "economics", date: addDays(today, 9), time: "10:00",
+      detail: { kind: "practice-paper", parts: [{ section: "", chapters: [1, 2, 3] }] },
+    },
+    { title: "Essay, chapter 5", type: "homework", subject: "history", date: addDays(today, 1) },
+    { title: "Reading, chapters 3 to 4", type: "homework", subject: "english", date: addDays(today, 5) },
+    { title: "Vocabulary test", type: "test", subject: "polish", date: addDays(today, 12), time: "14:00" },
+    { title: "Field study write-up", type: "homework", subject: "ess", date: addDays(today, 6) },
   ];
   examples.forEach((example) => {
-    state.tasks.push(normaliseTask({ ...example, id: newId(), createdAt: new Date().toISOString() }));
+    const title = example.title || buildTaskName(example.subject, example.detail);
+    state.tasks.push(normaliseTask({
+      ...example,
+      title,
+      course: SUBJECTS[example.subject].label,
+      id: newId(),
+      createdAt: new Date().toISOString(),
+    }));
   });
   saveTasks();
   renderAll();
@@ -1080,9 +1508,7 @@ function setupEvents() {
     input.addEventListener("change", () => applyTheme(input.value));
   });
 
-  document.querySelectorAll(".type-filter").forEach((input) => {
-    input.addEventListener("change", readFilters);
-  });
+  $("type-filters").addEventListener("change", readFilters);
   $("show-done").addEventListener("change", readFilters);
 
   const grid = $("calendar-body");
@@ -1112,6 +1538,9 @@ function setupEvents() {
     if (toggle) toggleTaskDone(toggle.dataset.toggle, toggle.checked);
   });
 
+  $("task-form").addEventListener("change", onFormChange);
+  $("task-form").addEventListener("click", onFormClick);
+  $("task-title").addEventListener("input", () => { state.form.titleDirty = true; });
   $("task-form").addEventListener("submit", submitTaskForm);
   $("delete-task").addEventListener("click", deleteCurrentTask);
 

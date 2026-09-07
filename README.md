@@ -11,9 +11,13 @@ the browser's own storage, so nothing about your coursework leaves your device.
 
 ## What it does
 
-- **Add a task in one step.** Title, type, due date, and optionally a time, a
-  subject and notes. Tests, homework, projects and anything else each get their
-  own colour, glyph and label.
+- **Add a task by answering questions.** Homework or test, then the subject,
+  then whatever that subject needs. Maths asks which kind of work, whether it
+  sits in the Core Topics or HL AI, and which chapters; economics asks whether
+  it is Self Study, a Practice paper or something else, and which chapters.
+  The other subjects ask nothing further. The task names itself from the
+  answers, e.g. *Test Chapters 3-5 from Core Topics*, and the name stays
+  editable.
 - **See the month at a glance.** Every day cell lists what is due, with today
   marked and weekends tinted.
 - **Know what is next.** The Upcoming panel puts overdue work first, then the

@@ -845,6 +845,8 @@ kbd {
 .dialog {
   width: min(34rem, calc(100vw - 2rem));
   max-height: calc(100vh - 3rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1.25rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
@@ -902,6 +904,71 @@ kbd {
 .field textarea::placeholder { color: var(--ink-2); opacity: 1; }
 
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+.field-hint {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--ink-2);
+}
+
+/* Each answered question reveals the next, so give the revealed ones a rule
+   that shows they belong to the step above. */
+.detail-step {
+  padding-left: .85rem;
+  border-left: 2px solid var(--line);
+}
+
+.chapter-tools {
+  display: flex;
+  gap: .4rem;
+  margin-bottom: .15rem;
+}
+
+.btn-tiny {
+  min-height: 2rem;
+  padding: .2rem .7rem;
+  font-size: .8rem;
+  font-weight: 500;
+}
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr));
+  gap: .3rem;
+}
+
+.chapter-grid input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chapter-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: .9rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.chapter-grid label:hover { background: var(--surface-3); }
+
+.chapter-grid input:checked + label {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+  font-weight: 600;
+}
+
+.chapter-grid input:focus-visible + label {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
 
 .field-error {
   margin: 0;
