@@ -279,7 +279,22 @@
    against the user-agent rule for [hidden]. */
 [hidden] { display: none !important; }
 
-html { -webkit-text-size-adjust: 100%; }
+/*
+  The header is a full-bleed slab of cherry. Left mid-scroll it shows as a
+  stripe under the status bar, so the page is given two snap points -- the top
+  of the header and the top of the content below it -- and settles on one or
+  the other rather than between them. Proximity, not mandatory: a deliberate
+  scroll past them is never caught, only a small one near a point is tidied up.
+*/
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-snap-type: y proximity;
+  scroll-behavior: smooth;
+}
+
+.app-bar,
+.update-bar,
+.layout { scroll-snap-align: start; }
 
 body {
   margin: 0;
@@ -1406,6 +1421,10 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 /* ---------- Preferences ---------- */
 
 @media (prefers-reduced-motion: reduce) {
+  /* Snapping moves the page on its own, which is exactly what this asks us
+     not to do. */
+  html { scroll-snap-type: none; }
+
   *, *::before, *::after {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
