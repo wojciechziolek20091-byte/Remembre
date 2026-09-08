@@ -109,6 +109,23 @@ The footer shows the running version, which is the quickest way to tell whether
 a device is actually on the latest release.
 
 One caveat worth knowing: tasks live in the browser's storage on that device.
+## The study organiser
+
+Below the calendar sits a panel for the long pieces: internal assessments, the
+extended essay, the TOK essay, CAS, and anything else that runs over weeks
+rather than landing on one day. Each carries a kind, an optional subject and
+deadline, a stage (Not started, In progress, Draft done, Submitted) and notes.
+
+The list orders itself by deadline, soonest first, with undated work and then
+submitted work at the bottom. A deadline within a fortnight is marked, and one
+that has passed is marked more sharply -- unless the piece is already
+submitted, in which case neither applies. The stage can be changed straight
+from the list without opening anything.
+
+Coursework is stored separately from tasks, since it is worked at in stages and
+is not usefully drawn on a timetable, but it is backed up and merged exactly
+like tasks, so it travels between devices with everything else.
+
 ## Reminders
 
 A reminder becomes due at 17:00 on the day before each task, and reads

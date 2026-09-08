@@ -1112,6 +1112,98 @@ kbd {
 
 .task-notes { margin: .35rem 0 0; font-size: .86rem; color: var(--ink-2); white-space: pre-wrap; }
 
+/* ---------- Study organiser ---------- */
+
+.organiser {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid var(--line);
+}
+
+.organiser-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.organiser-title {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 40;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.organiser-hint {
+  margin: .2rem 0 0;
+  font-size: .85rem;
+  color: var(--ink-2);
+  max-width: 44ch;
+}
+
+.cw-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+
+.cw-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem .9rem;
+  padding: .7rem .85rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--subject-color, var(--line-strong));
+  border-radius: var(--radius);
+}
+
+.cw-main { flex: 1 1 16rem; min-width: 0; }
+
+.cw-open {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.cw-open:hover { text-decoration: underline; }
+
+.cw-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .3rem .6rem;
+  margin-top: .25rem;
+  font-size: .82rem;
+  color: var(--ink-2);
+}
+
+.cw-due { font-weight: 600; }
+.cw-due.is-close { color: var(--accent); }
+.cw-due.is-late { color: var(--danger); }
+
+.cw-stage-field { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
+
+.cw-stage-field select {
+  padding: .35rem .5rem;
+  min-height: 2.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font-size: .85rem;
+}
+
+.cw-item.is-submitted { opacity: .72; }
+.cw-item.is-submitted .cw-open { text-decoration: line-through; }
+
+.cw-notes { margin: .35rem 0 0; font-size: .85rem; color: var(--ink-2); white-space: pre-wrap; }
+
 /* ---------- Dialogs ---------- */
 
 .dialog {

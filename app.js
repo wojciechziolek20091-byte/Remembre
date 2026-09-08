@@ -26,12 +26,13 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-17";
+const APP_VERSION = "2026.09.08-18";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
 const SYNC_KEY = "remembre.sync.v1";
 const REMINDERS_KEY = "remembre.reminders.v1";
+const COURSEWORK_KEY = "remembre.coursework.v1";
 
 /* A reminder is due at this hour on the day before the task. */
 const REMINDER_HOUR = 17;
@@ -68,6 +69,33 @@ const SUBJECTS = {
 const SUBJECT_KEYS = Object.keys(SUBJECTS);
 
 const CHAPTER_MAX = 20;
+
+/*
+  Long-running coursework: the pieces that run for months rather than landing on
+  one day. Kept apart from tasks because they are worked at in stages and are
+  not usefully drawn on a timetable, but stored, backed up and merged the same
+  way, so they travel between devices with everything else.
+*/
+const COURSEWORK_KINDS = {
+  ia: { label: "Internal Assessment", short: "IA" },
+  ee: { label: "Extended Essay", short: "EE" },
+  tok: { label: "TOK essay", short: "TOK" },
+  cas: { label: "CAS", short: "CAS" },
+  other: { label: "Other", short: "Other" },
+};
+
+const COURSEWORK_KIND_KEYS = Object.keys(COURSEWORK_KINDS);
+
+/* Deliberately generic: these read sensibly for an IA, an essay or a CAS
+   project alike, rather than being right for one and wrong for the rest. */
+const COURSEWORK_STAGES = [
+  { id: "not-started", label: "Not started" },
+  { id: "in-progress", label: "In progress" },
+  { id: "draft", label: "Draft done" },
+  { id: "submitted", label: "Submitted" },
+];
+
+const COURSEWORK_STAGE_KEYS = COURSEWORK_STAGES.map((stage) => stage.id);
 
 /*
   The school timetable, as a grid of periods by weekday (Monday first).
@@ -334,6 +362,62 @@ function normaliseDetail(subject, raw) {
   return { kind, parts };
 }
 
+function normaliseCoursework(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const title = String(raw.title == null ? "" : raw.title).trim().slice(0, 120);
+  if (!title && raw.deleted !== true) return null;
+
+  const createdAt = typeof raw.createdAt === "string" && raw.createdAt
+    ? raw.createdAt
+    : new Date().toISOString();
+  const due = String(raw.due == null ? "" : raw.due);
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : newId(),
+    title,
+    kind: COURSEWORK_KIND_KEYS.includes(raw.kind) ? raw.kind : "other",
+    subject: SUBJECT_KEYS.includes(raw.subject) ? raw.subject : "",
+    due: isValidISO(due) ? due : "",
+    stage: COURSEWORK_STAGE_KEYS.includes(raw.stage) ? raw.stage : "not-started",
+    notes: String(raw.notes == null ? "" : raw.notes).trim().slice(0, 500),
+    deleted: raw.deleted === true,
+    createdAt,
+    updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : createdAt,
+  };
+}
+
+function loadCoursework() {
+  const raw = readStore(COURSEWORK_KEY, []);
+  if (!Array.isArray(raw)) return [];
+  const cutoff = new Date(Date.now() - TOMBSTONE_DAYS * 86400000).toISOString();
+  return raw
+    .map(normaliseCoursework)
+    .filter(Boolean)
+    .filter((item) => !item.deleted || item.updatedAt > cutoff);
+}
+
+function saveCoursework() {
+  if (!writeStore(COURSEWORK_KEY, state.coursework)) {
+    announce("Your browser would not let this page save data, so changes will be lost when you close the tab.");
+  }
+}
+
+function liveCoursework() {
+  return state.coursework.filter((item) => !item.deleted);
+}
+
+/** Soonest deadline first; anything submitted, and anything undated, last. */
+function sortCoursework(a, b) {
+  const submitted = (item) => (item.stage === "submitted" ? 1 : 0);
+  if (submitted(a) !== submitted(b)) return submitted(a) - submitted(b);
+  if (Boolean(a.due) !== Boolean(b.due)) return a.due ? -1 : 1;
+  if (a.due && b.due && a.due !== b.due) return a.due < b.due ? -1 : 1;
+  return a.title.localeCompare(b.title, LOCALE);
+}
+
+function findCoursework(id) {
+  return liveCoursework().find((item) => item.id === id) || null;
+}
+
 /* A deleted task keeps its row so the deletion can travel; the interface
    never sees one. */
 function liveTasks() {
@@ -387,6 +471,8 @@ const state = {
   /** The date that owns the calendar grid's single tab stop. */
   focusDate: "",
   editingId: null,
+  coursework: [],
+  editingCourseworkId: null,
   /** Working copy of the add / edit form's branching answers. */
   form: { subject: "", detail: { kind: "", parts: [] }, titleDirty: false },
   dayDialogDate: "",
@@ -1003,6 +1089,7 @@ function renderAll() {
   renderSubjectLegend();
   renderAlertsPanel();
   renderSyncPanel();
+  renderCoursework();
 }
 
 /* ---------- View switching ---------- */
@@ -1632,6 +1719,221 @@ function applyTheme(theme) {
   savePrefs();
 }
 
+/* ---------- Study organiser ---------- */
+
+function courseworkDueLabel(item, today) {
+  if (!item.due) return null;
+  const days = daysBetween(today, item.due);
+  const text = `${relativeDay(item.due, today)} \u00b7 ${fmtMediumDate.format(fromISO(item.due))}`;
+  let tone = "";
+  if (item.stage !== "submitted") {
+    if (days < 0) tone = " is-late";
+    else if (days <= 14) tone = " is-close";
+  }
+  return { text, tone };
+}
+
+function buildCourseworkItem(item, today) {
+  const stageId = `cw-stage-${item.id}`;
+  const due = courseworkDueLabel(item, today);
+
+  const meta = el(
+    "p",
+    { class: "cw-meta" },
+    el("span", { class: "badge", style: subjectVars(item.subject) },
+      item.subject ? SUBJECTS[item.subject].label : COURSEWORK_KINDS[item.kind].label)
+  );
+  if (item.subject) meta.append(el("span", { text: COURSEWORK_KINDS[item.kind].label }));
+  meta.append(due
+    ? el("span", { class: `cw-due${due.tone}`, text: due.text })
+    : el("span", { text: "No deadline set" }));
+
+  return el(
+    "li",
+    {
+      class: `cw-item${item.stage === "submitted" ? " is-submitted" : ""}`,
+      style: subjectVars(item.subject),
+    },
+    el(
+      "div",
+      { class: "cw-main" },
+      el("button", {
+        type: "button", class: "cw-open", text: item.title,
+        "aria-haspopup": "dialog", dataset: { editCoursework: item.id },
+      }),
+      meta,
+      item.notes ? el("p", { class: "cw-notes", text: item.notes }) : null
+    ),
+    el(
+      "div",
+      { class: "cw-stage-field" },
+      el("label", { class: "sr-only", for: stageId }, `Stage of ${item.title}`),
+      el("select", { id: stageId, dataset: { stageFor: item.id } },
+        COURSEWORK_STAGES.map((stage) => el("option", {
+          value: stage.id, text: stage.label, selected: item.stage === stage.id,
+        })))
+    )
+  );
+}
+
+function renderCoursework() {
+  const wrap = $("coursework-list");
+  const items = liveCoursework().sort(sortCoursework);
+  const today = todayISO();
+
+  if (items.length === 0) {
+    wrap.replaceChildren(el("p", {
+      class: "empty",
+      text: "Nothing here yet. Add an internal assessment, the extended essay, the TOK essay, or anything else that runs over weeks rather than landing on one day.",
+    }));
+    return;
+  }
+
+  wrap.replaceChildren(el("ul", { class: "cw-list" }, items.map((item) => buildCourseworkItem(item, today))));
+}
+
+function openCourseworkDialog(id = null) {
+  const item = id ? findCoursework(id) : null;
+  state.editingCourseworkId = item ? item.id : null;
+
+  $("coursework-dialog-title").textContent = item ? "Edit coursework" : "Add coursework";
+  $("save-coursework").textContent = item ? "Save changes" : "Add coursework";
+  $("delete-coursework").hidden = !item;
+  ["cw-title", "cw-due"].forEach((id2) => {
+    $(id2).removeAttribute("aria-invalid");
+    $(`${id2}-error`).textContent = "";
+  });
+
+  $("cw-kind-choice").replaceChildren(...COURSEWORK_KIND_KEYS.flatMap((key) => {
+    const inputId = `cw-kind-${key}`;
+    return [
+      el("input", {
+        type: "radio", name: "cw-kind", id: inputId, value: key,
+        checked: (item ? item.kind : "ia") === key,
+      }),
+      el("label", { for: inputId, text: COURSEWORK_KINDS[key].label }),
+    ];
+  }));
+
+  $("cw-subject-choice").replaceChildren(
+    ...[["", "None"], ...SUBJECT_KEYS.map((key) => [key, SUBJECTS[key].label])].flatMap(([key, label]) => {
+      const inputId = `cw-subject-${key || "none"}`;
+      return [
+        el("input", {
+          type: "radio", name: "cw-subject", id: inputId, value: key,
+          checked: (item ? item.subject : "") === key,
+        }),
+        el("label", { for: inputId, text: label }),
+      ];
+    })
+  );
+
+  $("cw-stage").replaceChildren(...COURSEWORK_STAGES.map((stage) => el("option", {
+    value: stage.id, text: stage.label, selected: (item ? item.stage : "not-started") === stage.id,
+  })));
+
+  $("cw-title").value = item ? item.title : "";
+  $("cw-due").value = item ? item.due : "";
+  $("cw-notes").value = item ? item.notes : "";
+
+  openDialog($("coursework-dialog"));
+  $("cw-title").focus();
+}
+
+function submitCourseworkForm(event) {
+  event.preventDefault();
+  ["cw-title", "cw-due"].forEach((id) => {
+    $(id).removeAttribute("aria-invalid");
+    $(`${id}-error`).textContent = "";
+  });
+
+  const title = $("cw-title").value.trim();
+  const due = $("cw-due").value;
+  if (!title) {
+    $("cw-title").setAttribute("aria-invalid", "true");
+    $("cw-title-error").textContent = "Give it a name so you can recognise it later.";
+    $("cw-title").focus();
+    return;
+  }
+  if (due && !isValidISO(due)) {
+    $("cw-due").setAttribute("aria-invalid", "true");
+    $("cw-due-error").textContent = "That deadline is not a date. Leave it blank if there is not one yet.";
+    $("cw-due").focus();
+    return;
+  }
+
+  const kind = document.querySelector('input[name="cw-kind"]:checked');
+  const subject = document.querySelector('input[name="cw-subject"]:checked');
+  const values = {
+    title,
+    kind: kind ? kind.value : "other",
+    subject: subject ? subject.value : "",
+    due,
+    stage: $("cw-stage").value,
+    notes: $("cw-notes").value.trim(),
+  };
+
+  const existing = state.editingCourseworkId ? findCoursework(state.editingCourseworkId) : null;
+  if (existing) {
+    Object.assign(existing, values);
+    touch(existing);
+    announce(`Saved "${title}".`);
+  } else {
+    state.coursework.push(normaliseCoursework({
+      ...values, id: newId(), createdAt: new Date().toISOString(),
+    }));
+    announce(`Added "${title}" to the study organiser.`);
+  }
+
+  saveCoursework();
+  closeDialog($("coursework-dialog"));
+  renderAll();
+  $("add-coursework").focus();
+}
+
+function deleteCurrentCoursework() {
+  const item = state.editingCourseworkId ? findCoursework(state.editingCourseworkId) : null;
+  if (!item) return;
+  if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
+
+  item.deleted = true;
+  touch(item);
+  saveCoursework();
+  closeDialog($("coursework-dialog"));
+  renderAll();
+  announce(`Deleted "${item.title}".`);
+  $("add-coursework").focus();
+}
+
+function setCourseworkStage(id, stage) {
+  const item = findCoursework(id);
+  if (!item || !COURSEWORK_STAGE_KEYS.includes(stage)) return;
+  item.stage = stage;
+  touch(item);
+  saveCoursework();
+  renderAll();
+  // The list re-sorts as stages change, so put focus back on the same control.
+  const restored = document.querySelector(`[data-stage-for="${id}"]`);
+  if (restored) restored.focus();
+  const label = COURSEWORK_STAGES.find((entry) => entry.id === stage).label.toLowerCase();
+  announce(`"${item.title}" is now ${label}.`);
+}
+
+function setupCoursework() {
+  $("add-coursework").addEventListener("click", () => openCourseworkDialog());
+  $("coursework-form").addEventListener("submit", submitCourseworkForm);
+  $("delete-coursework").addEventListener("click", deleteCurrentCoursework);
+
+  $("coursework-list").addEventListener("click", (event) => {
+    const open = event.target.closest("[data-edit-coursework]");
+    if (open) openCourseworkDialog(open.dataset.editCoursework);
+  });
+  $("coursework-list").addEventListener("change", (event) => {
+    const select = event.target.closest("[data-stage-for]");
+    if (select) setCourseworkStage(select.dataset.stageFor, select.value);
+  });
+}
+
 /* ---------- Reminders ---------- */
 
 /*
@@ -1816,8 +2118,9 @@ function syncState() {
 /** How many tasks have changed since the last copy was saved out. */
 function pendingChangeCount() {
   const { lastSavedAt } = syncState();
-  if (!lastSavedAt) return state.tasks.length;
-  return state.tasks.filter((task) => task.updatedAt > lastSavedAt).length;
+  const everything = [...state.tasks, ...state.coursework];
+  if (!lastSavedAt) return everything.length;
+  return everything.filter((record) => record.updatedAt > lastSavedAt).length;
 }
 
 function markSaved() {
@@ -1827,8 +2130,15 @@ function markSaved() {
 
 function backupPayload() {
   // Tombstones travel too, or a delete on one device would be undone by the
-  // next merge from the other.
-  return JSON.stringify({ app: "remembre", version: 2, savedAt: new Date().toISOString(), tasks: state.tasks }, null, 2);
+  // next merge from the other. Coursework rides along, or it would never reach
+  // the other device at all.
+  return JSON.stringify({
+    app: "remembre",
+    version: 3,
+    savedAt: new Date().toISOString(),
+    tasks: state.tasks,
+    coursework: state.coursework,
+  }, null, 2);
 }
 
 async function saveCopy() {
@@ -1868,23 +2178,22 @@ async function saveCopy() {
  * newer updatedAt wins; anything unknown is added. Importing the same file
  * twice changes nothing, and neither device loses work.
  */
-function mergeTasks(incoming) {
-  const byId = new Map(state.tasks.map((task) => [task.id, task]));
-  const result = { added: 0, updated: 0, removed: 0, unchanged: 0 };
+function mergeInto(collection, incoming, result) {
+  const byId = new Map(collection.map((record) => [record.id, record]));
 
-  incoming.forEach((task) => {
-    const existing = byId.get(task.id);
+  incoming.forEach((record) => {
+    const existing = byId.get(record.id);
     if (!existing) {
-      state.tasks.push(task);
-      byId.set(task.id, task);
-      if (task.deleted) result.unchanged += 1;
+      collection.push(record);
+      byId.set(record.id, record);
+      if (record.deleted) result.unchanged += 1;
       else result.added += 1;
       return;
     }
-    if (task.updatedAt > existing.updatedAt) {
+    if (record.updatedAt > existing.updatedAt) {
       const wasLive = !existing.deleted;
-      Object.assign(existing, task);
-      if (task.deleted && wasLive) result.removed += 1;
+      Object.assign(existing, record);
+      if (record.deleted && wasLive) result.removed += 1;
       else result.updated += 1;
     } else {
       result.unchanged += 1;
@@ -1892,6 +2201,14 @@ function mergeTasks(incoming) {
   });
 
   return result;
+}
+
+function mergeTasks(incoming) {
+  return mergeInto(state.tasks, incoming, { added: 0, updated: 0, removed: 0, unchanged: 0 });
+}
+
+function mergeCoursework(incoming) {
+  return mergeInto(state.coursework, incoming, { added: 0, updated: 0, removed: 0, unchanged: 0 });
 }
 
 function describeMerge({ added, updated, removed, unchanged }) {
@@ -1919,15 +2236,25 @@ function loadCopy(file) {
       return;
     }
     const incoming = list.map(normaliseTask).filter(Boolean);
-    if (incoming.length === 0) {
+    const incomingCoursework = (Array.isArray(parsed && parsed.coursework) ? parsed.coursework : [])
+      .map(normaliseCoursework)
+      .filter(Boolean);
+    if (incoming.length === 0 && incomingCoursework.length === 0) {
       window.alert("No readable tasks were found in that file.");
       return;
     }
 
     const result = mergeTasks(incoming);
+    const courseworkResult = mergeCoursework(incomingCoursework);
     saveTasks();
+    saveCoursework();
     renderAll();
-    const summary = describeMerge(result);
+    const summary = [
+      describeMerge(result),
+      courseworkResult.added || courseworkResult.updated || courseworkResult.removed
+        ? `coursework: ${describeMerge(courseworkResult)}`
+        : null,
+    ].filter(Boolean).join("; ");
     announce(`Merged from file: ${summary}.`);
     window.alert(`Merged.\n\n${summary}.`);
   };
@@ -2157,12 +2484,14 @@ function restorePrefs() {
 function init() {
   $("app-version").textContent = APP_VERSION;
   state.tasks = loadTasks();
+  state.coursework = loadCoursework();
   const today = todayISO();
   state.focusDate = today;
   state.weekStart = weekStartFor(today);
   state.periodStart = today.slice(0, 8) + "01";
   restorePrefs();
   setupEvents();
+  setupCoursework();
   renderAll();
   setupReminders();
 }

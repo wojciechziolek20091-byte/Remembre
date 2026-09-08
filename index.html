@@ -128,6 +128,19 @@
       <div id="agenda" tabindex="-1"></div>
     </section>
 
+    <section class="organiser" aria-labelledby="organiser-heading">
+      <div class="organiser-head">
+        <div>
+          <h2 class="organiser-title" id="organiser-heading">Study organiser</h2>
+          <p class="organiser-hint" id="organiser-hint">The long pieces: internal assessments, the extended essay, the TOK essay, CAS. Soonest deadline first.</p>
+        </div>
+        <button type="button" class="btn btn-primary" id="add-coursework">
+          <span class="btn-plus" aria-hidden="true">+</span> Add coursework
+        </button>
+      </div>
+      <div id="coursework-list" aria-describedby="organiser-hint"></div>
+    </section>
+
   </main>
 
   <aside class="sidebar sidebar-settings" aria-label="Filters and settings">
@@ -253,6 +266,60 @@
       <span class="dialog-actions-spacer"></span>
       <button type="button" class="btn btn-quiet" data-close="task-dialog">Cancel</button>
       <button type="submit" class="btn btn-primary" id="save-task">Save task</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dialog" id="coursework-dialog" aria-labelledby="coursework-dialog-title">
+  <form method="dialog" class="dialog-form" id="coursework-form" novalidate>
+    <div class="dialog-head">
+      <h2 class="dialog-title" id="coursework-dialog-title">Add coursework</h2>
+      <button type="button" class="btn btn-icon dialog-close" data-close="coursework-dialog">
+        <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+      </button>
+    </div>
+
+    <fieldset class="field">
+      <legend>What kind of work? <span class="req" aria-hidden="true">*</span></legend>
+      <div class="type-choice" id="cw-kind-choice"></div>
+    </fieldset>
+
+    <div class="field">
+      <label for="cw-title">Name <span class="req" aria-hidden="true">*</span></label>
+      <input type="text" id="cw-title" required aria-required="true" autocomplete="off"
+             maxlength="120" aria-describedby="cw-title-error"
+             placeholder="e.g. Economics IA, commentary 2">
+      <p class="field-error" id="cw-title-error" role="alert"></p>
+    </div>
+
+    <fieldset class="field">
+      <legend>Subject <span class="optional">(optional)</span></legend>
+      <div class="type-choice" id="cw-subject-choice"></div>
+    </fieldset>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="cw-due">Deadline <span class="optional">(optional)</span></label>
+        <input type="date" id="cw-due" aria-describedby="cw-due-error">
+        <p class="field-error" id="cw-due-error" role="alert"></p>
+      </div>
+      <div class="field">
+        <label for="cw-stage">Stage</label>
+        <select id="cw-stage"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="cw-notes">Notes <span class="optional">(optional)</span></label>
+      <textarea id="cw-notes" rows="3" maxlength="500"
+                placeholder="Research question, supervisor, word count, next step."></textarea>
+    </div>
+
+    <div class="dialog-actions">
+      <button type="button" class="btn btn-danger" id="delete-coursework" hidden>Delete</button>
+      <span class="dialog-actions-spacer"></span>
+      <button type="button" class="btn btn-quiet" data-close="coursework-dialog">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="save-coursework">Save</button>
     </div>
   </form>
 </dialog>

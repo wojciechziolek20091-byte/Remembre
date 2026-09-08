@@ -440,6 +440,79 @@ check("the test notification reports success", proof.map((n) => n.title), ["Succ
 
 await page.evaluate(() => { state.tasks = []; saveTasks(); renderAll(); });
 
+console.log("\nstudy organiser");
+await page.evaluate(() => {
+  const z = (n) => String(n).padStart(2, "0");
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; };
+  const mk = (id, title, kind, subject, off, stage) => normaliseCoursework({
+    id, title, kind, subject, due: off === null ? "" : day(off), stage,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  });
+  state.coursework = [
+    mk("ee", "Extended Essay", "ee", "history", 60, "not-started"),
+    mk("mia", "Maths IA", "ia", "mathematics", 3, "submitted"),
+    mk("tok", "TOK essay", "tok", "", 25, "draft"),
+    mk("eco", "Economics IA", "ia", "economics", 10, "in-progress"),
+    mk("cas", "CAS project", "cas", "", null, "in-progress"),
+  ];
+  saveCoursework();
+  renderAll();
+});
+check("soonest deadline first, undated then submitted last",
+  await page.locator(".cw-open").allInnerTexts(),
+  ["Economics IA", "TOK essay", "Extended Essay", "CAS project", "Maths IA"]);
+check("a deadline close at hand is marked",
+  await page.locator(".cw-item", { hasText: "Economics IA" }).locator(".cw-due.is-close").count(), 1);
+check("a submitted piece is not urgent, whatever its date",
+  await page.locator(".cw-item", { hasText: "Maths IA" }).locator(".cw-due.is-close, .cw-due.is-late").count(), 0);
+
+await page.locator('[data-stage-for="ee"]').selectOption("draft");
+check("a stage can be changed from the list",
+  await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.coursework.v1"))
+    .find((item) => item.id === "ee").stage), "draft");
+check("and focus stays on the control after it re-sorts",
+  await page.evaluate(() => document.activeElement.dataset.stageFor), "ee");
+
+await page.locator('[data-edit-coursework="tok"]').click();
+await page.waitForSelector("#coursework-dialog[open]");
+check("editing restores the kind", await page.locator("#cw-kind-tok").isChecked(), true);
+check("editing restores no subject", await page.locator("#cw-subject-none").isChecked(), true);
+check("editing restores the stage", await page.inputValue("#cw-stage"), "draft");
+await page.fill("#cw-title", "   ");
+await page.click("#save-coursework");
+check("a blank name is rejected", await page.locator("#coursework-dialog[open]").count(), 1);
+await page.keyboard.press("Escape");
+
+// The integration that would fail silently: coursework has to travel too.
+const travels = await page.evaluate(() => {
+  const payload = JSON.parse(backupPayload());
+  const other = payload.coursework.map((item) => ({ ...item }));
+  other.push(normaliseCoursework({
+    id: "phone", title: "Physics IA", kind: "ia", subject: "",
+    createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z",
+  }));
+  const mine = other.find((item) => item.id === "eco");
+  mine.title = "Economics IA, renamed later";
+  mine.updatedAt = "2030-01-01T00:00:00Z";
+
+  const result = mergeCoursework(other.map(normaliseCoursework).filter(Boolean));
+  return {
+    inBackup: payload.coursework.length,
+    result,
+    renamed: findCoursework("eco").title,
+    fromOtherDevice: Boolean(findCoursework("phone")),
+  };
+});
+check("a backup carries the organiser as well as the tasks", travels.inBackup, 5);
+check("merging brings the other device's coursework across", travels.fromOtherDevice, true);
+check("and takes its newer edit", travels.renamed, "Economics IA, renamed later");
+check("counting only what actually changed",
+  [travels.result.added, travels.result.updated], [1, 1]);
+
+await page.evaluate(() => { state.coursework = []; saveCoursework(); renderAll(); });
+check("the panel says so when there is nothing in it",
+  (await page.textContent("#coursework-list")).startsWith("Nothing here yet"), true);
+
 console.log("\ntwo-device merge");
 /*
   Simulates the real workflow: two devices from a common starting point, each
