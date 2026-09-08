@@ -1,5 +1,5 @@
 import { cors, json, storeReport } from "./_store.js";
-import { vapidKeys } from "./_push.js";
+import { vapidReport } from "./_push.js";
 
 /**
  * A deployment can be missing its storage entirely, and the app needs to be
@@ -12,17 +12,14 @@ export default function handler(req, res) {
   if (req.method !== "GET") return json(res, 405, { error: "method-not-allowed" });
 
   // The app needs the public half of the notification key to subscribe a
-  // device, so it is served here. It is public by design; the private half is
-  // never sent anywhere.
-  const keys = vapidKeys();
+  // device, so it is served here. It is public by design -- but only once it
+  // has been checked, because a mis-set variable would otherwise publish the
+  // private half instead, which is the one mistake that must not go quietly.
+  const push = vapidReport();
 
   json(res, 200, {
     ok: true,
     ...storeReport(),
-    push: {
-      configured: Boolean(keys),
-      needs: "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY",
-      publicKey: keys ? keys.publicKey : "",
-    },
+    push: { needs: "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY", ...push },
   });
 }

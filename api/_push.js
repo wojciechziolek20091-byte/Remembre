@@ -36,12 +36,71 @@ export function generateVapidKeys() {
   };
 }
 
+/**
+ * Checks the configured pair before anything trusts it.
+ *
+ * This exists because the two values are both opaque strings and the public
+ * one is served to the app, so pasting them the wrong way round publishes the
+ * private key and breaks subscription at the same time -- with nothing on
+ * either side saying why. A public key is a 65-byte uncompressed point starting
+ * 0x04 and a private key is the 32-byte scalar, which is enough to tell them
+ * apart, and deriving the point from the scalar proves they are actually a pair.
+ */
+export function vapidReport() {
+  const publicKey = process.env.VAPID_PUBLIC_KEY || "";
+  const privateKey = process.env.VAPID_PRIVATE_KEY || "";
+  const nothing = { configured: false, publicKey: "" };
+
+  if (!publicKey || !privateKey) {
+    return { ...nothing, problem: "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not both set." };
+  }
+
+  const point = unb64u(publicKey);
+  const scalar = unb64u(privateKey);
+
+  if (point.length === 32 && scalar.length === 65) {
+    return {
+      ...nothing,
+      problem:
+        "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are the wrong way round. " +
+        "Swap the two values. Because the private key was served publicly while " +
+        "this was so, replace the pair with a fresh one rather than reusing it.",
+    };
+  }
+  if (point.length !== 65 || point[0] !== 4) {
+    return {
+      ...nothing,
+      problem: `VAPID_PUBLIC_KEY is not a public key: expected 65 bytes beginning 0x04, got ${point.length}.`,
+    };
+  }
+  if (scalar.length !== 32) {
+    return {
+      ...nothing,
+      problem: `VAPID_PRIVATE_KEY is not a private key: expected 32 bytes, got ${scalar.length}.`,
+    };
+  }
+
+  try {
+    const ecdh = createECDH(CURVE);
+    ecdh.setPrivateKey(scalar);
+    if (!ecdh.getPublicKey().equals(point)) {
+      return { ...nothing, problem: "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not a pair." };
+    }
+  } catch (err) {
+    return { ...nothing, problem: "VAPID_PRIVATE_KEY is not a usable P-256 key." };
+  }
+
+  return { configured: true, publicKey, problem: "" };
+}
+
 export function vapidKeys() {
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || "mailto:remembre@example.com";
-  if (!publicKey || !privateKey) return null;
-  return { publicKey, privateKey, subject };
+  const report = vapidReport();
+  if (!report.configured) return null;
+  return {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject: process.env.VAPID_SUBJECT || "mailto:remembre@example.com",
+  };
 }
 
 /**

@@ -130,6 +130,63 @@ console.log("\nthe VAPID header");
   );
 }
 
+/* ---------- Keys that were set wrong ---------- */
+
+console.log("\nkeys that were set wrong");
+
+{
+  /*
+    Both values are opaque strings and the public one is served to the app, so
+    pasting them the wrong way round publishes the private key AND breaks
+    subscription, with nothing on either side saying why. Every one of these
+    has to be caught before anything is served.
+  */
+  const { vapidReport } = await import("../api/_push.js");
+  const good = generateVapidKeys();
+
+  const withEnv = (publicKey, privateKey) => {
+    if (publicKey === null) delete process.env.VAPID_PUBLIC_KEY;
+    else process.env.VAPID_PUBLIC_KEY = publicKey;
+    if (privateKey === null) delete process.env.VAPID_PRIVATE_KEY;
+    else process.env.VAPID_PRIVATE_KEY = privateKey;
+    return vapidReport();
+  };
+
+  const ok = withEnv(good.publicKey, good.privateKey);
+  check("a real pair is accepted", ok.configured === true, ok.problem);
+  check("and the public key is served", ok.publicKey === good.publicKey);
+
+  const swapped = withEnv(good.privateKey, good.publicKey);
+  check("the two the wrong way round is caught", swapped.configured === false);
+  check("and named as exactly that", /wrong way round/.test(swapped.problem), swapped.problem);
+  check("and the private key is not served anyway", swapped.publicKey === "", swapped.publicKey);
+  check(
+    "and it says to replace the pair, not just swap it",
+    /fresh one/.test(swapped.problem),
+    swapped.problem,
+  );
+
+  const other = generateVapidKeys();
+  const mismatched = withEnv(good.publicKey, other.privateKey);
+  check("two halves of different pairs are caught", mismatched.configured === false);
+  check("and named", /not a pair/.test(mismatched.problem), mismatched.problem);
+
+  const rubbish = withEnv("not-a-key", good.privateKey);
+  check("a public key that is not one is caught", rubbish.configured === false && rubbish.publicKey === "");
+
+  const missing = withEnv(good.publicKey, null);
+  check("a half-set pair is caught", missing.configured === false);
+  check("and never serves the half it has", missing.publicKey === "");
+
+  // Nothing may be sent while any of that is true.
+  const { vapidKeys: keysNow } = await import("../api/_push.js");
+  withEnv(good.privateKey, good.publicKey);
+  check("and nothing can be sent meanwhile", keysNow() === null);
+
+  withEnv(good.publicKey, good.privateKey);
+  check("once corrected, sending works again", keysNow() !== null);
+}
+
 /* ---------- Identifying a device ---------- */
 
 {

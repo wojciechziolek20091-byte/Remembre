@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-29";
+const APP_VERSION = "2026.09.08-30";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -2425,6 +2425,7 @@ async function enableReminders() {
     await registerPush({ quiet: true });
   } catch (err) {
     console.warn("Could not register for notifications while closed:", err);
+    pushProblem = err && err.message ? err.message : "the server could not be reached.";
   }
   renderPushNote();
 }
@@ -2999,6 +3000,7 @@ function markAlertsExported() {
 const PUSH_KEY = "remembre.push.v1";
 
 let serverFacts = null;      // What /api/status said, fetched at most once.
+let pushProblem = "";        // Why this device is not registered, in the server's words.
 
 function pushSupported() {
   return "serviceWorker" in navigator && "PushManager" in window && window.isSecureContext;
@@ -3040,9 +3042,15 @@ async function registerPush({ quiet = false } = {}) {
 
   const facts = await askServer();
   if (!facts.push || !facts.push.configured) {
-    if (!quiet) announce("This server cannot send notifications yet; its notification keys are not set.");
+    // The server knows exactly what is wrong with its own configuration, and
+    // repeating it here beats a generic "not working" that nobody can act on.
+    pushProblem = (facts.push && facts.push.problem)
+      || "This server has no notification keys set.";
+    renderPushNote();
+    if (!quiet) announce(pushProblem);
     return false;
   }
+  pushProblem = "";
 
   const registration = await navigator.serviceWorker.ready;
   const existing = await registration.pushManager.getSubscription();
@@ -3098,6 +3106,8 @@ async function unregisterPush() {
   }
 }
 
+const lowerFirst = (text) => (text ? text[0].toLowerCase() + text.slice(1) : text);
+
 function renderPushNote() {
   const note = $("cloud-push");
   if (!note) return;
@@ -3117,10 +3127,15 @@ function renderPushNote() {
     note.classList.add("is-stale");
     return;
   }
-  note.textContent = pushState().device
-    ? "Reminders reach this device with Remembre closed."
+  if (pushState().device) {
+    note.textContent = "Reminders reach this device with Remembre closed.";
+    note.classList.remove("is-stale");
+    return;
+  }
+  note.textContent = pushProblem
+    ? `This device is not registered with the server: ${lowerFirst(pushProblem)}`
     : "Reminders are on, but this device is not registered with the server yet.";
-  note.classList.toggle("is-stale", !pushState().device);
+  note.classList.add("is-stale");
 }
 
 /* ---------- Sync: automatic, through the server ---------- */
