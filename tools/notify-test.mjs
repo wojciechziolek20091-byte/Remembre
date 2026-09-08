@@ -29,9 +29,16 @@ process.env.VAPID_PUBLIC_KEY = fresh.publicKey;
 process.env.VAPID_PRIVATE_KEY = fresh.privateKey;
 process.env.VAPID_SUBJECT = "mailto:tests@example.com";
 
-const { default: notify, digest, localClock } = await import("../api/notify.js");
+const { default: notify, digest, dueReminders, localClock } = await import("../api/notify.js");
 const { default: subscribeRoute } = await import("../api/subscribe.js");
 const { store, vaultKey } = await import("../api/_store.js");
+
+/* Spread far enough apart that some zone is always in its evening. */
+const ZONES = [
+  "Pacific/Kiritimati", "Pacific/Auckland", "Australia/Sydney", "Asia/Tokyo",
+  "Asia/Kolkata", "Europe/Warsaw", "UTC", "America/New_York", "America/Los_Angeles",
+  "Pacific/Honolulu",
+];
 
 let passed = 0;
 const failures = [];
@@ -175,6 +182,68 @@ console.log("\nwhat it says");
   check("and counts them", study.body === "2 study sessions", study.body);
 }
 
+/* ---------- Reminders at their own moment ---------- */
+
+console.log("\nstudy session reminders");
+
+{
+  /*
+    dueReminders is given a clock rather than reading one, so these are exact:
+    a session at 16:00 should produce the hour-before nudge at 15:00 and the
+    time-to-study one at 16:00, and neither of them at 14:30.
+  */
+  const at = (minutes) => {
+    const hour = Math.floor(minutes / 60);
+    return {
+      hour, minute: minutes % 60, minutes,
+      today: "2026-09-08", tomorrow: "2026-09-09",
+      time: `${String(hour).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`,
+    };
+  };
+
+  const vault = {
+    tasks: [],
+    coursework: [{ id: "ee", title: "Extended essay" }],
+    sessions: [{ id: "s1", courseworkId: "ee", date: "2026-09-08", time: "16:00", minutes: 60 }],
+  };
+
+  const keysAt = (minutes) => dueReminders(vault, at(minutes)).map((item) => item.key);
+
+  check("nothing is due two hours ahead", keysAt(14 * 60).length === 0, JSON.stringify(keysAt(14 * 60)));
+  check("nothing is due at half past two", keysAt(14 * 60 + 30).length === 0);
+  check("the hour-before nudge arrives at 15:00", keysAt(15 * 60).join() === "session-soon:s1", keysAt(15 * 60).join());
+  check("and still stands at 15:30, for a scheduler running late", keysAt(15 * 60 + 30).includes("session-soon:s1"));
+  check("time to study arrives at 16:00", keysAt(16 * 60).includes("session-now:s1"));
+  check("and the stale hour-before is not sent with it", keysAt(16 * 60 + 40).join() === "session-now:s1", keysAt(16 * 60 + 40).join());
+  check("a reminder more than 90 minutes late is dropped", keysAt(17 * 60 + 45).length === 0, JSON.stringify(keysAt(17 * 60 + 45)));
+
+  const named = dueReminders(vault, at(15 * 60))[0];
+  check("the nudge names the coursework", named.message.body === "Extended essay · 60 minutes", named.message.body);
+  check("and says what it is", named.message.title === "In an hour", named.message.title);
+
+  const done = { ...vault, sessions: [{ ...vault.sessions[0], done: true }] };
+  check("a session already done is not reminded about", dueReminders(done, at(16 * 60)).length === 0);
+  const other = { ...vault, sessions: [{ ...vault.sessions[0], date: "2026-09-09" }] };
+  check("nor is one on another day", dueReminders(other, at(16 * 60)).length === 0);
+
+  const orphan = { ...vault, coursework: [] };
+  check(
+    "a session with no coursework still reads sensibly",
+    dueReminders(orphan, at(16 * 60))[0].message.body === "your coursework · 60 minutes",
+  );
+
+  // A session early enough that its reminders and the evening digest are both
+  // outstanding at once.
+  const evening = {
+    tasks: [{ id: "t", title: "Reading", date: "2026-09-09", type: "homework" }],
+    coursework: [{ id: "ee", title: "Extended essay" }],
+    sessions: [{ id: "s2", courseworkId: "ee", date: "2026-09-08", time: "17:30", minutes: 45 }],
+  };
+  const both = dueReminders(evening, at(17 * 60 + 30)).map((item) => item.key);
+  check("the digest and a session reminder can both be due", both.length === 3, JSON.stringify(both));
+  check("and the digest comes first", both[0] === "digest:2026-09-09", both[0]);
+}
+
 /* ---------- Registering a device ---------- */
 
 console.log("\nregistering a device");
@@ -238,7 +307,7 @@ const register = async (zone, extra = {}) => {
     p256dh: device.p256dh,
     auth: device.auth,
     zone,
-    lastSentFor: "",
+    sent: {},
     ...extra,
   });
 };
@@ -257,16 +326,11 @@ function tomorrowIn(zone) {
 
 {
   // Somewhere it is still the middle of the afternoon.
-  await register("Pacific/Honolulu");
-  const res = await call(notify, { url: "/api/notify" });
-  const only = res.body.report[0];
-  const early = only.why === "too early where this device is";
-  check(
-    "a device where it is not yet evening is left alone",
-    early || only.sent === false,
-    JSON.stringify(only),
-  );
-  if (!early) console.log(`      (it is ${only.at} in Honolulu, so this ran after 17:00 there)`);
+  const zone = zoneWhereItIsAfternoon();
+  await register(zone);
+  delivered.length = 0;
+  await call(notify, { url: "/api/notify" });
+  check(`a device where it is not yet evening is left alone (${zone})`, delivered.length === 0, String(delivered.length));
 }
 
 {
@@ -276,7 +340,7 @@ function tomorrowIn(zone) {
   delivered.length = 0;
   const res = await call(notify, { url: "/api/notify" });
   const only = res.body.report[0];
-  check("a device where it is evening is sent to", only.sent === true, JSON.stringify(only));
+  check("a device where it is evening is sent to", only.sent === 1, JSON.stringify(only));
   check("exactly one notification goes out", delivered.length === 1, String(delivered.length));
 
   const sent = delivered[0];
@@ -294,7 +358,7 @@ function tomorrowIn(zone) {
   delivered.length = 0;
   const res = await call(notify, { url: "/api/notify" });
   check("running it again the same day sends nothing", delivered.length === 0, String(delivered.length));
-  check("and says why", res.body.report[0].why === "already told about tomorrow", JSON.stringify(res.body.report[0]));
+  check("and says so", res.body.report[0].sent === 0, JSON.stringify(res.body.report[0]));
 }
 
 {
@@ -303,7 +367,7 @@ function tomorrowIn(zone) {
   delivered.length = 0;
   const res = await call(notify, { url: "/api/notify" });
   check("an empty day is not worth a notification", delivered.length === 0);
-  check("and it says so", res.body.report[0].why === "nothing due tomorrow", JSON.stringify(res.body.report[0]));
+  check("and nothing is recorded as said", res.body.report[0].sent === 0, JSON.stringify(res.body.report[0]));
 }
 
 {
@@ -312,8 +376,8 @@ function tomorrowIn(zone) {
   delivered.length = 0;
   const res = await call(notify, { url: "/api/notify?dry=1" });
   check("a dry run sends nothing", delivered.length === 0);
-  check("but says what it would have sent", res.body.report[0].would === "Reading", JSON.stringify(res.body.report[0]));
-  check("and nothing is marked as done", (await listSubscriptions(live))[0].lastSentFor === "");
+  check("but says what it would have sent", res.body.report[0].would[0] === "Reading", JSON.stringify(res.body.report[0]));
+  check("and nothing is marked as said", Object.keys((await listSubscriptions(live))[0].sent || {}).length === 0);
 }
 
 {
@@ -321,7 +385,7 @@ function tomorrowIn(zone) {
   answerWith = 410;
   await register(zoneWhereItIsEvening());
   const res = await call(notify, { url: "/api/notify" });
-  check("a device that is gone is forgotten", res.body.report[0].why.includes("gone"), JSON.stringify(res.body.report[0]));
+  check("a device that is gone is forgotten", String(res.body.report[0].why).includes("gone"), JSON.stringify(res.body.report[0]));
   check("and is not tried again", (await listSubscriptions(live)).length === 0);
   answerWith = 201;
 }
@@ -348,15 +412,19 @@ console.log("\nwho may set it running");
 
 /* ---------- A zone where the evening has already arrived ---------- */
 
+function zoneWhereItIsAfternoon() {
+  const found = ZONES.find((zone) => {
+    const hour = localClock(zone).hour;
+    return hour >= 10 && hour <= 15;
+  });
+  if (!found) throw new Error("no candidate zone is in its afternoon right now");
+  return found;
+}
+
 function zoneWhereItIsEvening() {
-  const candidates = [
-    "Pacific/Kiritimati", "Pacific/Auckland", "Australia/Sydney", "Asia/Tokyo",
-    "Asia/Kolkata", "Europe/Warsaw", "UTC", "America/New_York", "America/Los_Angeles",
-    "Pacific/Honolulu",
-  ];
   // 17:00 through 22:00 leaves room for the run to take a moment without the
   // local date rolling over underneath it.
-  const found = candidates.find((zone) => {
+  const found = ZONES.find((zone) => {
     const hour = localClock(zone).hour;
     return hour >= 17 && hour <= 22;
   });

@@ -1,0 +1,75 @@
+# Vercel's Hobby plan will not run a scheduled job more than once a day, which
+# is enough for the evening summary and no use at all for "your study session
+# starts in an hour". GitHub's scheduler has no such limit, so it does the
+# frequent asking and Vercel's own daily jobs stay as a backstop.
+#
+# All this does is knock on /api/notify. The app decides what, if anything, is
+# actually due -- in each device's own time zone -- and refuses to send the same
+# reminder twice, so knocking often is safe and knocking late is survivable.
+
+name: Reminders
+
+on:
+  schedule:
+    # Every quarter of an hour through the waking day, in UTC. GitHub runs
+    # these late when it is busy, which the app tolerates: a reminder is still
+    # sent up to ninety minutes after its moment.
+    - cron: "*/15 5-21 * * *"
+  # For trying it without waiting for the next quarter hour.
+  workflow_dispatch:
+
+# Nothing here reads or writes the repository.
+permissions: {}
+
+concurrency:
+  group: reminders
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send anything that has come due
+        env:
+          # Override with a repository variable if the app moves.
+          APP_URL: ${{ vars.REMEMBRE_URL || 'https://remembre.vercel.app' }}
+          # Optional. Set it in both places or neither: if the app has a secret
+          # and this does not, the app answers with a dry run and sends nothing.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          status=$(curl -sS --max-time 60 \
+            -o response.json -w '%{http_code}' \
+            -X POST "$APP_URL/api/notify" \
+            ${CRON_SECRET:+-H "Authorization: Bearer $CRON_SECRET"})
+
+          echo "HTTP $status"
+          cat response.json
+          echo
+
+          if [ "$status" != "200" ]; then
+            echo "::error::The app answered $status"
+            exit 1
+          fi
+
+          # Surface what went out on the run's summary page, so a glance at the
+          # Actions tab says whether reminders are actually being delivered.
+          {
+            echo "### Reminders"
+            echo
+            python3 - response.json <<'PY'
+          import json, sys
+          # The file is an argument, not stdin: stdin is already carrying this
+          # script, and a redirect here would quietly replace it.
+          report = json.load(open(sys.argv[1]))
+          if report.get("dryRun"):
+              print("Dry run: the app has a `CRON_SECRET` this workflow did not send.")
+          print(f"- devices registered: {report.get('devices', 0)}")
+          print(f"- notifications sent: {report.get('sent', 0)}")
+          for line in report.get("report", []):
+              for note in line.get("delivered", []) or []:
+                  print(f"  - {note}")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"

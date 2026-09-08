@@ -336,32 +336,42 @@ can complain to). The pair is what proves to Apple and Google that a
 notification really came from this deployment; changing it invalidates every
 device that has already subscribed, so once set, leave it.
 
-**A schedule.** A Hobby account may have a hundred cron jobs but none more often
-than daily, and it only promises to run one within the right *hour*. So the run
-cannot assume it is 17:00 anywhere. Each device stores its own time zone, and the
-rule is *it is past 17:00 where this device is, and it has not been told about
-tomorrow yet*, which makes the job idempotent: calling it twice sends nothing
-twice.
+**Somebody to ask.** `/api/notify` sends whatever has come due and nothing else.
+It decides that from each device's own time zone, never from the server's, and
+it will not send the same reminder to the same device twice. So it is safe to
+call constantly, survivable to call late, and the only thing a scheduler has to
+do is knock often enough.
 
-That is what lets several daily jobs stand in for an hourly one. `vercel.json`
-asks for `/api/notify` at 15:00, 16:00 and 18:00 UTC. For a reader in central
-Europe the first is 17:00 in summer and too early in winter, the second is 17:00
-in winter and already done in summer, and the third is a catch-up if either
-failed. Whichever runs first that evening sends; the rest find the work done and
-do nothing. Reading `0 15` and `0 16` as *the two candidates for 17:00 local*
-rather than as two separate reminders is the trick to the whole arrangement, and
-somewhere with a different offset wants different hours.
+Two of them do, and they cover different ground:
 
-`GET /api/notify?dry=1` shows what it would send without sending it. On a plan
-that allows `0 * * * *`, one hourly job replaces all three.
+- **`.github/workflows/reminders.yml`** knocks every fifteen minutes through the
+  waking day. This is what makes *an hour before your study session* and *time
+  to study* possible at all, since those land at times no daily job can hit. It
+  is free on a public repository; on a private one, a quarter-hourly schedule
+  will chew through the free Actions minutes, so widen it to `*/30` or make the
+  repository public. GitHub also stops scheduled workflows on a repository with
+  no activity for sixty days, and runs them late when it is busy -- which the
+  ninety-minute window absorbs.
+- **`vercel.json`** asks for the same route at 15:00, 16:00 and 18:00 UTC. These
+  exist as a backstop for the evening summary if the workflow above is disabled
+  or lapses. For a reader in central Europe the first is 17:00 in summer and too
+  early in winter, the second is 17:00 in winter and already done in summer, and
+  the third is a catch-up. Whichever runs first that evening sends; the rest find
+  the work done. Somewhere with a different offset wants different hours. A
+  Hobby account may have a hundred cron jobs but none more often than daily, and
+  only promises the right hour, which is why this alone was never enough.
+
+`GET /api/notify?dry=1` shows what it would send without sending it.
 
 Optionally set `CRON_SECRET`; when it is set, a caller without it gets a dry run
 instead of a send.
 
 Two devices, two subscriptions, two reminders -- so turn reminders on where you
-want them and leave them off where you do not. What a server still cannot do on
-a daily schedule is the *hour before* nudge for a study session; those alarms
-ride on the calendar subscription, which fires them at the minute regardless.
+want them and leave them off where you do not.
+
+The calendar subscription still carries the same alarms, and it is worth keeping:
+it fires them to the minute, from the device itself, with nothing in the middle
+that can lapse.
 
 ## Deploying
 
