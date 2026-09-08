@@ -275,7 +275,11 @@ npm test
 ```
 
 `tools/check-contrast.mjs` checks the palette. `tools/api-test.mjs` drives the
-sync routes directly against a temporary directory. `tools/smoke-test.mjs`
+sync routes directly against a temporary directory. `tools/push-test.mjs`
+encrypts a notification and then decrypts it the way RFC 8291 says a browser
+does, so a mistake in the key derivation fails a test rather than failing
+silently on a phone. `tools/notify-test.mjs` runs the nightly job against a fake
+push service that really decrypts what it is sent. `tools/smoke-test.mjs`
 serves the site and asserts the behaviour above in Chromium.
 `tools/sync-test.mjs` runs the site and the real sync routes together and drives
 two browser contexts, checking that work added on one turns up on the other and
@@ -296,6 +300,8 @@ meet in the middle, and give a calendar app an address it can poll by itself.
 | `GET /api/sync?code=` | What the server holds for that phrase. |
 | `POST /api/sync` | Merges a device's copy into it and returns the result. |
 | `GET /calendar/<token>.ics` | The subscription a calendar app polls. |
+| `POST /api/subscribe` | Remembers a device so it can be sent a notification later. `DELETE` forgets it. |
+| `GET /api/notify` | The nightly run. Sends each device what is due tomorrow, once. |
 
 They have no dependencies and run on Vercel's Node runtime as they are. What
 they need is somewhere to keep bytes, which is one of these environment
@@ -318,13 +324,34 @@ same explanation rather than pretending to have saved anything.
 Nothing here is a paid tier at the time of writing, and the GitHub option needs
 no storage product to be provisioned at all.
 
-### A note on what a server still cannot do
+### Notifications while the app is closed
 
-Push notifications to a *closed* app are a separate thing again: they need the
-Web Push protocol, a VAPID key pair and a subscription stored per device. This
-server does not do that. The calendar subscription is the reliable route to
-being alerted while the app is shut, which is why it is the one the app pushes
-you towards.
+The in-app reminders need the app to be running. To be told about tomorrow with
+Remembre shut, the server sends the notification instead, which needs two more
+things.
+
+**A key pair.** `npm run vapid` prints one. Set `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` address the push services
+can complain to). The pair is what proves to Apple and Google that a
+notification really came from this deployment; changing it invalidates every
+device that has already subscribed, so once set, leave it.
+
+**A schedule.** `vercel.json` asks for `/api/notify` once a day at 16:00 UTC.
+Hobby accounts may only schedule daily jobs -- anything finer fails the
+deployment -- so the run does not assume it happens at 17:00. Each device stores
+its own time zone, and the rule is *it is past 17:00 where this device is, and
+it has not been told about tomorrow yet*. Running it twice sends nothing twice,
+and `GET /api/notify?dry=1` shows what it would send without sending it. On a
+plan that allows `0 * * * *`, changing that one line makes the reminder land at
+17:00 exactly rather than within the evening.
+
+Optionally set `CRON_SECRET`; when it is set, a caller without it gets a dry run
+instead of a send.
+
+Two devices, two subscriptions, two reminders -- so turn reminders on where you
+want them and leave them off where you do not. What a server still cannot do on
+a daily schedule is the *hour before* nudge for a study session; those alarms
+ride on the calendar subscription, which fires them at the minute regardless.
 
 ## Deploying
 
@@ -346,7 +373,7 @@ not allowed to do that itself. Recover it from git history if you ever want it.
 | `index.html` | The whole document: app bar, sidebars, month table, agenda and the two dialogs. |
 | `styles.css` | Design tokens for both themes, then components. Fonts are declared at the top. |
 | `app.js` | State, storage, rendering, keyboard handling. No dependencies. |
-| `api/` | The sync and calendar routes, and the storage drivers behind them. No dependencies. |
+| `api/` | The sync, calendar and notification routes, the storage drivers, and Web Push written out by hand. No dependencies. |
 | `tools/` | The contrast checker and the four test suites. |
 
 Dates are stored as local `YYYY-MM-DD` strings and never as `Date` objects, so

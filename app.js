@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-26";
+const APP_VERSION = "2026.09.08-27";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -2418,6 +2418,15 @@ async function enableReminders() {
   });
   announce("Reminders are on, and a test notification has been sent.");
   await deliverAllReminders();
+
+  // With syncing on there is a server that can reach this device later; this
+  // is the moment to introduce them, while the permission is fresh.
+  try {
+    await registerPush({ quiet: true });
+  } catch (err) {
+    console.warn("Could not register for notifications while closed:", err);
+  }
+  renderPushNote();
 }
 
 async function sendTestNotification() {
@@ -2973,6 +2982,147 @@ function markAlertsExported() {
   renderAlertsExport();
 }
 
+/* ---------- Reminders that arrive with the app shut ---------- */
+
+/*
+  The reminders above are delivered by the app itself, which means the app has
+  to be running. A notification that wakes a shut device has to come from
+  somewhere else, so the device registers with the server, and the server sends
+  it once a day.
+
+  It needs syncing to be on, because the reminder is built from what the server
+  holds. Everything here degrades quietly: a deployment with no notification
+  keys, a browser with no push support, or a refused permission all leave the
+  in-app reminders exactly as they were.
+*/
+
+const PUSH_KEY = "remembre.push.v1";
+
+let serverFacts = null;      // What /api/status said, fetched at most once.
+
+function pushSupported() {
+  return "serviceWorker" in navigator && "PushManager" in window && window.isSecureContext;
+}
+
+function pushState() {
+  const stored = readStore(PUSH_KEY, null);
+  const base = { device: "", subscribedAt: "" };
+  return stored && typeof stored === "object" ? { ...base, ...stored } : base;
+}
+
+/** What the deployment can do, asked once and remembered for this visit. */
+async function askServer() {
+  if (serverFacts) return serverFacts;
+  const res = await fetch("/api/status", { cache: "no-store" });
+  if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+  serverFacts = await res.json();
+  return serverFacts;
+}
+
+/** The key has to reach the browser as bytes, not as the text it travels in. */
+function decodeKey(base64url) {
+  const padded = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+}
+
+/**
+ * Hands this device to the server so it can be reached later. Safe to call
+ * again: the browser returns the subscription it already has, and the server
+ * files it under the same id.
+ */
+async function registerPush({ quiet = false } = {}) {
+  if (!pushSupported() || !cloudAvailable()) return false;
+  if (window.Notification.permission !== "granted") return false;
+
+  const { code, enabled } = cloudState();
+  if (!enabled || !code) return false;
+
+  const facts = await askServer();
+  if (!facts.push || !facts.push.configured) {
+    if (!quiet) announce("This server cannot send notifications yet; its notification keys are not set.");
+    return false;
+  }
+
+  const registration = await navigator.serviceWorker.ready;
+  const existing = await registration.pushManager.getSubscription();
+  const subscription = existing || await registration.pushManager.subscribe({
+    // Every push must show something. iOS refuses to subscribe otherwise.
+    userVisibleOnly: true,
+    applicationServerKey: decodeKey(facts.push.publicKey),
+  });
+
+  const res = await fetch("/api/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code,
+      subscription: subscription.toJSON(),
+      // "The day before, at 17:00" is a question about this device's clock.
+      zone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((body && body.message) || `The server answered ${res.status}.`);
+
+  writeStore(PUSH_KEY, { device: body.device, subscribedAt: new Date().toISOString() });
+  renderPushNote();
+  if (!quiet) announce("Reminders will now reach you with Remembre closed.");
+  return true;
+}
+
+/** Stops the server sending to this device, and lets the browser go too. */
+async function unregisterPush() {
+  writeStore(PUSH_KEY, { device: "", subscribedAt: "" });
+  renderPushNote();
+  if (!pushSupported()) return;
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+
+    // Tell the server first: once the subscription is gone the endpoint that
+    // identifies this device to it is gone too.
+    const { code } = cloudState();
+    if (code) {
+      await fetch("/api/subscribe", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, subscription: subscription.toJSON() }),
+      }).catch(() => null);
+    }
+    await subscription.unsubscribe();
+  } catch (err) {
+    console.warn("Could not cancel push notifications:", err);
+  }
+}
+
+function renderPushNote() {
+  const note = $("cloud-push");
+  if (!note) return;
+
+  const { enabled } = cloudState();
+  if (!enabled) {
+    note.textContent = "";
+    return;
+  }
+  if (!pushSupported()) {
+    note.textContent = "This browser cannot be sent reminders while the app is closed.";
+    note.classList.remove("is-stale");
+    return;
+  }
+  if (window.Notification.permission !== "granted") {
+    note.textContent = "Turn on reminders to be told about tomorrow with Remembre closed.";
+    note.classList.add("is-stale");
+    return;
+  }
+  note.textContent = pushState().device
+    ? "Reminders reach this device with Remembre closed."
+    : "Reminders are on, but this device is not registered with the server yet.";
+  note.classList.toggle("is-stale", !pushState().device);
+}
+
 /* ---------- Sync: automatic, through the server ---------- */
 
 /*
@@ -3155,6 +3305,7 @@ function renderCloudPanel() {
   }
 
   $("cloud-feed").value = cloudFeedUrl(feed);
+  renderPushNote();
 
   if (cloudBusy) {
     status.textContent = "Syncing…";
@@ -3208,6 +3359,9 @@ async function connectCloud() {
     // loses nothing.
     await cloudPull({ quiet: true });
     await cloudPush({ quiet: true });
+    await registerPush({ quiet: true }).catch((err) => {
+      console.warn("Could not register for notifications while closed:", err);
+    });
     announce("Syncing is on. Copy the calendar address to subscribe to it.");
   });
 
@@ -3223,6 +3377,7 @@ function disconnectCloud() {
   window.clearTimeout(cloudTimer);
   cloudTimer = null;
   cloudNote = "";
+  unregisterPush();
   writeStore(CLOUD_KEY, { code: "", feed: "", lastSyncAt: "", enabled: false });
   renderCloudPanel();
   announce("Syncing turned off.");
@@ -3270,7 +3425,15 @@ function setupCloud() {
   });
 
   if (cloudState().enabled && cloudAvailable()) {
-    runCloud(async () => { await cloudPull({ quiet: true }); await cloudPush({ quiet: true }); });
+    runCloud(async () => {
+      await cloudPull({ quiet: true });
+      await cloudPush({ quiet: true });
+      // A push subscription can be revoked by the browser without telling
+      // anybody, so re-register on every start rather than trusting the note.
+      await registerPush({ quiet: true }).catch((err) => {
+        console.warn("Could not register for notifications while closed:", err);
+      });
+    });
   }
 }
 

@@ -65,5 +65,11 @@
       "source": "/calendar/:feed.ics",
       "destination": "/api/calendar?feed=:feed"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/notify",
+      "schedule": "0 16 * * *"
+    }
   ]
 }

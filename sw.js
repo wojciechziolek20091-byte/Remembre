@@ -22,7 +22,7 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "remembre-v5";
+const CACHE = "remembre-v6";
 
 /* How long to wait for the network before falling back to the cached shell.
    Long enough for a slow connection, short enough not to feel broken. */
@@ -59,6 +59,32 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+});
+
+/*
+  A notification sent from the server while the app is shut. The browser wakes
+  this worker, hands it the encrypted payload it has already opened, and gives
+  it a moment to show something -- and it must show something, or the browser
+  eventually revokes permission to send at all.
+*/
+self.addEventListener("push", (event) => {
+  let sent = {};
+  try {
+    sent = event.data ? event.data.json() : {};
+  } catch (err) {
+    sent = { body: event.data ? event.data.text() : "" };
+  }
+
+  const title = sent.title || "Remembre";
+  event.waitUntil(self.registration.showNotification(title, {
+    body: sent.body || "Something is due tomorrow.",
+    // Re-sending the same day's reminder replaces it rather than stacking.
+    tag: sent.tag || "remembre",
+    renotify: true,
+    icon: "icons/icon-192.png",
+    badge: "icons/icon-192.png",
+    data: { date: sent.date || "" },
+  }));
 });
 
 /* Tapping a reminder should bring the app forward, not open a second copy. */
