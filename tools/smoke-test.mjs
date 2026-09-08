@@ -440,6 +440,66 @@ check("the test notification reports success", proof.map((n) => n.title), ["Succ
 
 await page.evaluate(() => { state.tasks = []; saveTasks(); renderAll(); });
 
+console.log("\ncalendar alerts");
+const feed = await page.evaluate(() => {
+  const mk = (id, title, type, subject, date, time) => normaliseTask({
+    id, title, type, subject, course: subject, date, time,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z",
+  });
+  state.tasks = [
+    mk("a", "Algebra test", "test", "mathematics", "2026-09-25", "11:30"),
+    mk("b", "Essay; with, punctuation", "homework", "history", "2026-11-20", ""),
+    mk("done", "Already finished", "homework", "english", "2026-09-26", ""),
+    mk("past", "Long gone", "homework", "english", "2020-01-01", ""),
+  ];
+  state.tasks[2].done = true;
+  state.coursework = [normaliseCoursework({
+    id: "ee", title: "Extended Essay", kind: "ee", subject: "history",
+    due: "2026-12-01", stage: "draft",
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z",
+  })];
+  saveTasks(); saveCoursework();
+  const built = buildCalendarFeed();
+  return {
+    ...built,
+    lines: built.text.split("\r\n"),
+    uids: [...built.text.matchAll(/^UID:(.+)$/gm)].map((m) => m[1]),
+    alarms: [...built.text.matchAll(/^TRIGGER;VALUE=DATE-TIME:(\S+)$/gm)].map((m) => m[1]),
+  };
+});
+
+check("finished and past work is left out", feed.count, 3);
+check("tasks and coursework both get an entry",
+  feed.uids, ["a@remembre.app", "b@remembre.app", "cw-ee@remembre.app"]);
+check("every entry carries an alarm", feed.alarms.length, 3);
+check("the calendar is well formed",
+  [feed.lines.filter((l) => l === "BEGIN:VEVENT").length,
+   feed.lines.filter((l) => l === "END:VEVENT").length,
+   feed.lines[0], feed.lines[feed.lines.length - 2]],
+  [3, 3, "BEGIN:VCALENDAR", "END:VCALENDAR"]);
+check("semicolons and commas are escaped, as iCalendar requires",
+  feed.text.includes("Essay\\; with\\, punctuation"), true);
+check("no line exceeds the 75-octet limit",
+  feed.lines.every((line) => new TextEncoder().encode(line).length <= 75), true);
+check("a name that already says what it is is not repeated",
+  feed.text.includes("SUMMARY:Extended Essay") && !feed.text.includes("Extended Essay: Extended Essay"), true);
+
+// The whole point: 17:00 local on the day before, on both sides of a clock change.
+const warsaw = await browser.newContext({ timezoneId: "Europe/Warsaw" });
+const warsawPage = await warsaw.newPage();
+await warsawPage.goto(base);
+await warsawPage.waitForSelector(".tt-lesson");
+const shifted = await warsawPage.evaluate(() => {
+  state.tasks = [
+    normaliseTask({ id: "summer", title: "Summer", type: "test", subject: "mathematics", course: "M", date: "2026-09-25", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    normaliseTask({ id: "winter", title: "Winter", type: "test", subject: "mathematics", course: "M", date: "2026-11-20", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+  ];
+  return [...buildCalendarFeed().text.matchAll(/TRIGGER;VALUE=DATE-TIME:(\S+)/g)].map((m) => m[1]);
+});
+check("an alarm before the clocks change is 17:00 local", shifted[0], "20260924T150000Z");
+check("and one after them is still 17:00 local, not an hour out", shifted[1], "20261119T160000Z");
+await warsaw.close();
+
 console.log("\nstudy organiser");
 await page.evaluate(() => {
   const z = (n) => String(n).padStart(2, "0");

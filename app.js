@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-18";
+const APP_VERSION = "2026.09.08-19";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -2109,6 +2109,200 @@ function setupReminders() {
   });
 }
 
+/* ---------- Calendar alerts ---------- */
+
+/*
+  The web cannot raise a notification for an app that is not running. A
+  calendar can. Exporting the work as an iCalendar file with an alarm on each
+  entry hands the job to the phone's own calendar, which fires at 17:00 the day
+  before whether or not Remembre is open, with no server anywhere.
+
+  Entries keep a stable UID, so importing again updates what is already there
+  rather than laying down a second copy.
+*/
+
+const ICS_UID_DOMAIN = "remembre.app";
+const ICS_EPOCH = Date.parse("2026-01-01T00:00:00Z");
+
+function icsEscape(text) {
+  return String(text)
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
+/** RFC 5545 folds at 75 octets, and the count is bytes, not characters. */
+function icsFold(line) {
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= 75) return line;
+
+  const parts = [];
+  let current = "";
+  let bytes = 0;
+  for (const character of line) {
+    const size = encoder.encode(character).length;
+    const limit = parts.length === 0 ? 75 : 74;
+    if (bytes + size > limit) {
+      parts.push(current);
+      current = "";
+      bytes = 0;
+    }
+    current += character;
+    bytes += size;
+  }
+  if (current) parts.push(current);
+  return parts[0] + parts.slice(1).map((part) => `\r\n ${part}`).join("");
+}
+
+function icsUtcStamp(date) {
+  const pad2 = (n) => String(n).padStart(2, "0");
+  return `${date.getUTCFullYear()}${pad2(date.getUTCMonth() + 1)}${pad2(date.getUTCDate())}`
+    + `T${pad2(date.getUTCHours())}${pad2(date.getUTCMinutes())}${pad2(date.getUTCSeconds())}Z`;
+}
+
+function icsDateOnly(iso) {
+  return iso.replace(/-/g, "");
+}
+
+/**
+ * 17:00 local on the day before, as an instant. Built from that date's own
+ * local time, so a deadline the far side of a clock change still alarms at
+ * 17:00 there rather than an hour out.
+ */
+function alarmInstantFor(dueIso) {
+  const when = fromISO(addDays(dueIso, -1));
+  when.setHours(REMINDER_HOUR, 0, 0, 0);
+  return when;
+}
+
+/** Avoids "Extended Essay: Extended Essay" when the name already says it. */
+function icsSummary(prefix, title) {
+  return title.toLowerCase().includes(prefix.toLowerCase()) ? title : `${prefix}: ${title}`;
+}
+
+/** A number that climbs with each edit, so a re-import counts as an update. */
+function icsSequence(record) {
+  const moved = Date.parse(record.updatedAt || record.createdAt || "") - ICS_EPOCH;
+  return Number.isFinite(moved) ? Math.max(0, Math.floor(moved / 60000)) : 0;
+}
+
+function icsEvent({ uid, sequence, summary, description, dateIso, time, alarmText }) {
+  const lines = [
+    "BEGIN:VEVENT",
+    `UID:${uid}@${ICS_UID_DOMAIN}`,
+    `DTSTAMP:${icsUtcStamp(new Date())}`,
+    `SEQUENCE:${sequence}`,
+    `SUMMARY:${icsEscape(summary)}`,
+  ];
+  if (description) lines.push(`DESCRIPTION:${icsEscape(description)}`);
+
+  if (time) {
+    const [hour, minute] = time.split(":").map(Number);
+    const start = fromISO(dateIso);
+    start.setHours(hour, minute, 0, 0);
+    const end = new Date(start.getTime() + 3600000);
+    lines.push(`DTSTART:${icsUtcStamp(start)}`, `DTEND:${icsUtcStamp(end)}`);
+  } else {
+    lines.push(
+      `DTSTART;VALUE=DATE:${icsDateOnly(dateIso)}`,
+      `DTEND;VALUE=DATE:${icsDateOnly(addDays(dateIso, 1))}`
+    );
+  }
+
+  lines.push(
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsEscape(alarmText)}`,
+    `TRIGGER;VALUE=DATE-TIME:${icsUtcStamp(alarmInstantFor(dateIso))}`,
+    "END:VALARM",
+    "END:VEVENT"
+  );
+  return lines;
+}
+
+function buildCalendarFeed() {
+  const today = todayISO();
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Remembre//Study Calendar//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "X-WR-CALNAME:Remembre",
+  ];
+
+  let count = 0;
+  liveTasks()
+    .filter((task) => !task.done && task.date >= today)
+    .sort(sortTasks)
+    .forEach((task) => {
+      count += 1;
+      lines.push(...icsEvent({
+        uid: task.id,
+        sequence: icsSequence(task),
+        summary: icsSummary(TYPES[task.type].label, task.title),
+        description: [subjectLabel(task), TYPES[task.type].label, task.notes].filter(Boolean).join(" \u00b7 "),
+        dateIso: task.date,
+        time: task.time,
+        alarmText: `Remember: ${task.title}`,
+      }));
+    });
+
+  liveCoursework()
+    .filter((item) => item.due && item.stage !== "submitted" && item.due >= today)
+    .sort(sortCoursework)
+    .forEach((item) => {
+      count += 1;
+      const kind = COURSEWORK_KINDS[item.kind].label;
+      lines.push(...icsEvent({
+        uid: `cw-${item.id}`,
+        sequence: icsSequence(item),
+        summary: icsSummary(kind, item.title),
+        description: [item.subject ? SUBJECTS[item.subject].label : null, kind, item.notes]
+          .filter(Boolean).join(" \u00b7 "),
+        dateIso: item.due,
+        time: "",
+        alarmText: `Remember: ${item.title}`,
+      }));
+    });
+
+  lines.push("END:VCALENDAR");
+  return { text: lines.map(icsFold).join("\r\n") + "\r\n", count };
+}
+
+async function exportCalendarAlerts() {
+  const { text, count } = buildCalendarFeed();
+  if (count === 0) {
+    window.alert("There is nothing with a date ahead of it to put in a calendar yet.");
+    return;
+  }
+
+  const name = "remembre-alerts.ics";
+  const type = "text/calendar";
+
+  if (typeof File === "function" && navigator.canShare) {
+    const file = new File([text], name, { type });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: "Remembre alerts" });
+        announce(`${count} alerts sent to your calendar.`);
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+      }
+    }
+  }
+
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = el("a", { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  announce(`${count} alerts exported. Open the file to add them to your calendar.`);
+}
+
 /* ---------- Sync: saving and loading a file ---------- */
 
 function syncState() {
@@ -2428,6 +2622,7 @@ function setupEvents() {
     }
   });
 
+  $("export-alerts").addEventListener("click", exportCalendarAlerts);
   $("save-copy").addEventListener("click", saveCopy);
   $("load-copy").addEventListener("click", () => $("load-file").click());
   $("load-file").addEventListener("change", (event) => {

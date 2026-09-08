@@ -135,11 +135,20 @@ work.
 
 There is an honest limit. The web cannot schedule a notification for a page
 that is not running: the Notification Triggers proposal never shipped, and a
-push has to be sent by a server, which Remembre does not have. So a reminder is
-delivered the first moment the app is open after it falls due -- on launch,
-when the app returns to the foreground, and once a minute while it is in front.
-For an app you open most days that is usually enough; if it is not, it needs a
-backend, and the panel says so rather than pretending.
+push has to be sent by a server, which Remembre does not have. So an in-app
+reminder is delivered the first moment the app is open after it falls due -- on
+launch, when the app returns to the foreground, and once a minute while it is
+in front.
+
+**Calendar alerts** get around that without a server. Export from the sidebar
+and Remembre writes an iCalendar file with an alarm on every deadline, set to
+17:00 the day before. Your own calendar then does the alerting, with Remembre
+closed, offline, on every device signed into the same account. Entries keep a
+stable id, so exporting again updates what is there rather than duplicating it.
+
+The alarms are built from local time on each entry's own date, so a deadline
+the far side of a clock change still alarms at 17:00 there: a September one
+fires at 15:00 UTC and a November one at 16:00 UTC, both 17:00 in Warsaw.
 
 Each reminder is delivered once, keyed by the task and its date, so moving a
 task to a different day arms it again. Work that is already overdue or already
