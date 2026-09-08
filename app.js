@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-31";
+const APP_VERSION = "2026.09.08-32";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -159,8 +159,8 @@ const TIMETABLE_ROWS = [
   /* 2 */ [null, econ("R_30"), lesson("", "Tutor", "R_35"), null, null],
   /* 3 */ [ess("R_36"), lesson("", "TOK", "R_b4"), null, hist("R_b2"), maths("R_b3")],
   /* 4 */ [ess("R_36"), lesson("", "TOK", "R_b4"), null, hist("R_b2"), maths("R_b3")],
-  /* 5 */ [eng("R_36"), eng("R_35"), econ("R_30"), ess("R_b4"), eng("R_35")],
-  /* 6 */ [eng("R_36"), eng("R_35"), econ("R_30"), ess("R_b4"), eng("R_35")],
+  /* 5 */ [eng("R_35"), eng("R_35"), econ("R_30"), ess("R_b4"), eng("R_35")],
+  /* 6 */ [eng("R_35"), eng("R_35"), econ("R_30"), ess("R_b4"), eng("R_35")],
   /* 7 */ [maths("R_36"), pol("R_36"), pol("R_36"), econ("R_30"), hist("R_b2")],
   /* 8 */ [maths("R_36"), pol("R_36"), pol("R_36"), econ("R_30"), hist("R_b2")],
 ];
