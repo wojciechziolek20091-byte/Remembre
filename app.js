@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-35";
+const APP_VERSION = "2026.09.08-36";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -483,6 +483,29 @@ function clampEffort(value) {
 const effortLevel = (value) =>
   EFFORT_LEVELS.find((level) => level.value === clampEffort(value)) || EFFORT_LEVELS[2];
 
+/*
+  Past work clears itself out.
+
+  A task whose day has gone is history: it was done or it was not, and either
+  way it is no longer something to act on. Clearing it keeps the month and the
+  agenda about what is ahead.
+
+  It is a deletion like any other -- a tombstone, so the other device agrees
+  rather than putting the task back on the next merge -- and it is announced,
+  because work disappearing without a word is alarming even when it is wanted.
+*/
+function sweepPastTasks(today = todayISO()) {
+  const stale = state.tasks.filter((task) => !task.deleted && task.date < today);
+  if (stale.length === 0) return 0;
+
+  stale.forEach((task) => {
+    task.deleted = true;
+    touch(task);
+  });
+  saveTasks();
+  return stale.length;
+}
+
 /** The first step still to do, which is the one worth showing. */
 function currentStep(item) {
   return (item.steps || []).find((step) => !step.done) || null;
@@ -601,6 +624,7 @@ function savePrefs() {
 
 const state = {
   tasks: [],
+  seenDay: "",
   lessonAlerts: true,
   view: "month",
   theme: "auto",
@@ -869,6 +893,89 @@ function assignTasksToLessons(iso, dayIndex) {
   });
 
   return { byPeriod, unplaced };
+}
+
+/* ---------- Where the day has got to ---------- */
+
+/*
+  The grid's rows are periods, not minutes, so a clock time has to be placed
+  inside the block it falls in and then interpolated across that block's rows.
+  A block runs from its own start to the next block's, and the last one runs
+  for as long as its lessons do.
+*/
+function blockSpans() {
+  return PERIOD_BLOCKS.map((block, index) => {
+    const next = PERIOD_BLOCKS[index + 1];
+    return {
+      periods: block.periods,
+      from: minutesOfTime(block.time),
+      to: next
+        ? minutesOfTime(next.time)
+        : minutesOfTime(block.time) + LESSON_MINUTES * block.periods.length,
+    };
+  });
+}
+
+const minutesOfTime = (time) => {
+  const [hour, minute] = String(time).split(":").map(Number);
+  return hour * 60 + minute;
+};
+
+/** When the school day is over for a given weekday, in minutes past midnight. */
+function schoolEndsAt(dayIndex) {
+  const blocks = blocksOn(dayIndex);
+  if (blocks.length === 0) return -1;
+  const last = blocks[blocks.length - 1];
+  return minutesOfTime(last.time) + LESSON_MINUTES * last.periods.length;
+}
+
+/**
+ * Draws the line, or hides it. Hidden on a weekend, on a week that is not this
+ * one, before the grid begins, and -- as asked -- once the day's last lesson
+ * has finished.
+ */
+function renderNowLine(now = new Date()) {
+  const line = $("now-line");
+  if (!line) return;
+
+  const hide = () => { line.hidden = true; };
+  const today = todayISO();
+
+  // Monday is 0 here; getDay counts from Sunday.
+  const dayIndex = fromISO(today).getDay() - 1;
+  if (dayIndex < 0 || dayIndex > 4) return hide();
+  if (today < state.weekStart || today > addDays(state.weekStart, 4)) return hide();
+
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const spans = blockSpans();
+  if (minutes < spans[0].from) return hide();
+  if (minutes > schoolEndsAt(dayIndex)) return hide();
+
+  const span = spans.find((entry) => minutes >= entry.from && minutes < entry.to);
+  if (!span) return hide();
+
+  const rows = $("timetable-body").children;
+  const first = rows[span.periods[0]];
+  const last = rows[span.periods[span.periods.length - 1]];
+  const scroll = document.querySelector(".timetable-scroll");
+  const table = $("timetable");
+  if (!first || !last || !scroll || !table) return hide();
+
+  const base = scroll.getBoundingClientRect();
+  const top = first.getBoundingClientRect().top - base.top + scroll.scrollTop;
+  const height = last.getBoundingClientRect().bottom - first.getBoundingClientRect().top;
+  const through = (minutes - span.from) / (span.to - span.from);
+
+  // The period column carries the times, so the line starts beside them rather
+  // than across them.
+  const gutter = first.firstElementChild
+    ? first.firstElementChild.getBoundingClientRect().width
+    : 0;
+
+  line.style.top = `${Math.round(top + height * through)}px`;
+  line.style.left = `${Math.round(gutter)}px`;
+  line.style.width = `${Math.max(0, Math.round(table.getBoundingClientRect().width - gutter))}px`;
+  line.hidden = false;
 }
 
 function renderTimetable() {
@@ -1246,6 +1353,7 @@ function renderSubjectLegend() {
 function renderAll() {
   renderPeriod();
   renderTimetable();
+  renderNowLine();
   renderCalendar();
   renderAgenda();
   renderUpcoming();
@@ -2585,12 +2693,37 @@ function setupReminders() {
 
   deliverAllReminders();
   window.setInterval(deliverAllReminders, REMINDER_POLL_MS);
+
+  /*
+    A phone left open overnight was still showing yesterday. The same tick
+    moves the line and notices the date turning over, at which point yesterday's
+    work is swept and everything is redrawn.
+  */
+  window.setInterval(() => {
+    const today = todayISO();
+    if (today !== state.seenDay) {
+      state.seenDay = today;
+      state.focusDate = today;
+      const cleared = sweepPastTasks(today);
+      renderAll();
+      if (cleared > 0) {
+        announce(`${cleared} past ${cleared === 1 ? "task has" : "tasks have"} been cleared.`);
+      }
+      return;
+    }
+    renderNowLine();
+  }, REMINDER_POLL_MS);
+
+  // Not renderNowLine itself: the listener would hand it the resize event
+  // where it expects a Date.
+  window.addEventListener("resize", () => renderNowLine());
   // Coming back to the app is the moment a waiting reminder should appear.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
     // Permission may have been changed in system settings while we were away.
     renderAlertsPanel();
     deliverAllReminders();
+    renderNowLine();
   });
 }
 
@@ -4131,6 +4264,8 @@ function init() {
   state.coursework = loadCoursework();
   state.sessions = loadSessions();
   const today = todayISO();
+  state.seenDay = today;
+  sweepPastTasks(today);
   state.focusDate = today;
   state.weekStart = weekStartFor(today);
   state.periodStart = today.slice(0, 8) + "01";

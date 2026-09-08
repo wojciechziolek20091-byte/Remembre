@@ -28,6 +28,15 @@ feeds your calendar app, and the rest works with no server at all.
   marked and weekends tinted.
 - **Know what is next.** The Upcoming panel puts overdue work first, then the
   next six things due, each with a plain-English "Tomorrow" or "In 4 days".
+- **Forget what has gone.** A task whose day has passed clears itself out, on
+  opening the app and again when the date turns over while it is left open. It
+  is a real deletion with a tombstone, so the other device agrees rather than
+  putting it back on the next merge. Overdue work goes with it: the sweep does
+  not ask whether it was finished, only whether the day has gone.
+- **See where the day has got to.** In the week view a line marks the current
+  time across the grid, placed inside the lesson block it falls in rather than
+  snapped to a row. It is gone at the weekend, on any week but this one, and
+  once the day's last lesson has finished.
 - **Switch to an agenda** when a list is easier to read than a grid.
 - **Tick things off.** Completed tasks are hidden by default and can be shown
   again from the sidebar.

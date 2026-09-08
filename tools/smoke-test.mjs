@@ -863,6 +863,96 @@ const timetableEvent = (uid) => page.evaluate((wanted) => {
   check("and no longer shows the old one", shown.includes("14:10"), false);
 }
 
+console.log("\npast work clears itself out");
+
+{
+  const swept = await page.evaluate(() => {
+    const today = todayISO();
+    const at = (offset, extra = {}) => normaliseTask({
+      id: `sweep${offset}`, title: `Task ${offset}`, type: "homework",
+      subject: "history", date: addDays(today, offset), time: "",
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      ...extra,
+    });
+    state.tasks = [at(-9), at(-1), at(0), at(1), at(-2, { done: true })];
+    saveTasks();
+    const cleared = sweepPastTasks(today);
+    renderAll();
+    return {
+      cleared,
+      left: liveTasks().map((task) => task.id).sort(),
+      // The rows have to stay, or the other device puts them back.
+      tombstones: state.tasks.filter((task) => task.deleted).map((task) => task.id).sort(),
+      stamped: state.tasks.filter((task) => task.deleted)
+        .every((task) => task.updatedAt > "2026-01-01T00:00:00Z"),
+    };
+  });
+
+  check("yesterday and older are cleared", swept.cleared, 3);
+  check("today and the future are left alone", swept.left, ["sweep0", "sweep1"]);
+  check("a finished task in the past goes too", swept.tombstones.includes("sweep-2"), true);
+  check("clearing leaves a tombstone rather than a hole", swept.tombstones.length, 3);
+  check("and stamps it, so the other device agrees", swept.stamped, true);
+
+  const again = await page.evaluate(() => sweepPastTasks(todayISO()));
+  check("running it twice clears nothing the second time", again, 0);
+}
+
+console.log("\nthe line showing where the day has got to");
+
+/** Puts the clock at a given time and reports what the line does. */
+const lineAt = (hhmm, dayOffset = 0) => page.evaluate(([time, offset]) => {
+  const [hour, minute] = time.split(":").map(Number);
+  const when = fromISO(addDays(todayISO(), offset));
+  when.setHours(hour, minute, 0, 0);
+  renderNowLine(when);
+  const line = document.getElementById("now-line");
+  return { hidden: line.hidden, top: parseFloat(line.style.top) || 0 };
+}, [hhmm, dayOffset]);
+
+{
+  // Park the week view on a week that contains today, whatever day it is.
+  await page.evaluate(() => {
+    state.weekStart = weekStartFor(todayISO());
+    setView("week");
+    renderAll();
+  });
+
+  const weekday = await page.evaluate(() => {
+    const day = fromISO(todayISO()).getDay();
+    return day >= 1 && day <= 5;
+  });
+
+  if (!weekday) {
+    console.log("  -- today is a weekend, so the line is off; checking that instead");
+    check("the line stays away at the weekend", (await lineAt("11:00")).hidden, true);
+  } else {
+    check("before the grid begins there is no line", (await lineAt("06:30")).hidden, true);
+    check("during the school day there is one", (await lineAt("11:00")).hidden, false);
+
+    const early = await lineAt("10:40");
+    const later = await lineAt("11:50");
+    check("and it moves down as the day goes on", later.top > early.top, true);
+
+    // 14:35 is the last block; 45 minutes a lesson, two lessons, so 16:05.
+    check("it is still there for the last lesson", (await lineAt("15:30")).hidden, false);
+    check("just before the end of school it is there", (await lineAt("16:04")).hidden, false);
+    check("and once school is over it goes", (await lineAt("16:30")).hidden, true);
+    check("and stays gone in the evening", (await lineAt("21:00")).hidden, true);
+  }
+
+  // A week that is not this one has no "now" in it.
+  await page.evaluate(() => {
+    state.weekStart = addDays(weekStartFor(todayISO()), 7);
+    renderAll();
+  });
+  check("next week has no line on it", await page.locator("#now-line").isVisible(), false);
+  await page.evaluate(() => {
+    state.weekStart = weekStartFor(todayISO());
+    renderAll();
+  });
+}
+
 console.log("\neffort drives how many sittings are planned");
 
 // These build their own coursework to plan against, so put back what the

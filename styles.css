@@ -97,6 +97,7 @@
   --surface: #FDFBF7;
   --surface-2: #F5EFE6;
   --surface-3: #EAE1D3;
+  --now: #C8880A;
   --ink: #2A1E1F;
   --ink-2: #5A4B49;
   --line: #DDD3C3;
@@ -165,6 +166,7 @@
     --surface: #201A1A;
     --surface-2: #292222;
     --surface-3: #332B2B;
+  --now: #F0B429;
     --ink: #F1E8E2;
     --ink-2: #B6A9A5;
     --line: #3D3333;
@@ -222,6 +224,7 @@
   --surface: #201A1A;
   --surface-2: #292222;
   --surface-3: #332B2B;
+  --now: #F0B429;
   --ink: #F1E8E2;
   --ink-2: #B6A9A5;
   --line: #3D3333;
@@ -918,8 +921,37 @@ kbd {
 /* Five weekdays plus a period gutter will not shrink usefully, so the table
    keeps its width and scrolls inside its own box rather than squeezing. */
 .timetable-scroll {
+  position: relative;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+}
+
+/*
+  Where the day has got to. It is drawn over the grid rather than inside a cell,
+  so it can sit part-way through a lesson instead of snapping to a row, and it
+  is decorative: the time itself is on the reader's own clock, and announcing a
+  moving line would be noise.
+*/
+.now-line {
+  position: absolute;
+  height: 2px;
+  background: var(--now);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* A cap on the leading edge, so the line reads as a marker rather than as a
+   rule belonging to the table. */
+.now-line::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  background: var(--now);
+  border-radius: 50%;
 }
 
 .timetable {
