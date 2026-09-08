@@ -440,6 +440,140 @@ check("the test notification reports success", proof.map((n) => n.title), ["Succ
 
 await page.evaluate(() => { state.tasks = []; saveTasks(); renderAll(); });
 
+console.log("\nstudy session planner");
+const planned = await page.evaluate(() => {
+  const z = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const day = (n) => { const d = new Date("2026-09-08T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
+  const today = "2026-09-08";
+  const mkTask = (id, type, off) => normaliseTask({
+    id, title: `${type} ${id}`, type, subject: "mathematics", course: "M", date: day(off),
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  });
+
+  state.tasks = [mkTask("t1", "test", 4), mkTask("t2", "test", 11),
+    mkTask("h1", "homework", 2), mkTask("h2", "homework", 3), mkTask("h3", "homework", 9)];
+  state.coursework = [normaliseCoursework({
+    id: "ee", title: "Extended Essay", kind: "ee", subject: "history", due: day(28),
+    stage: "in-progress", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  })];
+  state.sessions = [];
+
+  const plan = planSessions(today);
+  const busy = new Set(state.tasks.map((task) => task.date));
+  const eves = new Set(state.tasks.filter((task) => task.type === "test")
+    .map((task) => { const d = new Date(task.date + "T12:00:00"); d.setDate(d.getDate() - 1); return iso(d); }));
+  const weekend = plan.filter((s) => {
+    const wd = (new Date(s.date + "T12:00:00").getDay() + 6) % 7;
+    return wd >= 5;
+  }).length;
+  const gaps = plan.slice(1).map((s, i) =>
+    Math.round((new Date(s.date) - new Date(plan[i].date)) / 86400000));
+
+  return {
+    count: plan.length,
+    onBusyDays: plan.filter((s) => busy.has(s.date)).length,
+    onTestEves: plan.filter((s) => eves.has(s.date)).length,
+    weekend,
+    gaps,
+    distinctDays: new Set(plan.map((s) => s.date)).size,
+    allFuture: plan.every((s) => s.date > today),
+    times: [...new Set(plan.map((s) => s.time))].sort(),
+  };
+});
+
+check("a long piece gets a run of sittings", planned.count > 3, true);
+check("none of them lands on a day something is due", planned.onBusyDays, 0);
+check("nor on the evening before a test", planned.onTestEves, 0);
+check("most of them land on a free weekend", planned.weekend >= Math.ceil(planned.count / 2), true);
+check("they are spread, never two on one day", planned.distinctDays, planned.count);
+check("no two sittings are closer than a couple of days",
+  planned.gaps.every((gap) => gap >= 2), true);
+check("and all of them are in the future", planned.allFuture, true);
+check("a weekday sitting is after school, a weekend one late morning",
+  planned.times, ["11:00", "16:00"]);
+
+const crammed = await page.evaluate(() => {
+  const z = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const day = (n) => { const d = new Date("2026-09-08T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
+  state.tasks = Array.from({ length: 14 }, (unused, i) => normaliseTask({
+    id: `t${i}`, title: `Test ${i}`, type: "test", subject: "mathematics", course: "M", date: day(i + 1),
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  }));
+  state.coursework = [normaliseCoursework({
+    id: "ia", title: "Maths IA", kind: "ia", subject: "mathematics", due: day(14), stage: "in-progress",
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  })];
+  state.sessions = [];
+  return planSessions("2026-09-08").length;
+});
+check("when every day is busy it still schedules rather than giving up", crammed > 0, true);
+
+const shared = await page.evaluate(() => {
+  const z = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const day = (n) => { const d = new Date("2026-09-08T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
+  state.tasks = [];
+  state.coursework = ["a", "b"].map((id) => normaliseCoursework({
+    id, title: `Piece ${id}`, kind: "ia", subject: "economics", due: day(21), stage: "in-progress",
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  }));
+  state.sessions = [];
+  const plan = planSessions("2026-09-08");
+  const byDate = {};
+  plan.forEach((s) => { byDate[s.date] = (byDate[s.date] || 0) + 1; });
+  return { total: plan.length, doubled: Object.values(byDate).filter((n) => n > 1).length };
+});
+check("two pieces at once do not land on the same day", shared.doubled, 0);
+
+const kept = await page.evaluate(() => {
+  const z = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+  state.tasks = [];
+  state.coursework = [normaliseCoursework({
+    id: "ee", title: "Extended Essay", kind: "ee", subject: "history", due: day(20), stage: "in-progress",
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  })];
+  state.sessions = [
+    normaliseSession({ id: "mine", courseworkId: "ee", date: day(3), pinned: true, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    normaliseSession({ id: "did", courseworkId: "ee", date: day(2), done: true, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    normaliseSession({ id: "auto", courseworkId: "ee", date: day(9), createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+  ];
+  applyPlan();
+  const alive = liveSessions().map((s) => s.id);
+  return { keptMine: alive.includes("mine"), keptDone: alive.includes("did"), droppedAuto: !alive.includes("auto") };
+});
+check("replanning leaves a sitting you moved yourself", kept.keptMine, true);
+check("and one you already did", kept.keptDone, true);
+check("but replaces its own earlier guesses", kept.droppedAuto, true);
+
+const notices = await page.evaluate(() => {
+  const s = liveSessions().find((entry) => !entry.done && !entry.pinned);
+  const at = sessionInstant(s).getTime();
+  return {
+    twoHoursBefore: dueSessionReminders(at - 2 * 3600000).map((x) => x.phase),
+    oneHourBefore: dueSessionReminders(at - 3600000 + 60000).map((x) => x.phase),
+    onTheHour: dueSessionReminders(at + 60000).map((x) => x.phase),
+    longAfter: dueSessionReminders(at + 10 * 3600000).map((x) => x.phase),
+  };
+});
+check("nothing is said two hours out", notices.twoHoursBefore, []);
+check("a warning comes an hour before", notices.oneHourBefore, ["pre"]);
+check("and a nudge when it is time", notices.onTheHour, ["go"]);
+check("but not hours later, as a stale nag", notices.longAfter, []);
+
+check("sittings ride along in a backup",
+  await page.evaluate(() => Object.keys(JSON.parse(backupPayload())).includes("sessions")), true);
+check("and carry both alarms into the calendar file",
+  await page.evaluate(() => {
+    const text = buildCalendarFeed().text;
+    return [(text.match(/TRIGGER:-PT1H/g) || []).length > 0, (text.match(/TRIGGER:PT0S/g) || []).length > 0];
+  }), [true, true]);
+
+await page.evaluate(() => { state.sessions = []; state.coursework = []; state.tasks = []; saveSessions(); saveCoursework(); saveTasks(); renderAll(); });
+
 console.log("\ncalendar alerts");
 const feed = await page.evaluate(() => {
   const mk = (id, title, type, subject, date, time) => normaliseTask({

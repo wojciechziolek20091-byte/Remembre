@@ -26,13 +26,14 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-20";
+const APP_VERSION = "2026.09.08-21";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
 const SYNC_KEY = "remembre.sync.v1";
 const REMINDERS_KEY = "remembre.reminders.v1";
 const COURSEWORK_KEY = "remembre.coursework.v1";
+const SESSIONS_KEY = "remembre.sessions.v1";
 
 /* A reminder is due at this hour on the day before the task. */
 const REMINDER_HOUR = 17;
@@ -96,6 +97,36 @@ const COURSEWORK_STAGES = [
 ];
 
 const COURSEWORK_STAGE_KEYS = COURSEWORK_STAGES.map((stage) => stage.id);
+
+/*
+  Study sessions: the planner's output. A long piece of coursework gets a
+  handful of dated sittings between now and its next deadline, placed on the
+  quietest days it can find.
+
+  The planner never touches a session already done, or one the reader moved by
+  hand, so replanning refines the schedule rather than resetting it.
+*/
+const SESSION_MINUTES = 60;
+/* After school on a weekday; late morning when there is no school. */
+const SESSION_TIME_WEEKDAY = "16:00";
+const SESSION_TIME_WEEKEND = "11:00";
+/* Aim for a sitting roughly this often, then clamp to something sane. */
+const SESSION_SPACING_DAYS = 5;
+const SESSION_MIN = 1;
+const SESSION_MAX = 12;
+/* How far ahead to plan when a piece has no deadline at all. */
+const SESSION_HORIZON_DAYS = 21;
+
+/* What each kind of clash costs a candidate day. Lower total wins. */
+const LOAD_TEST_SAME_DAY = 5;
+const LOAD_TEST_EVE = 4;          // the night before a test belongs to revision
+const LOAD_HOMEWORK_SAME_DAY = 2;
+/* Doubling up must always cost more than merely sitting next to something,
+   including next to two things at once, or the planner will choose to double. */
+const LOAD_SESSION_SAME_DAY = 12;
+const LOAD_SESSION_ADJACENT = 4;
+const LOAD_WEEKEND_BONUS = -3;    // free days are what we are looking for
+const LOAD_DEADLINE_EVE = 3;
 
 /*
   The school timetable, as a grid of periods by weekday (Monday first).
@@ -510,6 +541,7 @@ const state = {
   focusDate: "",
   editingId: null,
   coursework: [],
+  sessions: [],
   editingCourseworkId: null,
   /** Working copy of the step list while the coursework dialog is open. */
   formSteps: [],
@@ -646,7 +678,17 @@ function buildDayCell(iso, monthPrefix, today) {
   if (weekend && !outside) classes.push("is-weekend");
   if (isToday) classes.push("is-today");
 
+  const daySessions = sessionsOn(iso).filter((session) => !session.done || state.showDone);
   const chips = el("span", { class: "day-chips", "aria-hidden": "true" });
+  daySessions.forEach((session) => {
+    const item = sessionCoursework(session);
+    chips.append(el(
+      "span",
+      { class: "chip chip-session", style: subjectVars(item ? item.subject : "") },
+      el("span", { class: "chip-glyph glyph glyph-session" }),
+      el("span", { class: "chip-text", text: item ? item.title : "Study session" })
+    ));
+  });
   dayTasks.slice(0, MAX_CHIPS).forEach((task) => {
     chips.append(
       el(
@@ -667,6 +709,13 @@ function buildDayCell(iso, monthPrefix, today) {
     dayTasks.length === 0
       ? "no tasks"
       : `${dayTasks.length} ${dayTasks.length === 1 ? "task" : "tasks"}: ${dayTasks.map(describeTask).join("; ")}`,
+    daySessions.length === 0
+      ? null
+      : `${daySessions.length} study ${daySessions.length === 1 ? "session" : "sessions"}: ${daySessions
+          .map((session) => {
+            const item = sessionCoursework(session);
+            return `${item ? item.title : "coursework"} at ${formatTime(session.time)}`;
+          }).join("; ")}`,
   ]
     .filter(Boolean)
     .join(". ");
@@ -1648,9 +1697,36 @@ function openDayDialog(iso) {
     }),
   ];
 
+  const daySessions = sessionsOn(iso);
+  if (daySessions.length > 0) {
+    parts.push(el("h3", { class: "up-group-title", text: "Study sessions" }));
+    parts.push(el("ul", { class: "task-list" }, daySessions.map((session) => {
+      const item = sessionCoursework(session);
+      return el(
+        "li",
+        { class: `task-row${session.done ? " is-done" : ""}`, style: subjectVars(item ? item.subject : "") },
+        el("input", {
+          type: "checkbox", class: "task-check", checked: session.done,
+          "aria-label": `Mark the ${item ? item.title : "coursework"} study session as done`,
+          dataset: { sessionToggle: session.id },
+        }),
+        el(
+          "div",
+          { class: "task-main" },
+          el("span", { class: "task-open", text: item ? item.title : "Study session" }),
+          el("p", { class: "task-meta" },
+            el("span", { class: "type-tag" },
+              el("span", { class: "glyph glyph-session", "aria-hidden": "true" }), "Study session"),
+            el("span", { text: `${formatTime(session.time)} \u00b7 ${session.minutes} min` }))
+        )
+      );
+    })));
+  }
+
   if (dayTasks.length > 0) {
+    if (daySessions.length > 0) parts.push(el("h3", { class: "up-group-title", text: "Due" }));
     parts.push(el("ul", { class: "task-list" }, dayTasks.map((task) => buildTaskRow(task))));
-  } else {
+  } else if (daySessions.length === 0) {
     parts.push(el("p", { class: "empty", text: "No tests, homework or assignments on this day yet." }));
   }
 
@@ -1855,9 +1931,15 @@ function buildCourseworkCard(item, today) {
   card.append(el(
     "div",
     { class: "cw-card-foot" },
-    el("span", { class: "cw-count", text: steps.length > 0
-      ? `${doneCount} of ${steps.length} steps done`
-      : "No steps yet" }),
+    el("span", { class: "cw-count", text: [
+      steps.length > 0 ? `${doneCount} of ${steps.length} steps done` : "No steps yet",
+      (() => {
+        const planned = liveSessions().filter((s) => s.courseworkId === item.id && !s.done && s.date >= today);
+        return planned.length > 0
+          ? `${planned.length} ${planned.length === 1 ? "session" : "sessions"} planned`
+          : null;
+      })(),
+    ].filter(Boolean).join(" \u00b7 ") }),
     el(
       "div",
       { class: "cw-stage-field" },
@@ -2081,6 +2163,7 @@ function setCourseworkStage(id, stage) {
 
 function setupCoursework() {
   $("add-coursework").addEventListener("click", () => openCourseworkDialog());
+  $("plan-sessions").addEventListener("click", () => applyPlan());
   $("coursework-form").addEventListener("submit", submitCourseworkForm);
   $("delete-coursework").addEventListener("click", deleteCurrentCoursework);
 
@@ -2176,6 +2259,76 @@ function dueReminders(now = Date.now()) {
     .sort(sortTasks);
 }
 
+/** The moment a sitting starts, as a real instant in local time. */
+function sessionInstant(session) {
+  const [hour, minute] = (session.time || SESSION_TIME_WEEKDAY).split(":").map(Number);
+  const when = fromISO(session.date);
+  when.setHours(hour, minute, 0, 0);
+  return when;
+}
+
+/*
+  Two notices per sitting: one an hour before, one as it starts. Each fires
+  once, and only inside a window around its moment -- opening the app days
+  later should not announce that it is time to study something from last week.
+*/
+const SESSION_PRE_MS = 3600000;
+const SESSION_PRE_WINDOW_MS = 3600000;
+const SESSION_GO_WINDOW_MS = 3 * 3600000;
+
+function dueSessionReminders(now = Date.now()) {
+  const sent = sentReminders();
+  const due = [];
+
+  liveSessions().forEach((session) => {
+    if (session.done) return;
+    const at = sessionInstant(session).getTime();
+    const preAt = at - SESSION_PRE_MS;
+
+    if (now >= preAt && now < preAt + SESSION_PRE_WINDOW_MS && !sent[`session:${session.id}:pre`]) {
+      due.push({ session, phase: "pre" });
+    }
+    if (now >= at && now < at + SESSION_GO_WINDOW_MS && !sent[`session:${session.id}:go`]) {
+      due.push({ session, phase: "go" });
+    }
+  });
+
+  return due;
+}
+
+async function deliverSessionReminders() {
+  if (!notificationsOn()) return 0;
+  const due = dueSessionReminders();
+  if (due.length === 0) return 0;
+
+  const sent = sentReminders();
+  for (const { session, phase } of due) {
+    const item = sessionCoursework(session);
+    const name = item ? item.title : "your coursework";
+    const time = formatTime(session.time);
+
+    if (phase === "pre") {
+      await showNotification(`In an hour: ${name}`, {
+        body: `Study session at ${time}, ${session.minutes} minutes.`,
+        tag: `session-${session.id}-pre`,
+        icon: "icons/icon-192.png",
+        badge: "icons/icon-192.png",
+      });
+    } else {
+      await showNotification("Time to study", {
+        body: `${name} \u00b7 ${session.minutes} minutes, starting now.`,
+        tag: `session-${session.id}-go`,
+        icon: "icons/icon-192.png",
+        badge: "icons/icon-192.png",
+      });
+    }
+    sent[`session:${session.id}:${phase}`] = new Date().toISOString();
+  }
+
+  writeStore(REMINDERS_KEY, sent);
+  return due.length;
+}
+
 async function deliverDueReminders() {
   if (!notificationsOn()) return 0;
   const due = dueReminders();
@@ -2195,6 +2348,11 @@ async function deliverDueReminders() {
   writeStore(REMINDERS_KEY, sent);
   renderAlertsPanel();
   return due.length;
+}
+
+async function deliverAllReminders() {
+  await deliverDueReminders();
+  await deliverSessionReminders();
 }
 
 /*
@@ -2262,7 +2420,7 @@ async function enableReminders() {
     badge: "icons/icon-192.png",
   });
   announce("Reminders are on, and a test notification has been sent.");
-  await deliverDueReminders();
+  await deliverAllReminders();
 }
 
 async function sendTestNotification() {
@@ -2282,15 +2440,227 @@ function setupReminders() {
   $("alerts-test").addEventListener("click", sendTestNotification);
   $("alerts-test-footer").addEventListener("click", sendTestNotification);
 
-  deliverDueReminders();
-  window.setInterval(deliverDueReminders, REMINDER_POLL_MS);
+  deliverAllReminders();
+  window.setInterval(deliverAllReminders, REMINDER_POLL_MS);
   // Coming back to the app is the moment a waiting reminder should appear.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
     // Permission may have been changed in system settings while we were away.
     renderAlertsPanel();
-    deliverDueReminders();
+    deliverAllReminders();
   });
+}
+
+/* ---------- Study sessions ---------- */
+
+function normaliseSession(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const date = String(raw.date == null ? "" : raw.date);
+  if (!isValidISO(date) && raw.deleted !== true) return null;
+  const createdAt = typeof raw.createdAt === "string" && raw.createdAt
+    ? raw.createdAt
+    : new Date().toISOString();
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : newId(),
+    courseworkId: String(raw.courseworkId == null ? "" : raw.courseworkId),
+    stepId: String(raw.stepId == null ? "" : raw.stepId),
+    date,
+    time: /^\d{2}:\d{2}$/.test(raw.time || "") ? raw.time : SESSION_TIME_WEEKDAY,
+    minutes: Number.isFinite(Number(raw.minutes)) ? Math.max(15, Math.min(240, Number(raw.minutes))) : SESSION_MINUTES,
+    done: raw.done === true,
+    /* A session the reader moved or made themselves is left alone by the
+       planner; only its own untouched output is replaced. */
+    pinned: raw.pinned === true,
+    deleted: raw.deleted === true,
+    createdAt,
+    updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : createdAt,
+  };
+}
+
+function loadSessions() {
+  const raw = readStore(SESSIONS_KEY, []);
+  if (!Array.isArray(raw)) return [];
+  const cutoff = new Date(Date.now() - TOMBSTONE_DAYS * 86400000).toISOString();
+  return raw
+    .map(normaliseSession)
+    .filter(Boolean)
+    .filter((session) => !session.deleted || session.updatedAt > cutoff);
+}
+
+function saveSessions() {
+  if (!writeStore(SESSIONS_KEY, state.sessions)) {
+    announce("Your browser would not let this page save data, so changes will be lost when you close the tab.");
+  }
+}
+
+function liveSessions() {
+  return state.sessions.filter((session) => !session.deleted);
+}
+
+function sessionsOn(iso) {
+  return liveSessions().filter((session) => session.date === iso);
+}
+
+function sessionCoursework(session) {
+  return findCoursework(session.courseworkId);
+}
+
+/*
+  How busy a day already is. Homework and tests both cost, a test costs more,
+  and the evening before a test costs almost as much because that is when it
+  gets revised for. A weekend is worth seeking out. A day that already holds a
+  sitting is heavily penalised, so the plan spreads rather than clumps.
+*/
+function dayLoad(iso, plannedByDate) {
+  let load = 0;
+
+  liveTasks().forEach((task) => {
+    if (task.done) return;
+    if (task.date === iso) {
+      load += task.type === "test" ? LOAD_TEST_SAME_DAY : LOAD_HOMEWORK_SAME_DAY;
+    } else if (task.type === "test" && task.date === addDays(iso, 1)) {
+      load += LOAD_TEST_EVE;
+    }
+  });
+
+  liveCoursework().forEach((item) => {
+    if (item.stage === "submitted") return;
+    const dates = [item.due, ...(item.steps || []).filter((s) => !s.done).map((s) => s.due)];
+    if (dates.some((due) => due && (due === iso || due === addDays(iso, 1)))) load += LOAD_DEADLINE_EVE;
+  });
+
+  load += (plannedByDate.get(iso) || 0) * LOAD_SESSION_SAME_DAY;
+  // Two slots meeting at a boundary would otherwise put sittings back to back.
+  load += ((plannedByDate.get(addDays(iso, -1)) || 0)
+    + (plannedByDate.get(addDays(iso, 1)) || 0)) * LOAD_SESSION_ADJACENT;
+
+  const weekday = weekdayIndex(fromISO(iso));
+  if (weekday >= 5) load += LOAD_WEEKEND_BONUS;
+
+  return load;
+}
+
+function sessionTimeFor(iso) {
+  return weekdayIndex(fromISO(iso)) >= 5 ? SESSION_TIME_WEEKEND : SESSION_TIME_WEEKDAY;
+}
+
+/*
+  What a piece is working towards, and how long it has.
+
+  The window runs to the final deadline, not to the next step's, so the plan
+  covers the whole arc of the work rather than stopping at the first milestone
+  and leaving the rest of the term empty. The current step is what each sitting
+  is labelled with; replanning after ticking one relabels the rest.
+*/
+function sessionTarget(item, today) {
+  const step = currentStep(item);
+  const deadline = [item.due, step && step.due]
+    .filter((due) => due && due > today)
+    .sort()
+    .pop();
+  const horizon = deadline || addDays(today, SESSION_HORIZON_DAYS);
+  const days = Math.max(1, daysBetween(today, horizon));
+  const wanted = Math.max(SESSION_MIN, Math.min(SESSION_MAX, Math.ceil(days / SESSION_SPACING_DAYS)));
+  return { step, horizon, days, wanted };
+}
+
+/*
+  Plans sittings for every unfinished piece of coursework.
+
+  The window from tomorrow to the next deadline is cut into as many slots as
+  there are sittings to place, and the quietest day in each slot is taken. That
+  gives a systematic spread -- one sitting per slot, so they cannot bunch up --
+  while still dodging the days already spoken for. If every day in a slot is
+  busy, the least busy is used anyway rather than skipping the work.
+
+  Returns the plan without applying it, so it can be checked.
+*/
+function planSessions(today = todayISO()) {
+  const plannedByDate = new Map();
+  liveSessions().forEach((session) => {
+    if (session.done || session.pinned || session.date <= today) {
+      plannedByDate.set(session.date, (plannedByDate.get(session.date) || 0) + 1);
+    }
+  });
+
+  const plan = [];
+  const items = liveCoursework()
+    .filter((item) => item.stage !== "submitted")
+    .sort(sortCoursework);
+
+  items.forEach((item) => {
+    const { step, horizon, wanted } = sessionTarget(item, today);
+    const first = addDays(today, 1);
+    if (horizon < first) return;
+
+    const span = Math.max(1, daysBetween(first, horizon) + 1);
+    const slots = Math.min(wanted, span);
+
+    for (let slot = 0; slot < slots; slot += 1) {
+      const from = Math.floor((slot * span) / slots);
+      const to = Math.floor(((slot + 1) * span) / slots) - 1;
+
+      let best = null;
+      for (let offset = from; offset <= to; offset += 1) {
+        const iso = addDays(first, offset);
+        const load = dayLoad(iso, plannedByDate);
+        if (!best || load < best.load) best = { iso, load };
+      }
+      if (!best) continue;
+
+      plannedByDate.set(best.iso, (plannedByDate.get(best.iso) || 0) + 1);
+      plan.push({
+        courseworkId: item.id,
+        stepId: step ? step.id : "",
+        date: best.iso,
+        time: sessionTimeFor(best.iso),
+        minutes: SESSION_MINUTES,
+        load: best.load,
+      });
+    }
+  });
+
+  return plan;
+}
+
+/**
+ * Replaces the planner's own future output with a fresh plan. Sittings already
+ * done, already past, or moved by hand are left exactly where they are.
+ */
+function applyPlan(today = todayISO()) {
+  const plan = planSessions(today);
+
+  state.sessions.forEach((session) => {
+    if (session.deleted || session.done || session.pinned || session.date <= today) return;
+    session.deleted = true;
+    touch(session);
+  });
+
+  plan.forEach((entry) => {
+    state.sessions.push(normaliseSession({
+      ...entry, id: newId(), createdAt: new Date().toISOString(),
+    }));
+  });
+
+  saveSessions();
+  renderAll();
+  announce(plan.length === 0
+    ? "Nothing to plan: add coursework with a deadline first."
+    : `Planned ${plan.length} study ${plan.length === 1 ? "session" : "sessions"}.`);
+  return plan;
+}
+
+function toggleSessionDone(id, done) {
+  const session = liveSessions().find((entry) => entry.id === id);
+  if (!session) return;
+  session.done = done;
+  touch(session);
+  saveSessions();
+  renderAll();
+  const item = sessionCoursework(session);
+  announce(done
+    ? `Study session for "${item ? item.title : "coursework"}" marked done.`
+    : "Study session marked as still to do.");
 }
 
 /* ---------- Calendar alerts ---------- */
@@ -2451,6 +2821,39 @@ function buildCalendarFeed() {
       }));
     });
 
+  liveSessions()
+    .filter((session) => !session.done && session.date >= today)
+    .sort((x, y) => (x.date === y.date ? x.time.localeCompare(y.time) : x.date < y.date ? -1 : 1))
+    .forEach((session) => {
+      const item = sessionCoursework(session);
+      const name = item ? item.title : "Coursework";
+      count += 1;
+      const start = sessionInstant(session);
+      const end = new Date(start.getTime() + session.minutes * 60000);
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:session-${session.id}@${ICS_UID_DOMAIN}`,
+        `DTSTAMP:${icsUtcStamp(new Date())}`,
+        `SEQUENCE:${icsSequence(session)}`,
+        `SUMMARY:${icsEscape(`Study: ${name}`)}`,
+        `DESCRIPTION:${icsEscape(`Study session \u00b7 ${session.minutes} minutes`)}`,
+        `DTSTART:${icsUtcStamp(start)}`,
+        `DTEND:${icsUtcStamp(end)}`,
+        // An hour's warning, then a nudge as it starts.
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        `DESCRIPTION:${icsEscape(`In an hour: ${name}`)}`,
+        "TRIGGER:-PT1H",
+        "END:VALARM",
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        `DESCRIPTION:${icsEscape(`Time to study: ${name}`)}`,
+        "TRIGGER:PT0S",
+        "END:VALARM",
+        "END:VEVENT"
+      );
+    });
+
   lines.push("END:VCALENDAR");
   return { text: lines.map(icsFold).join("\r\n") + "\r\n", count };
 }
@@ -2496,7 +2899,7 @@ function syncState() {
 /** How many tasks have changed since the last copy was saved out. */
 function pendingChangeCount() {
   const { lastSavedAt } = syncState();
-  const everything = [...state.tasks, ...state.coursework];
+  const everything = [...state.tasks, ...state.coursework, ...state.sessions];
   if (!lastSavedAt) return everything.length;
   return everything.filter((record) => record.updatedAt > lastSavedAt).length;
 }
@@ -2516,6 +2919,7 @@ function backupPayload() {
     savedAt: new Date().toISOString(),
     tasks: state.tasks,
     coursework: state.coursework,
+    sessions: state.sessions,
   }, null, 2);
 }
 
@@ -2589,6 +2993,10 @@ function mergeCoursework(incoming) {
   return mergeInto(state.coursework, incoming, { added: 0, updated: 0, removed: 0, unchanged: 0 });
 }
 
+function mergeSessions(incoming) {
+  return mergeInto(state.sessions, incoming, { added: 0, updated: 0, removed: 0, unchanged: 0 });
+}
+
 function describeMerge({ added, updated, removed, unchanged }) {
   const parts = [];
   if (added) parts.push(`${added} added`);
@@ -2622,10 +3030,16 @@ function loadCopy(file) {
       return;
     }
 
+    const incomingSessions = (Array.isArray(parsed && parsed.sessions) ? parsed.sessions : [])
+      .map(normaliseSession)
+      .filter(Boolean);
+
     const result = mergeTasks(incoming);
     const courseworkResult = mergeCoursework(incomingCoursework);
+    mergeSessions(incomingSessions);
     saveTasks();
     saveCoursework();
+    saveSessions();
     renderAll();
     const summary = [
       describeMerge(result),
@@ -2781,7 +3195,12 @@ function setupEvents() {
 
   document.addEventListener("change", (event) => {
     const toggle = event.target.closest("[data-toggle]");
-    if (toggle) toggleTaskDone(toggle.dataset.toggle, toggle.checked);
+    if (toggle) {
+      toggleTaskDone(toggle.dataset.toggle, toggle.checked);
+      return;
+    }
+    const session = event.target.closest("[data-session-toggle]");
+    if (session) toggleSessionDone(session.dataset.sessionToggle, session.checked);
   });
 
   $("task-form").addEventListener("change", onFormChange);
@@ -2864,6 +3283,7 @@ function init() {
   $("app-version").textContent = APP_VERSION;
   state.tasks = loadTasks();
   state.coursework = loadCoursework();
+  state.sessions = loadSessions();
   const today = todayISO();
   state.focusDate = today;
   state.weekStart = weekStartFor(today);

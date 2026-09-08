@@ -126,6 +126,38 @@ Coursework is stored separately from tasks, since it is worked at in stages and
 is not usefully drawn on a timetable, but it is backed up and merged exactly
 like tasks, so it travels between devices with everything else.
 
+## Study sessions
+
+**Plan study sessions** in the organiser gives every unfinished piece of
+coursework a run of dated sittings between tomorrow and its final deadline, and
+puts them on the quietest days it can find.
+
+The window is cut into as many slots as there are sittings, and the best day in
+each slot is taken. Slots give the systematic spread -- one sitting each, so
+they cannot bunch at one end -- and the scoring picks which day inside a slot:
+
+| What is already on a day | Cost |
+| --- | --- |
+| A test due | 5 |
+| The evening before a test, when it gets revised for | 4 |
+| Homework due | 2 |
+| A coursework deadline, or its eve | 3 |
+| A sitting already planned | 12 |
+| A sitting the day before or after | 4 |
+| It is a weekend | -3 |
+
+Doubling up costs more than sitting next to two other sittings, so the planner
+never chooses to double when it can spread. When every day is busy it takes the
+least bad one rather than skipping the work.
+
+Sittings show in the month view as outlined chips, so a day reads at a glance
+as "two things due, one thing to work on". Replanning replaces the planner's
+own future guesses but never touches a sitting you already did or moved
+yourself.
+
+Two notices come with each: one an hour before, and "Time to study" as it
+starts. Both are in the calendar export too, so they fire with the app closed.
+
 ## Reminders
 
 A reminder becomes due at 17:00 on the day before each task, and reads

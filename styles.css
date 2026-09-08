@@ -685,6 +685,7 @@ kbd {
 .glyph-project::before { content: "\25C6"; }
 .glyph-other::before { content: "\25B2"; }
 .glyph-done::before { content: "\2713"; }
+.glyph-session::before { content: "\270E"; }
 
 /* ---------- Upcoming list ---------- */
 
@@ -858,6 +859,15 @@ kbd {
 }
 
 .chip { --chip-bg: var(--subject-color); --chip-ink: var(--subject-ink); }
+
+/* Planned work, not work that is due: outlined rather than filled, so a busy
+   day still reads at a glance as "two things due, one thing to work on". */
+.chip-session {
+  --chip-bg: transparent;
+  --chip-ink: var(--subject-color, var(--ink-2));
+  border: 1px dashed var(--subject-color, var(--line-strong));
+  font-weight: 600;
+}
 
 /* ---------- Timetable ---------- */
 
@@ -1115,6 +1125,8 @@ kbd {
 .task-notes { margin: .35rem 0 0; font-size: .86rem; color: var(--ink-2); white-space: pre-wrap; }
 
 /* ---------- Study organiser ---------- */
+
+.organiser-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 
 .organiser-head {
   display: flex;

@@ -122,6 +122,7 @@
       <ul class="legend" aria-label="Task types">
         <li><span class="glyph glyph-test" aria-hidden="true"></span> Test</li>
         <li><span class="glyph glyph-homework" aria-hidden="true"></span> Homework</li>
+        <li><span class="glyph glyph-session" aria-hidden="true"></span> Study session</li>
         <li><span class="glyph glyph-done" aria-hidden="true"></span> Completed</li>
       </ul>
     </section>
@@ -133,9 +134,12 @@
     <section class="view" id="organiser-view" aria-labelledby="period-title" hidden>
       <div class="organiser-head">
         <p class="organiser-hint" id="organiser-hint">The long pieces: internal assessments, the extended essay, the TOK essay, CAS. Each can carry its own steps, and the one still to do leads the card.</p>
-        <button type="button" class="btn btn-primary" id="add-coursework">
-          <span class="btn-plus" aria-hidden="true">+</span> Add coursework
-        </button>
+        <div class="organiser-actions">
+          <button type="button" class="btn btn-quiet" id="plan-sessions">Plan study sessions</button>
+          <button type="button" class="btn btn-primary" id="add-coursework">
+            <span class="btn-plus" aria-hidden="true">+</span> Add coursework
+          </button>
+        </div>
       </div>
       <div id="coursework-list" aria-describedby="organiser-hint"></div>
     </section>
