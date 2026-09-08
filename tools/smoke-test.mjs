@@ -863,6 +863,149 @@ const timetableEvent = (uid) => page.evaluate((wanted) => {
   check("and no longer shows the old one", shown.includes("14:10"), false);
 }
 
+console.log("\neffort drives how many sittings are planned");
+
+// These build their own coursework to plan against, so put back what the
+// organiser tests above set up before handing over to the ones below.
+await page.evaluate(() => {
+  window.__saved = {
+    coursework: JSON.stringify(state.coursework),
+    sessions: JSON.stringify(state.sessions),
+  };
+});
+
+/** Plans one piece of coursework at a given effort and counts the sittings. */
+const planAt = (effort) => page.evaluate((level) => {
+  const today = todayISO();
+  state.coursework = [normaliseCoursework({
+    id: "solo", title: "Extended essay", kind: "ee",
+    due: addDays(today, 30), stage: "in-progress",
+    steps: [{ id: "s1", title: "First draft", due: addDays(today, 28), done: false, effort: level }],
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  })];
+  state.sessions = [];
+  saveCoursework(); saveSessions();
+  const plan = planSessions(today);
+  return {
+    count: plan.length,
+    dates: plan.map((entry) => entry.date),
+    spacing: sessionTarget(findCoursework("solo"), today).spacing,
+  };
+}, effort);
+
+{
+  const light = await planAt(1);
+  const normal = await planAt(3);
+  const heavy = await planAt(5);
+
+  check("a very light step is visited least often", light.spacing, 8);
+  check("normal keeps the spacing the planner always had", normal.spacing, 5);
+  check("a very heavy step is visited most often", heavy.spacing, 2);
+
+  check("light effort plans fewer sittings than normal", light.count < normal.count, true);
+  check("heavy effort plans more than normal", heavy.count > normal.count, true);
+  check("over 28 days, very light means four sittings", light.count, 4);
+  check("normal means six", normal.count, 6);
+  check("very heavy means twelve", heavy.count, 12);
+
+  // The point of the spread is that they do not bunch: raising effort should
+  // add sittings across the window, not pile them at one end.
+  const gaps = (dates) => dates.slice(1).map((date, i) =>
+    Math.round((Date.parse(date) - Date.parse(dates[i])) / 86400000));
+  const heavyGaps = await page.evaluate((d) => d, gaps(heavy.dates));
+  check("and heavy sittings are still spread out, not bunched",
+    heavyGaps.every((gap) => gap >= 1), true);
+  check("with none of them doubled up on one day",
+    new Set(heavy.dates).size, heavy.count);
+}
+
+{
+  // A step nobody has touched has to plan exactly as it did before the slider
+  // existed, or adding one silently rewrites everybody's schedule.
+  const unset = await page.evaluate(() => {
+    const today = todayISO();
+    state.coursework = [normaliseCoursework({
+      id: "solo", title: "Extended essay", kind: "ee",
+      due: addDays(today, 30), stage: "in-progress",
+      steps: [{ id: "s1", title: "First draft", due: addDays(today, 28), done: false }],
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    state.sessions = [];
+    saveCoursework(); saveSessions();
+    return {
+      stored: findCoursework("solo").steps[0].effort,
+      count: planSessions(today).length,
+    };
+  });
+  check("a step with no effort set defaults to normal", unset.stored, 3);
+  check("and plans as it always did", unset.count, 6);
+}
+
+{
+  // Effort follows the step being worked towards, so ticking one off hands the
+  // planner the next one's number rather than the first's.
+  const handover = await page.evaluate(() => {
+    const today = todayISO();
+    state.coursework = [normaliseCoursework({
+      id: "solo", title: "Extended essay", kind: "ee",
+      due: addDays(today, 30), stage: "in-progress",
+      steps: [
+        { id: "s1", title: "Reading", due: addDays(today, 28), done: false, effort: 1 },
+        { id: "s2", title: "Writing", due: addDays(today, 28), done: false, effort: 5 },
+      ],
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    state.sessions = [];
+    saveCoursework(); saveSessions();
+    const before = planSessions(today).length;
+    findCoursework("solo").steps[0].done = true;
+    saveCoursework();
+    return { before, after: planSessions(today).length };
+  });
+  check("the current step's effort is the one that counts", handover.before, 4);
+  check("and ticking it off hands over to the next step's", handover.after, 12);
+}
+
+{
+  // The slider itself.
+  await page.evaluate(() => {
+    state.coursework = [normaliseCoursework({
+      id: "solo", title: "Extended essay", kind: "ee", stage: "in-progress",
+      steps: [{ id: "s1", title: "First draft", due: "", done: false, effort: 2 }],
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    saveCoursework(); renderAll();
+    openCourseworkDialog("solo");
+  });
+  await page.waitForSelector("#coursework-dialog[open]");
+  check("the slider opens on the step's stored effort",
+    await page.inputValue("#cw-step-effort-0"), "2");
+  check("and reads out in words, not a number",
+    await page.textContent("#cw-step-effort-0-value"), "Light");
+
+  await page.locator("#cw-step-effort-0").fill("5");
+  check("dragging it updates the reading straight away",
+    await page.textContent("#cw-step-effort-0-value"), "Very heavy");
+  check("without collapsing the row it lives in",
+    await page.locator("#cw-step-effort-0").count(), 1);
+
+  await page.click("#save-coursework");
+  check("and saving keeps it",
+    await page.evaluate(() => findCoursework("solo").steps[0].effort), 5);
+  check("which the card then shows without opening the editor",
+    await page.locator(".cw-next-effort").first().innerText(), "Very heavy effort");
+}
+
+await page.evaluate(() => {
+  state.coursework = JSON.parse(window.__saved.coursework);
+  state.sessions = JSON.parse(window.__saved.sessions);
+  saveCoursework();
+  saveSessions();
+  renderAll();
+});
+check("and the organiser is back as the tests below expect it",
+  await page.locator(".cw-card").count(), 5);
+
 // The integration that would fail silently: coursework has to travel too.
 const travels = await page.evaluate(() => {
   const payload = JSON.parse(backupPayload());

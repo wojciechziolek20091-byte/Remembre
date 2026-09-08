@@ -134,6 +134,24 @@ like tasks, so it travels between devices with everything else.
 coursework a run of dated sittings between tomorrow and its final deadline, and
 puts them on the quietest days it can find.
 
+How many sittings there are is set by the **effort** slider on the step being
+worked towards. Effort does not make a sitting longer -- it decides how often
+you sit down with the thing, which is what "more sessions" actually means:
+
+| Effort | A sitting every | Over four weeks |
+| --- | --- | --- |
+| Very light | 8 days | 4 sittings |
+| Light | 6 days | 5 |
+| Normal | 5 days | 6 |
+| Heavy | 3 days | 10 |
+| Very heavy | 2 days | 12 |
+
+Normal is the middle of the slider and also the spacing the planner used before
+the slider existed, so a step nobody has thought about is planned exactly as it
+was. Effort belongs to the step rather than the whole piece, so ticking one off
+hands the planner the next step's number: reading week can be light and the
+fortnight of writing that follows can be very heavy.
+
 The window is cut into as many slots as there are sittings, and the best day in
 each slot is taken. Slots give the systematic spread -- one sitting each, so
 they cannot bunch at one end -- and the scoring picks which day inside a slot:

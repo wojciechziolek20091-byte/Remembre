@@ -1304,6 +1304,46 @@ kbd {
   border-radius: var(--radius);
 }
 
+/* The slider gets a line of its own under the step it belongs to. */
+.step-effort {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: 0 .1rem .15rem;
+}
+
+.step-effort-label {
+  font-size: .8rem;
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+
+.step-effort input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  /* Comfortably bigger than the 44px touch target guidance once the thumb's
+     own height is counted. */
+  height: 1.75rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.step-effort-value {
+  font-size: .8rem;
+  font-weight: 600;
+  /* Wide enough for "Very heavy", so the row does not jump as it is dragged. */
+  min-width: 5.5rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.cw-next-effort {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
 @media (max-width: 40rem) {
   .step-row { grid-template-columns: minmax(0, 1fr) auto; }
   .step-row input[type="date"] { grid-column: 1; }

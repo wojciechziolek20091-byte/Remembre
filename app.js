@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-34";
+const APP_VERSION = "2026.09.08-35";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -454,8 +454,34 @@ function normaliseStep(raw) {
     title,
     due: isValidISO(due) ? due : "",
     done: raw.done === true,
+    effort: clampEffort(raw.effort),
   };
 }
+
+/*
+  How much work a step is. The planner reads it as how often to sit down with
+  the thing: a heavy step wants sittings every other day, a light one can be
+  left a week between visits. Normal is deliberately the middle and deliberately
+  the old fixed spacing, so a step nobody has thought about is planned exactly
+  as it was before there was a slider.
+*/
+const EFFORT_LEVELS = [
+  { value: 1, label: "Very light", spacing: 8 },
+  { value: 2, label: "Light", spacing: 6 },
+  { value: 3, label: "Normal", spacing: SESSION_SPACING_DAYS },
+  { value: 4, label: "Heavy", spacing: 3 },
+  { value: 5, label: "Very heavy", spacing: 2 },
+];
+
+const EFFORT_DEFAULT = 3;
+
+function clampEffort(value) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) ? Math.max(1, Math.min(5, number)) : EFFORT_DEFAULT;
+}
+
+const effortLevel = (value) =>
+  EFFORT_LEVELS.find((level) => level.value === clampEffort(value)) || EFFORT_LEVELS[2];
 
 /** The first step still to do, which is the one worth showing. */
 function currentStep(item) {
@@ -1950,7 +1976,9 @@ function buildCourseworkCard(item, today) {
       el("span", { class: "cw-next-label", text: "Next step" }),
       el("span", { class: "cw-next-title", text: step.title }),
       " ",
-      el("span", { class: `cw-step-due${stepDueClass(step, item, today)}`, text: when })
+      el("span", { class: `cw-step-due${stepDueClass(step, item, today)}`, text: when }),
+      " ",
+      el("span", { class: "cw-next-effort", text: `${effortLevel(step.effort).label} effort` })
     ));
   }
 
@@ -2022,6 +2050,7 @@ function renderStepEditor({ focusLast = false } = {}) {
   wrap.replaceChildren(...state.formSteps.map((step, index) => {
     const titleId = `cw-step-title-${index}`;
     const dueId = `cw-step-due-${index}`;
+    const effortId = `cw-step-effort-${index}`;
     return el(
       "div",
       { class: "step-row" },
@@ -2041,7 +2070,24 @@ function renderStepEditor({ focusLast = false } = {}) {
         "aria-label": `Remove step ${index + 1}${step.title ? `, ${step.title}` : ""}`,
         text: "Remove",
         dataset: { removeStep: String(index) },
-      })
+      }),
+      el(
+        "div",
+        { class: "step-effort" },
+        el("label", { for: effortId, class: "step-effort-label", text: "Effort" }),
+        el("input", {
+          type: "range", id: effortId, min: "1", max: "5", step: "1",
+          value: String(clampEffort(step.effort)),
+          "aria-describedby": `${effortId}-value`,
+          dataset: { stepField: "effort", stepIndex: String(index) },
+        }),
+        // The number a slider is on means nothing on its own, and a screen
+        // reader would otherwise announce "3" with nothing to compare it to.
+        el("output", {
+          id: `${effortId}-value`, class: "step-effort-value",
+          for: effortId, text: effortLevel(step.effort).label,
+        })
+      )
     );
   }));
 
@@ -2261,14 +2307,22 @@ function setupCoursework() {
   });
 
   $("cw-add-step").addEventListener("click", () => {
-    state.formSteps.push({ id: newId(), title: "", due: "", done: false });
+    state.formSteps.push({ id: newId(), title: "", due: "", done: false, effort: EFFORT_DEFAULT });
     renderStepEditor({ focusLast: true });
   });
 
   $("cw-steps").addEventListener("input", (event) => {
     const field = event.target.closest("[data-step-field]");
     if (!field) return;
-    state.formSteps[Number(field.dataset.stepIndex)][field.dataset.stepField] = field.value;
+    const step = state.formSteps[Number(field.dataset.stepIndex)];
+    if (field.dataset.stepField === "effort") {
+      step.effort = clampEffort(field.value);
+      // Re-rendering here would end the drag, so only the reading changes.
+      const readout = $(`${field.id}-value`);
+      if (readout) readout.textContent = effortLevel(step.effort).label;
+      return;
+    }
+    step[field.dataset.stepField] = field.value;
   });
 
   $("cw-steps").addEventListener("click", (event) => {
@@ -2642,6 +2696,15 @@ function sessionTimeFor(iso) {
   and leaving the rest of the term empty. The current step is what each sitting
   is labelled with; replanning after ticking one relabels the rest.
 */
+/*
+  How many sittings a piece of coursework wants, and by when.
+
+  The effort on the step being worked towards decides how close together they
+  sit: a very heavy step is visited every second day, a very light one barely
+  once a week. So effort does not lengthen a sitting, it multiplies how many
+  fit before the deadline, which is what "more study sessions" means. A piece
+  with no steps yet keeps the middle spacing.
+*/
 function sessionTarget(item, today) {
   const step = currentStep(item);
   const deadline = [item.due, step && step.due]
@@ -2650,8 +2713,10 @@ function sessionTarget(item, today) {
     .pop();
   const horizon = deadline || addDays(today, SESSION_HORIZON_DAYS);
   const days = Math.max(1, daysBetween(today, horizon));
-  const wanted = Math.max(SESSION_MIN, Math.min(SESSION_MAX, Math.ceil(days / SESSION_SPACING_DAYS)));
-  return { step, horizon, days, wanted };
+  const effort = step ? clampEffort(step.effort) : EFFORT_DEFAULT;
+  const spacing = effortLevel(effort).spacing;
+  const wanted = Math.max(SESSION_MIN, Math.min(SESSION_MAX, Math.ceil(days / spacing)));
+  return { step, horizon, days, effort, spacing, wanted };
 }
 
 /*
