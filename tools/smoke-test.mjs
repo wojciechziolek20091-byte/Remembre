@@ -724,6 +724,40 @@ check("a stage can be changed from the list",
 check("and focus stays on the control after it re-sorts",
   await page.evaluate(() => document.activeElement.dataset.stageFor), "ee");
 
+/*
+  The title has always been a button, but it is styled as a heading, so nobody
+  found it: the card is what people aim at. A tap anywhere on the card that did
+  not land on one of its own controls now opens the editor, and the controls
+  still have to win outright -- ticking a step or changing the stage must not
+  also throw a dialog up over the thing you just touched.
+*/
+await page.locator('.cw-card:has-text("TOK essay") .cw-meta').click();
+check("clicking the body of a card opens it for editing",
+  await page.locator("#coursework-dialog[open]").count(), 1);
+check("and opens the one that was clicked",
+  await page.inputValue("#cw-title"), "TOK essay");
+await page.keyboard.press("Escape");
+
+await page.evaluate(() => {
+  const item = findCoursework("ee");
+  item.steps = [normaliseStep({ id: "s1", title: "Research question", due: "", done: false })];
+  item.updatedAt = new Date().toISOString();
+  saveCoursework();
+  renderAll();
+});
+await page.locator('[data-step-for="ee"]').click();
+check("ticking a step does not open the editor over it",
+  await page.locator("#coursework-dialog[open]").count(), 0);
+check("and the step is ticked",
+  await page.evaluate(() => findCoursework("ee").steps[0].done), true);
+
+await page.locator('[data-stage-for="ee"]').selectOption("in-progress");
+check("changing the stage does not open the editor either",
+  await page.locator("#coursework-dialog[open]").count(), 0);
+
+check("the title still says it can be opened",
+  await page.locator('[data-edit-coursework="tok"]').getAttribute("aria-haspopup"), "dialog");
+
 await page.locator('[data-edit-coursework="tok"]').click();
 await page.waitForSelector("#coursework-dialog[open]");
 check("editing restores the kind", await page.locator("#cw-kind-tok").isChecked(), true);

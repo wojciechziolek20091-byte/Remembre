@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-30";
+const APP_VERSION = "2026.09.08-31";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1882,7 +1882,11 @@ function buildCourseworkCard(item, today) {
 
   const card = el(
     "li",
-    { class: `cw-card${item.stage === "submitted" ? " is-submitted" : ""}`, style: subjectVars(item.subject) },
+    {
+      class: `cw-card${item.stage === "submitted" ? " is-submitted" : ""}`,
+      style: subjectVars(item.subject),
+      dataset: { coursework: item.id },
+    },
     el("div", { class: "cw-card-head" }, el("h3", {}, el("button", {
       type: "button", class: "cw-open", text: item.title,
       "aria-haspopup": "dialog", dataset: { editCoursework: item.id },
@@ -2164,9 +2168,29 @@ function setupCoursework() {
   $("coursework-form").addEventListener("submit", submitCourseworkForm);
   $("delete-coursework").addEventListener("click", deleteCurrentCoursework);
 
+  /*
+    The title is a real button, which is what a keyboard and a screen reader
+    use. But a card is a big obvious thing and the button inside it is not, so
+    a tap anywhere on the card that did not land on one of its own controls
+    opens the same editor. Anything interactive wins: ticking a step or
+    changing the stage must not also open a dialog on top of it, and selecting
+    the notes to read them is not a request to edit.
+  */
   $("coursework-list").addEventListener("click", (event) => {
     const open = event.target.closest("[data-edit-coursework]");
-    if (open) openCourseworkDialog(open.dataset.editCoursework);
+    if (open) {
+      openCourseworkDialog(open.dataset.editCoursework);
+      return;
+    }
+
+    if (event.target.closest("input, select, textarea, button, a, label")) return;
+    const card = event.target.closest("[data-coursework]");
+    if (!card) return;
+
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+
+    openCourseworkDialog(card.dataset.coursework);
   });
   $("coursework-list").addEventListener("change", (event) => {
     const select = event.target.closest("[data-stage-for]");
