@@ -225,6 +225,13 @@ and the file route below still works.
 
 ### As a file
 
+With syncing on, this panel hides itself: it asks the reader to do by hand what
+the app is already doing, and an invitation to duplicate work is worse than no
+invitation. Saving a copy stays reachable from the footer, because a file on
+iCloud Drive is the only copy that survives forgetting the sync phrase. The same
+goes for the export half of the calendar panel -- a subscription cannot fall
+behind, so there is nothing there to chase.
+
 The way that needs nothing but the app, and the fallback when syncing is off:
 
 1. On the device you have been using, open **Sync and backup** and tap **Save a

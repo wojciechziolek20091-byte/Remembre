@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-33";
+const APP_VERSION = "2026.09.08-34";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -3103,9 +3103,38 @@ function alertsBehind() {
   return changed;
 }
 
+/*
+  Automatic syncing replaces two whole panels: it pushes the feed the calendar
+  subscribes to, so there is nothing to export by hand, and it carries work
+  between devices, so there is nothing to save and load by hand either. Leaving
+  both on screen is clutter that invites the reader to do work the app is
+  already doing.
+
+  They are hidden rather than deleted. Syncing can be turned off, or a
+  deployment can lose its store, and then these are the way through -- and a
+  file on iCloud Drive is still the only copy that survives forgetting the sync
+  phrase, which is why saving one stays reachable from the footer.
+*/
+function syncingHandlesThis() {
+  const { enabled, code } = cloudState();
+  return Boolean(enabled && code) && cloudAvailable();
+}
+
+function renderRedundantPanels() {
+  const handled = syncingHandlesThis();
+  const backup = $("sync-panel");
+  const exporter = $("calendar-export");
+  if (backup) backup.hidden = handled;
+  if (exporter) exporter.hidden = handled;
+  const note = $("backup-note");
+  if (note) note.hidden = !handled;
+}
+
 function renderAlertsExport() {
+  renderRedundantPanels();
   const status = $("calendar-status");
   if (!status) return;
+  if (syncingHandlesThis()) return;
   const behind = alertsBehind();
 
   if (behind === 0) {
@@ -3498,11 +3527,13 @@ function renderCloudPanel() {
   if (!live) {
     status.textContent = cloudNote || "Not syncing. This device is on its own.";
     status.classList.toggle("is-stale", Boolean(cloudNote));
+    renderRedundantPanels();
     return;
   }
 
   $("cloud-feed").value = cloudFeedUrl(feed);
   renderPushNote();
+  renderRedundantPanels();
 
   if (cloudBusy) {
     status.textContent = "Syncing…";
@@ -3971,6 +4002,7 @@ function setupEvents() {
 
   $("export-alerts").addEventListener("click", exportCalendarAlerts);
   $("save-copy").addEventListener("click", saveCopy);
+  $("save-copy-footer").addEventListener("click", saveCopy);
   $("load-copy").addEventListener("click", () => $("load-file").click());
   $("load-file").addEventListener("change", (event) => {
     const file = event.target.files && event.target.files[0];

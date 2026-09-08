@@ -159,6 +159,17 @@ await waitForSynced(ipad.page);
 
 const feedUrl = await ipad.page.inputValue("#cloud-feed");
 {
+  // Syncing does by itself what these two panels ask the reader to do by hand,
+  // so they go away rather than inviting duplicated work.
+  check("the save-and-load panel goes away", await ipad.page.locator("#sync-panel").isVisible(), false);
+  check("and so does the export-a-file half of the calendar panel",
+    await ipad.page.locator("#calendar-export").isVisible(), false);
+  check("but the timetable alarms switch stays",
+    await ipad.page.locator("#lesson-alerts").isVisible(), true);
+  check("and saving a copy is still reachable from the footer",
+    await ipad.page.locator("#backup-note").isVisible(), true);
+}
+{
   check("the setup half gives way to the live one", await ipad.page.locator("#cloud-live").isVisible(), true);
   check("a calendar address is offered", /\/calendar\/[a-f0-9]{32}\.ics$/.test(feedUrl), true);
   check("the phrase is not in the address", feedUrl.includes(PHRASE), false);
@@ -250,10 +261,13 @@ console.log("\nthe calendar address");
 }
 
 {
+  // The "your calendar is N changes behind" nag belonged to exporting a file
+  // by hand. A subscription cannot fall behind, so the whole thing is gone
+  // rather than reassuring the reader about something it no longer does.
   check(
-    "with the subscription live, the calendar is never behind",
-    await ipad.page.textContent("#calendar-status"),
-    "Your calendar is up to date."
+    "with the subscription live, there is nothing to chase",
+    await ipad.page.locator("#calendar-export").isVisible(),
+    false
   );
 }
 
@@ -286,6 +300,9 @@ await ipad.page.click("#cloud-off");
 {
   check("the panel offers to start again", await ipad.page.locator("#cloud-setup").isVisible(), true);
   check("and says so", await statusOf(ipad.page), "Not syncing. This device is on its own.");
+  check("saving and loading a file comes back", await ipad.page.locator("#sync-panel").isVisible(), true);
+  check("and so does exporting a calendar", await ipad.page.locator("#calendar-export").isVisible(), true);
+  check("and the footer shortcut goes", await ipad.page.locator("#backup-note").isVisible(), false);
   check("the work stays on the device", await titlesOn(ipad.page), ["Cold War essay, final"]);
 }
 
