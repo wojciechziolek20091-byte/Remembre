@@ -336,14 +336,24 @@ can complain to). The pair is what proves to Apple and Google that a
 notification really came from this deployment; changing it invalidates every
 device that has already subscribed, so once set, leave it.
 
-**A schedule.** `vercel.json` asks for `/api/notify` once a day at 16:00 UTC.
-Hobby accounts may only schedule daily jobs -- anything finer fails the
-deployment -- so the run does not assume it happens at 17:00. Each device stores
-its own time zone, and the rule is *it is past 17:00 where this device is, and
-it has not been told about tomorrow yet*. Running it twice sends nothing twice,
-and `GET /api/notify?dry=1` shows what it would send without sending it. On a
-plan that allows `0 * * * *`, changing that one line makes the reminder land at
-17:00 exactly rather than within the evening.
+**A schedule.** A Hobby account may have a hundred cron jobs but none more often
+than daily, and it only promises to run one within the right *hour*. So the run
+cannot assume it is 17:00 anywhere. Each device stores its own time zone, and the
+rule is *it is past 17:00 where this device is, and it has not been told about
+tomorrow yet*, which makes the job idempotent: calling it twice sends nothing
+twice.
+
+That is what lets several daily jobs stand in for an hourly one. `vercel.json`
+asks for `/api/notify` at 15:00, 16:00 and 18:00 UTC. For a reader in central
+Europe the first is 17:00 in summer and too early in winter, the second is 17:00
+in winter and already done in summer, and the third is a catch-up if either
+failed. Whichever runs first that evening sends; the rest find the work done and
+do nothing. Reading `0 15` and `0 16` as *the two candidates for 17:00 local*
+rather than as two separate reminders is the trick to the whole arrangement, and
+somewhere with a different offset wants different hours.
+
+`GET /api/notify?dry=1` shows what it would send without sending it. On a plan
+that allows `0 * * * *`, one hourly job replaces all three.
 
 Optionally set `CRON_SECRET`; when it is set, a caller without it gets a dry run
 instead of a send.

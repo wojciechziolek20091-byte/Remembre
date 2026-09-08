@@ -69,7 +69,15 @@
   "crons": [
     {
       "path": "/api/notify",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/notify",
       "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/notify",
+      "schedule": "0 18 * * *"
     }
   ]
 }
