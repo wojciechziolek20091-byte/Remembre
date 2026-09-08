@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-19";
+const APP_VERSION = "2026.09.08-20";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -362,6 +362,37 @@ function normaliseDetail(subject, raw) {
   return { kind, parts };
 }
 
+/*
+  A piece of coursework runs in steps -- a proposal, a draft, a supervisor
+  meeting -- and each can carry its own deadline. The step that matters is the
+  first one not yet done, so that is what the card leads with; the final
+  deadline is the anchor behind it.
+*/
+function normaliseStep(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const title = String(raw.title == null ? "" : raw.title).trim().slice(0, 120);
+  if (!title) return null;
+  const due = String(raw.due == null ? "" : raw.due);
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : newId(),
+    title,
+    due: isValidISO(due) ? due : "",
+    done: raw.done === true,
+  };
+}
+
+/** The first step still to do, which is the one worth showing. */
+function currentStep(item) {
+  return (item.steps || []).find((step) => !step.done) || null;
+}
+
+/** What the card should be sorted and warned by: the next thing with a date. */
+function nextDeadline(item) {
+  const step = currentStep(item);
+  if (step && step.due && (!item.due || step.due < item.due)) return step.due;
+  return item.due || (step ? step.due : "");
+}
+
 function normaliseCoursework(raw) {
   if (!raw || typeof raw !== "object") return null;
   const title = String(raw.title == null ? "" : raw.title).trim().slice(0, 120);
@@ -378,6 +409,7 @@ function normaliseCoursework(raw) {
     subject: SUBJECT_KEYS.includes(raw.subject) ? raw.subject : "",
     due: isValidISO(due) ? due : "",
     stage: COURSEWORK_STAGE_KEYS.includes(raw.stage) ? raw.stage : "not-started",
+    steps: (Array.isArray(raw.steps) ? raw.steps : []).map(normaliseStep).filter(Boolean).slice(0, 20),
     notes: String(raw.notes == null ? "" : raw.notes).trim().slice(0, 500),
     deleted: raw.deleted === true,
     createdAt,
@@ -405,12 +437,18 @@ function liveCoursework() {
   return state.coursework.filter((item) => !item.deleted);
 }
 
-/** Soonest deadline first; anything submitted, and anything undated, last. */
+/*
+  Ordered by whatever needs attention next -- the current step's deadline when
+  it has one, otherwise the final deadline -- with undated and then submitted
+  work at the bottom.
+*/
 function sortCoursework(a, b) {
   const submitted = (item) => (item.stage === "submitted" ? 1 : 0);
   if (submitted(a) !== submitted(b)) return submitted(a) - submitted(b);
-  if (Boolean(a.due) !== Boolean(b.due)) return a.due ? -1 : 1;
-  if (a.due && b.due && a.due !== b.due) return a.due < b.due ? -1 : 1;
+  const aNext = nextDeadline(a);
+  const bNext = nextDeadline(b);
+  if (Boolean(aNext) !== Boolean(bNext)) return aNext ? -1 : 1;
+  if (aNext && bNext && aNext !== bNext) return aNext < bNext ? -1 : 1;
   return a.title.localeCompare(b.title, LOCALE);
 }
 
@@ -473,6 +511,8 @@ const state = {
   editingId: null,
   coursework: [],
   editingCourseworkId: null,
+  /** Working copy of the step list while the coursework dialog is open. */
+  formSteps: [],
   /** Working copy of the add / edit form's branching answers. */
   form: { subject: "", detail: { kind: "", parts: [] }, titleDirty: false },
   dayDialogDate: "",
@@ -1059,10 +1099,17 @@ function buildUpcomingItem(task, today) {
 /* ---------- Rendering: chrome ---------- */
 
 function renderPeriod() {
-  $("period-title").textContent = state.view === "week"
-    ? weekTitle(state.weekStart)
-    : fmtMonthYear.format(fromISO(state.periodStart));
+  const organiser = state.view === "organiser";
+  $("period-title").textContent = organiser
+    ? "Study organiser"
+    : state.view === "week"
+      ? weekTitle(state.weekStart)
+      : fmtMonthYear.format(fromISO(state.periodStart));
   $("today-label").textContent = fmtFullDate.format(new Date());
+
+  // Nothing to step through when the organiser is showing.
+  $("period-nav").hidden = organiser;
+  if (organiser) return;
 
   const unit = state.view === "week" ? "week" : "month";
   $("prev-period").querySelector(".sr-only").textContent = `Previous ${unit}`;
@@ -1095,10 +1142,11 @@ function renderAll() {
 /* ---------- View switching ---------- */
 
 function setView(view) {
-  state.view = ["week", "month", "list"].includes(view) ? view : "week";
+  state.view = ["week", "month", "list", "organiser"].includes(view) ? view : "week";
   $("week-view").hidden = state.view !== "week";
   $("month-view").hidden = state.view !== "month";
   $("list-view").hidden = state.view !== "list";
+  $("organiser-view").hidden = state.view !== "organiser";
   renderPeriod();
   savePrefs();
 }
@@ -1733,9 +1781,20 @@ function courseworkDueLabel(item, today) {
   return { text, tone };
 }
 
-function buildCourseworkItem(item, today) {
+function stepDueClass(step, item, today) {
+  if (step.done || item.stage === "submitted" || !step.due) return "";
+  const days = daysBetween(today, step.due);
+  if (days < 0) return " is-late";
+  if (days <= 7) return " is-close";
+  return "";
+}
+
+function buildCourseworkCard(item, today) {
   const stageId = `cw-stage-${item.id}`;
   const due = courseworkDueLabel(item, today);
+  const step = currentStep(item);
+  const steps = item.steps || [];
+  const doneCount = steps.filter((entry) => entry.done).length;
 
   const meta = el(
     "p",
@@ -1745,25 +1804,60 @@ function buildCourseworkItem(item, today) {
   );
   if (item.subject) meta.append(el("span", { text: COURSEWORK_KINDS[item.kind].label }));
   meta.append(due
-    ? el("span", { class: `cw-due${due.tone}`, text: due.text })
-    : el("span", { text: "No deadline set" }));
+    ? el("span", { class: `cw-due${due.tone}`, text: `Due ${due.text}` })
+    : el("span", { text: "No final deadline set" }));
 
-  return el(
+  const card = el(
     "li",
-    {
-      class: `cw-item${item.stage === "submitted" ? " is-submitted" : ""}`,
-      style: subjectVars(item.subject),
-    },
-    el(
-      "div",
-      { class: "cw-main" },
-      el("button", {
-        type: "button", class: "cw-open", text: item.title,
-        "aria-haspopup": "dialog", dataset: { editCoursework: item.id },
+    { class: `cw-card${item.stage === "submitted" ? " is-submitted" : ""}`, style: subjectVars(item.subject) },
+    el("div", { class: "cw-card-head" }, el("h3", {}, el("button", {
+      type: "button", class: "cw-open", text: item.title,
+      "aria-haspopup": "dialog", dataset: { editCoursework: item.id },
+    }))),
+    meta
+  );
+
+  if (step) {
+    const when = step.due
+      ? `${relativeDay(step.due, today)} \u00b7 ${fmtMediumDate.format(fromISO(step.due))}`
+      : "no deadline set";
+    card.append(el(
+      "p",
+      { class: "cw-next" },
+      el("span", { class: "cw-next-label", text: "Next step" }),
+      el("span", { class: "cw-next-title", text: step.title }),
+      " ",
+      el("span", { class: `cw-step-due${stepDueClass(step, item, today)}`, text: when })
+    ));
+  }
+
+  if (steps.length > 0) {
+    card.append(el("ul", { class: "cw-steps" }, steps.map((entry) => el(
+      "li",
+      { class: `cw-step${entry.done ? " is-done" : ""}` },
+      el("input", {
+        type: "checkbox", checked: entry.done,
+        "aria-label": `${entry.title}${entry.due ? `, due ${fmtMediumDate.format(fromISO(entry.due))}` : ""}`,
+        dataset: { stepFor: item.id, stepId: entry.id },
       }),
-      meta,
-      item.notes ? el("p", { class: "cw-notes", text: item.notes }) : null
-    ),
+      el("span", { class: "cw-step-title", text: entry.title }),
+      entry.due
+        ? el("span", {
+            class: `cw-step-due${stepDueClass(entry, item, today)}`,
+            text: fmtShortDate.format(fromISO(entry.due)),
+          })
+        : null
+    ))));
+  }
+
+  if (item.notes) card.append(el("p", { class: "cw-notes", text: item.notes }));
+
+  card.append(el(
+    "div",
+    { class: "cw-card-foot" },
+    el("span", { class: "cw-count", text: steps.length > 0
+      ? `${doneCount} of ${steps.length} steps done`
+      : "No steps yet" }),
     el(
       "div",
       { class: "cw-stage-field" },
@@ -1773,7 +1867,9 @@ function buildCourseworkItem(item, today) {
           value: stage.id, text: stage.label, selected: item.stage === stage.id,
         })))
     )
-  );
+  ));
+
+  return card;
 }
 
 function renderCoursework() {
@@ -1789,7 +1885,44 @@ function renderCoursework() {
     return;
   }
 
-  wrap.replaceChildren(el("ul", { class: "cw-list" }, items.map((item) => buildCourseworkItem(item, today))));
+  wrap.replaceChildren(el("ul", { class: "cw-list" }, items.map((item) => buildCourseworkCard(item, today))));
+}
+
+function renderStepEditor({ focusLast = false } = {}) {
+  const wrap = $("cw-steps");
+  wrap.replaceChildren(...state.formSteps.map((step, index) => {
+    const titleId = `cw-step-title-${index}`;
+    const dueId = `cw-step-due-${index}`;
+    return el(
+      "div",
+      { class: "step-row" },
+      el("input", {
+        type: "text", id: titleId, value: step.title, maxlength: 120,
+        placeholder: `Step ${index + 1}`, autocomplete: "off",
+        "aria-label": `Step ${index + 1} name`,
+        dataset: { stepField: "title", stepIndex: String(index) },
+      }),
+      el("input", {
+        type: "date", id: dueId, value: step.due,
+        "aria-label": `Step ${index + 1} deadline`,
+        dataset: { stepField: "due", stepIndex: String(index) },
+      }),
+      el("button", {
+        type: "button", class: "btn btn-quiet btn-tiny",
+        "aria-label": `Remove step ${index + 1}${step.title ? `, ${step.title}` : ""}`,
+        text: "Remove",
+        dataset: { removeStep: String(index) },
+      })
+    );
+  }));
+
+  if (state.formSteps.length === 0) {
+    wrap.append(el("p", { class: "field-hint", text: "No steps yet." }));
+  }
+  if (focusLast) {
+    const inputs = wrap.querySelectorAll('[data-step-field="title"]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  }
 }
 
 function openCourseworkDialog(id = null) {
@@ -1832,6 +1965,11 @@ function openCourseworkDialog(id = null) {
     value: stage.id, text: stage.label, selected: (item ? item.stage : "not-started") === stage.id,
   })));
 
+  state.formSteps = item
+    ? (item.steps || []).map((step) => ({ ...step }))
+    : [];
+  renderStepEditor();
+
   $("cw-title").value = item ? item.title : "";
   $("cw-due").value = item ? item.due : "";
   $("cw-notes").value = item ? item.notes : "";
@@ -1871,6 +2009,8 @@ function submitCourseworkForm(event) {
     due,
     stage: $("cw-stage").value,
     notes: $("cw-notes").value.trim(),
+    // A row left blank is a row the reader never filled in, not an error.
+    steps: state.formSteps.map(normaliseStep).filter(Boolean),
   };
 
   const existing = state.editingCourseworkId ? findCoursework(state.editingCourseworkId) : null;
@@ -1905,6 +2045,26 @@ function deleteCurrentCoursework() {
   $("add-coursework").focus();
 }
 
+function setStepDone(itemId, stepId, done) {
+  const item = findCoursework(itemId);
+  if (!item) return;
+  const step = (item.steps || []).find((entry) => entry.id === stepId);
+  if (!step) return;
+
+  step.done = done;
+  touch(item);
+  saveCoursework();
+  renderAll();
+
+  // The card re-orders as steps are ticked, so put focus back where it was.
+  const restored = document.querySelector(`[data-step-for="${itemId}"][data-step-id="${stepId}"]`);
+  if (restored) restored.focus();
+  const next = currentStep(item);
+  announce(done
+    ? `"${step.title}" done.${next ? ` Next: ${next.title}.` : " Every step is done."}`
+    : `"${step.title}" is to do again.`);
+}
+
 function setCourseworkStage(id, stage) {
   const item = findCoursework(id);
   if (!item || !COURSEWORK_STAGE_KEYS.includes(stage)) return;
@@ -1930,7 +2090,31 @@ function setupCoursework() {
   });
   $("coursework-list").addEventListener("change", (event) => {
     const select = event.target.closest("[data-stage-for]");
-    if (select) setCourseworkStage(select.dataset.stageFor, select.value);
+    if (select) {
+      setCourseworkStage(select.dataset.stageFor, select.value);
+      return;
+    }
+    const step = event.target.closest("[data-step-for]");
+    if (step) setStepDone(step.dataset.stepFor, step.dataset.stepId, step.checked);
+  });
+
+  $("cw-add-step").addEventListener("click", () => {
+    state.formSteps.push({ id: newId(), title: "", due: "", done: false });
+    renderStepEditor({ focusLast: true });
+  });
+
+  $("cw-steps").addEventListener("input", (event) => {
+    const field = event.target.closest("[data-step-field]");
+    if (!field) return;
+    state.formSteps[Number(field.dataset.stepIndex)][field.dataset.stepField] = field.value;
+  });
+
+  $("cw-steps").addEventListener("click", (event) => {
+    const remove = event.target.closest("[data-remove-step]");
+    if (!remove) return;
+    state.formSteps.splice(Number(remove.dataset.removeStep), 1);
+    renderStepEditor();
+    $("cw-add-step").focus();
   });
 }
 
@@ -2661,7 +2845,7 @@ function restorePrefs() {
   const themeInput = document.querySelector(`input[name="theme"][value="${state.theme}"]`);
   if (themeInput) themeInput.checked = true;
 
-  setView(["week", "month", "list"].includes(prefs.view) ? prefs.view : "week");
+  setView(["week", "month", "list", "organiser"].includes(prefs.view) ? prefs.view : "week");
   const viewInput = document.querySelector(`input[name="view"][value="${state.view}"]`);
   if (viewInput) viewInput.checked = true;
 

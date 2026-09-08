@@ -442,6 +442,8 @@ kbd {
 
 .segmented {
   display: inline-flex;
+  /* Four views no longer fit on one line at the narrowest widths. */
+  flex-wrap: wrap;
   padding: 3px;
   gap: 3px;
   border: 0;
@@ -1114,12 +1116,6 @@ kbd {
 
 /* ---------- Study organiser ---------- */
 
-.organiser {
-  margin-top: 1.75rem;
-  padding-top: 1.5rem;
-  border-top: 2px solid var(--line);
-}
-
 .organiser-head {
   display: flex;
   flex-wrap: wrap;
@@ -1143,7 +1139,112 @@ kbd {
   max-width: 44ch;
 }
 
-.cw-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.cw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
+}
+
+.cw-card {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  padding: 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--subject-color, var(--line-strong));
+  border-radius: var(--radius-lg);
+}
+
+.cw-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem .75rem; }
+
+.cw-next {
+  margin: 0;
+  padding: .5rem .65rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: .88rem;
+}
+
+.cw-next-label {
+  display: block;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: .1rem;
+}
+
+.cw-next-title { font-weight: 600; }
+
+.cw-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: .1rem; }
+
+.cw-step {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  padding: .3rem .25rem;
+  border-radius: 4px;
+  font-size: .88rem;
+}
+
+.cw-step:hover { background: var(--surface-3); }
+
+.cw-step input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.cw-step-title { flex: 1; min-width: 0; }
+.cw-step.is-done .cw-step-title { text-decoration: line-through; color: var(--ink-2); }
+.cw-step-due { font-size: .8rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cw-step-due.is-close { color: var(--accent); font-weight: 600; }
+.cw-step-due.is-late { color: var(--danger); font-weight: 600; }
+
+.cw-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding-top: .5rem;
+  border-top: 1px solid var(--line);
+}
+
+.cw-count { font-size: .8rem; color: var(--ink-2); }
+
+/* The step editor inside the dialog. */
+.step-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9.5rem auto;
+  gap: .4rem;
+  align-items: center;
+  margin-bottom: .4rem;
+}
+
+.step-row input[type="text"],
+.step-row input[type="date"] {
+  width: 100%;
+  min-width: 0;
+  padding: .45rem .55rem;
+  min-height: 2.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+@media (max-width: 40rem) {
+  .step-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .step-row input[type="date"] { grid-column: 1; }
+}
 
 .cw-item {
   display: flex;

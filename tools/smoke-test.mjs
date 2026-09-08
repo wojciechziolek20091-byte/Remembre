@@ -522,9 +522,9 @@ check("soonest deadline first, undated then submitted last",
   await page.locator(".cw-open").allInnerTexts(),
   ["Economics IA", "TOK essay", "Extended Essay", "CAS project", "Maths IA"]);
 check("a deadline close at hand is marked",
-  await page.locator(".cw-item", { hasText: "Economics IA" }).locator(".cw-due.is-close").count(), 1);
+  await page.locator(".cw-card", { hasText: "Economics IA" }).locator(".cw-due.is-close").count(), 1);
 check("a submitted piece is not urgent, whatever its date",
-  await page.locator(".cw-item", { hasText: "Maths IA" }).locator(".cw-due.is-close, .cw-due.is-late").count(), 0);
+  await page.locator(".cw-card", { hasText: "Maths IA" }).locator(".cw-due.is-close, .cw-due.is-late").count(), 0);
 
 await page.locator('[data-stage-for="ee"]').selectOption("draft");
 check("a stage can be changed from the list",
