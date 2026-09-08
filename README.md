@@ -373,6 +373,21 @@ The calendar subscription still carries the same alarms, and it is worth keeping
 it fires them to the minute, from the device itself, with nothing in the middle
 that can lapse.
 
+That punctuality is why the timetable's own alarms go through the calendar
+rather than the server. **Timetable alarms**, under Calendar alerts, adds a
+recurring entry for every lesson block and one for setting off each morning:
+*leave for school* seventeen minutes before the day's first lesson, and *do not
+be late* five minutes before each block. Those have to land on the minute, and a
+server polled every quarter of an hour cannot promise that. They are written in
+floating local time -- no zone, no trailing Z -- so a calendar reads them on the
+device's own clock and they stay right through a daylight-saving change without
+the feed carrying a timezone definition. They are marked transparent, so they do
+not make you look busy to anybody you share a calendar with.
+
+The leaving time is not written down per day. It is the first lesson of that day
+less seventeen minutes, so Monday's 10:18 and Wednesday's 07:43 come out of the
+same sum, and editing `TIMETABLE_ROWS` or `PERIOD_TIMES` moves them both.
+
 ## Deploying
 
 There is nothing to build. Point any static host at the repository root; the

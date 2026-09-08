@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-32";
+const APP_VERSION = "2026.09.08-33";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -142,7 +142,7 @@ const LOAD_DEADLINE_EVE = 3;
 */
 const TIMETABLE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-const PERIOD_TIMES = ["08:00", "08:45", "08:45", "10:35", "10:35", "12:10", "12:10", "14:10", "14:10"];
+const PERIOD_TIMES = ["08:00", "08:45", "08:45", "10:35", "10:35", "12:10", "12:10", "14:35", "14:35"];
 
 const lesson = (subject, label, room) => ({ subject, label, room });
 const maths = (room) => lesson("mathematics", "Maths AI HL", room);
@@ -151,6 +151,15 @@ const eng = (room) => lesson("english", "English B HL", room);
 const pol = (room) => lesson("polish", "Polish A SL", room);
 const hist = (room) => lesson("history", "History SL", room);
 const ess = (room) => lesson("ess", "ESS SL", room);
+
+/*
+  Leaving-for-school and don't-be-late alarms. The first is timed from the
+  first lesson of each day rather than set per day: Monday's 10:18 is simply
+  10:35 less seventeen minutes, and every other day falls out of the same sum.
+*/
+const LEAVE_LEAD_MINUTES = 17;
+const LESSON_LEAD_MINUTES = 5;
+const LESSON_MINUTES = 45;
 
 /* One row per period; five entries per row, Monday to Friday, null when free. */
 const TIMETABLE_ROWS = [
@@ -164,6 +173,41 @@ const TIMETABLE_ROWS = [
   /* 7 */ [maths("R_36"), pol("R_36"), pol("R_36"), econ("R_30"), hist("R_b2")],
   /* 8 */ [maths("R_36"), pol("R_36"), pol("R_36"), econ("R_30"), hist("R_b2")],
 ];
+
+/**
+ * Periods that share a start time are one block, so 1 and 2 are taught back to
+ * back and announced once. Derived from PERIOD_TIMES so that changing a time
+ * cannot leave the blocks describing something else.
+ */
+const PERIOD_BLOCKS = PERIOD_TIMES.reduce((blocks, time, period) => {
+  const last = blocks[blocks.length - 1];
+  if (last && last.time === time) last.periods.push(period);
+  else blocks.push({ time, periods: [period] });
+  return blocks;
+}, []);
+
+/** Every block a given day actually has a lesson in, earliest first. */
+function blocksOn(dayIndex) {
+  return PERIOD_BLOCKS
+    .map((block) => ({
+      ...block,
+      lessons: block.periods.map((period) => TIMETABLE_ROWS[period][dayIndex]).filter(Boolean),
+    }))
+    .filter((block) => block.lessons.length > 0);
+}
+
+/** When to set off, or "" on a day with no lessons at all. */
+function leaveTimeOn(dayIndex) {
+  const first = blocksOn(dayIndex)[0];
+  return first ? shiftTime(first.time, -LEAVE_LEAD_MINUTES) : "";
+}
+
+/** "10:35" shifted by some minutes, clamped inside the day. */
+function shiftTime(time, minutes) {
+  const [hour, minute] = time.split(":").map(Number);
+  const total = Math.max(0, Math.min(24 * 60 - 1, hour * 60 + minute + minutes));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
 
 /*
   Two subjects ask follow-up questions. `kinds` is the first of them; a kind
@@ -523,6 +567,7 @@ function savePrefs() {
     view: state.view,
     types: state.typeFilter,
     showDone: state.showDone,
+    lessonAlerts: state.lessonAlerts,
   });
 }
 
@@ -530,6 +575,7 @@ function savePrefs() {
 
 const state = {
   tasks: [],
+  lessonAlerts: true,
   view: "month",
   theme: "auto",
   typeFilter: TYPE_KEYS.slice(),
@@ -2202,6 +2248,18 @@ function setupCoursework() {
     if (step) setStepDone(step.dataset.stepFor, step.dataset.stepId, step.checked);
   });
 
+  $("lesson-alerts").addEventListener("change", (event) => {
+    state.lessonAlerts = event.target.checked;
+    savePrefs();
+    renderAlertsExport();
+    // The feed the calendar subscribes to has just changed shape, so hand the
+    // new one up rather than leaving it a week behind.
+    cloudSchedulePush();
+    announce(state.lessonAlerts
+      ? "Timetable alarms are on. Your calendar will pick them up shortly."
+      : "Timetable alarms are off. Your calendar will drop them shortly.");
+  });
+
   $("cw-add-step").addEventListener("click", () => {
     state.formSteps.push({ id: newId(), title: "", due: "", done: false });
     renderStepEditor({ focusLast: true });
@@ -2807,6 +2865,96 @@ function icsEvent({ uid, sequence, summary, description, dateIso, time, alarmTex
   return lines;
 }
 
+/* ---------- The timetable's own alarms ---------- */
+
+/*
+  Leaving for school and being on time for a lesson are alarms that have to
+  land on the minute, and a server that is polled every quarter of an hour
+  cannot do that. A calendar can: these go out as weekly recurring events, and
+  the reader's calendar fires them from the device itself, offline, exactly on
+  time.
+
+  They are written in floating local time -- no zone, no trailing Z -- so a
+  calendar reads them on whatever clock the device is keeping. That is what
+  makes 10:18 stay 10:18 through a daylight-saving change without the feed
+  having to carry a timezone definition.
+*/
+
+const ICS_ANCHOR = "2024-01-01";      // A Monday, so anchor + n is that weekday.
+const ICS_BYDAY = ["MO", "TU", "WE", "TH", "FR"];
+
+const icsFloating = (dateIso, time) =>
+  `${dateIso.replace(/-/g, "")}T${time.replace(":", "")}00`;
+
+function icsRecurring({ uid, byday, date, start, end, summary, description, lead, alarmText }) {
+  return [
+    "BEGIN:VEVENT",
+    `UID:timetable-${uid}@${ICS_UID_DOMAIN}`,
+    `DTSTAMP:${icsUtcStamp(new Date())}`,
+    `DTSTART:${icsFloating(date, start)}`,
+    `DTEND:${icsFloating(date, end)}`,
+    `RRULE:FREQ=WEEKLY;BYDAY=${byday}`,
+    `SUMMARY:${icsEscape(summary)}`,
+    `DESCRIPTION:${icsEscape(description)}`,
+    // A timetable is not an appointment: it should not make the reader look
+    // busy to anybody they share a calendar with.
+    "TRANSP:TRANSPARENT",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsEscape(alarmText)}`,
+    `TRIGGER;RELATED=START:${lead > 0 ? `-PT${lead}M` : "PT0S"}`,
+    "END:VALARM",
+    "END:VEVENT",
+  ];
+}
+
+/** One "leave for school" and one "do not be late" per block, every week. */
+function timetableAlarms() {
+  const lines = [];
+  let count = 0;
+
+  TIMETABLE_DAYS.forEach((day, dayIndex) => {
+    const blocks = blocksOn(dayIndex);
+    if (blocks.length === 0) return;
+
+    const date = addDays(ICS_ANCHOR, dayIndex);
+    const byday = ICS_BYDAY[dayIndex];
+    const first = blocks[0];
+
+    count += 1;
+    lines.push(...icsRecurring({
+      uid: `leave-${dayIndex}`,
+      byday, date,
+      start: leaveTimeOn(dayIndex),
+      end: first.time,
+      summary: "Leave for school",
+      description: `${day}'s first lesson is at ${first.time}.`,
+      lead: 0,
+      alarmText: "Time to go to school",
+    }));
+
+    blocks.forEach((entry) => {
+      const names = [...new Set(entry.lessons.map((lesson) => lesson.label))].join(" / ");
+      const rooms = [...new Set(entry.lessons.map((lesson) => lesson.room))].join(", ");
+      const periods = entry.periods.join(" and ");
+
+      count += 1;
+      lines.push(...icsRecurring({
+        uid: `lesson-${dayIndex}-${entry.periods[0]}`,
+        byday, date,
+        start: entry.time,
+        end: shiftTime(entry.time, LESSON_MINUTES * entry.periods.length),
+        summary: `${names} \u00b7 ${rooms}`,
+        description: `Lesson ${periods} in ${rooms}.`,
+        lead: LESSON_LEAD_MINUTES,
+        alarmText: `Do not be late: ${names} in ${rooms}`,
+      }));
+    });
+  });
+
+  return { lines, count };
+}
+
 function buildCalendarFeed() {
   const today = todayISO();
   const lines = [
@@ -2819,6 +2967,14 @@ function buildCalendarFeed() {
   ];
 
   let count = 0;
+  let lessons = 0;
+
+  if (state.lessonAlerts) {
+    const timetable = timetableAlarms();
+    lines.push(...timetable.lines);
+    lessons = timetable.count;
+  }
+
   liveTasks()
     .filter((task) => !task.done && task.date >= today)
     .sort(sortTasks)
@@ -2887,7 +3043,9 @@ function buildCalendarFeed() {
     });
 
   lines.push("END:VCALENDAR");
-  return { text: lines.map(icsFold).join("\r\n") + "\r\n", count };
+  // Lessons are counted apart from deadlines: they are the same every week, so
+  // folding them into "12 alerts" would say nothing about what has changed.
+  return { text: lines.map(icsFold).join("\r\n") + "\r\n", count, lessons };
 }
 
 /*
@@ -3863,6 +4021,11 @@ function restorePrefs() {
 
   state.showDone = prefs.showDone === true;
   $("show-done").checked = state.showDone;
+
+  // On by default: somebody who has just set this up wants the alarms, and
+  // turning them off is one tap.
+  state.lessonAlerts = prefs.lessonAlerts !== false;
+  $("lesson-alerts").checked = state.lessonAlerts;
 }
 
 function init() {

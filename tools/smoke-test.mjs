@@ -78,7 +78,7 @@ check("the double periods share a start time",
     const b = document.querySelector(`.tt-lesson[data-period="${p}"]`);
     return b ? b.dataset.time : null;
   })),
-  ["08:45", "08:45", "10:35", "10:35", "12:10", "12:10", "14:10", "14:10"]);
+  ["08:45", "08:45", "10:35", "10:35", "12:10", "12:10", "14:35", "14:35"]);
 
 const weekBefore = await page.textContent("#period-title");
 await page.click("#next-period");
@@ -593,7 +593,12 @@ const feed = await page.evaluate(() => {
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z",
   })];
   saveTasks(); saveCoursework();
+  // The recurring timetable alarms are tested on their own further down; this
+  // block is about the entries deadlines produce.
+  const wasOn = state.lessonAlerts;
+  state.lessonAlerts = false;
   const built = buildCalendarFeed();
+  state.lessonAlerts = wasOn;
   return {
     ...built,
     lines: built.text.split("\r\n"),
@@ -767,6 +772,96 @@ await page.fill("#cw-title", "   ");
 await page.click("#save-coursework");
 check("a blank name is rejected", await page.locator("#coursework-dialog[open]").count(), 1);
 await page.keyboard.press("Escape");
+
+console.log("\ntimetable alarms");
+
+const withAlarms = await page.evaluate(() => buildCalendarFeed());
+
+/** Pulls one recurring event out of the feed by its uid. */
+const timetableEvent = (uid) => page.evaluate((wanted) => {
+  const lines = buildCalendarFeed().text.split("\r\n");
+  const start = lines.findIndex((line) => line === `UID:timetable-${wanted}@remembre.app`);
+  if (start === -1) return null;
+  const end = lines.indexOf("END:VEVENT", start);
+  const event = {};
+  lines.slice(start, end).forEach((line) => {
+    const at = line.indexOf(":");
+    event[line.slice(0, at).split(";")[0]] = line.slice(at + 1);
+  });
+  return event;
+}, uid);
+
+{
+  // Monday was given as 10:18 and every other day as "seventeen minutes before
+  // the first lesson". The first is not special-cased: 10:35 less seventeen
+  // minutes is 10:18, so one rule has to produce both.
+  const monday = await timetableEvent("leave-0");
+  check("Monday says to leave at 10:18", monday.DTSTART, "20240101T101800");
+  check("and recurs every Monday", monday.RRULE, "FREQ=WEEKLY;BYDAY=MO");
+  check("and rings at that moment, not before it", monday.TRIGGER, "PT0S");
+  check("and says what it is for", monday.DESCRIPTION, "Time to go to school");
+
+  const tuesday = await timetableEvent("leave-1");
+  check("Tuesday's first lesson is at 08:45, so leave at 08:28", tuesday.DTSTART, "20240102T082800");
+  const wednesday = await timetableEvent("leave-2");
+  check("Wednesday starts at 08:00, so leave at 07:43", wednesday.DTSTART, "20240103T074300");
+  const thursday = await timetableEvent("leave-3");
+  check("Thursday is another 10:18", thursday.DTSTART, "20240104T101800");
+  const friday = await timetableEvent("leave-4");
+  check("and so is Friday", friday.DTSTART, "20240105T101800");
+}
+
+{
+  const late = await timetableEvent("lesson-0-3");
+  check("a lesson block warns five minutes ahead", late.TRIGGER, "-PT5M");
+  check("and names the room to be in", late.DESCRIPTION, "Do not be late: ESS SL in R_36");
+  check("and starts when the block does", late.DTSTART, "20240101T103500");
+
+  const afternoon = await timetableEvent("lesson-0-7");
+  check("the afternoon block now starts at 14:35", afternoon.DTSTART, "20240101T143500");
+
+  const shared = await timetableEvent("lesson-2-1");
+  check("a block holding two different lessons names both",
+    shared.SUMMARY, "Maths AI HL / Tutor \u00b7 R_36\\, R_35");
+}
+
+{
+  const text = withAlarms.text;
+  check("every block on the timetable is covered",
+    (text.match(/UID:timetable-lesson-/g) || []).length, 17);
+  check("and every school day has a leaving time",
+    (text.match(/UID:timetable-leave-/g) || []).length, 5);
+  check("the alarms are counted apart from deadlines", withAlarms.lessons, 22);
+
+  // Floating local time: a zone or a trailing Z would freeze these against a
+  // daylight-saving change and ring an hour out for half the year.
+  const stamps = text.split("\r\n").filter((line) => /^DTSTART:2024/.test(line));
+  check("they are written in the reader's own local time",
+    stamps.every((line) => !line.endsWith("Z") && !line.includes("TZID")), true);
+  check("and do not mark the reader as busy",
+    (text.match(/TRANSP:TRANSPARENT/g) || []).length, 22);
+}
+
+{
+  await page.uncheck("#lesson-alerts");
+  const without = await page.evaluate(() => buildCalendarFeed());
+  check("turning them off empties them out of the feed",
+    without.text.includes("timetable-"), false);
+  check("and the count goes with them", without.lessons, 0);
+  check("but the deadlines stay", without.count, withAlarms.count);
+  await page.check("#lesson-alerts");
+  check("turning them back on restores them",
+    (await page.evaluate(() => buildCalendarFeed())).lessons, 22);
+}
+
+{
+  // The grid and the feed read the same times, so a change cannot show one
+  // thing on screen and ring another.
+  const shown = await page.locator(".tt-period-time").allInnerTexts();
+  check("the grid has a label for every period", shown.length > 0, true);
+  check("the grid shows the new afternoon time", shown.filter((t) => t === "14:35").length, 2);
+  check("and no longer shows the old one", shown.includes("14:10"), false);
+}
 
 // The integration that would fail silently: coursework has to travel too.
 const travels = await page.evaluate(() => {
