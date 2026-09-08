@@ -19,41 +19,65 @@ const BLOB_API = "https://blob.vercel-storage.com";
 /* ---------- Which store are we talking to? ---------- */
 
 /**
- * The drivers, most preferred first. Each one is described well enough that
- * /api/status can tell the reader what to set up without leaking a secret.
+ * The drivers, most preferred first.
+ *
+ * Each thing a driver needs is a list of names rather than one name, because
+ * the same credential arrives under different names depending on how the store
+ * was attached: the Vercel-managed Redis calls it KV_REST_API_URL, the Upstash
+ * integration calls it UPSTASH_REDIS_REST_URL, and either is the same URL.
+ * Whichever name is set is the one used.
  */
 const DRIVERS = [
   {
     name: "redis",
     label: "Upstash Redis",
-    env: ["KV_REST_API_URL", "KV_REST_API_TOKEN"],
+    env: [
+      ["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL", "REDIS_REST_URL"],
+      ["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN", "REDIS_REST_TOKEN"],
+    ],
     build: redisDriver,
   },
   {
     name: "blob",
     label: "Vercel Blob",
-    env: ["BLOB_READ_WRITE_TOKEN"],
+    env: [["BLOB_READ_WRITE_TOKEN"]],
     build: blobDriver,
   },
   {
     name: "github",
     label: "a GitHub repository",
-    env: ["REMEMBRE_GITHUB_TOKEN", "REMEMBRE_GITHUB_REPO"],
+    env: [["REMEMBRE_GITHUB_TOKEN"], ["REMEMBRE_GITHUB_REPO"]],
     build: githubDriver,
   },
   {
     name: "files",
     label: "a directory on disk",
-    env: ["REMEMBRE_DATA_DIR"],
+    env: [["REMEMBRE_DATA_DIR"]],
     build: fileDriver,
   },
 ];
 
-/** The first driver whose environment variables are all present, or null. */
+/** The first name in the list that is actually set, or "". */
+function pick(names) {
+  const found = names.find((name) => process.env[name]);
+  return found ? process.env[found] : "";
+}
+
+const satisfied = (driver) => driver.env.every((names) => Boolean(pick(names)));
+
+/** The first driver whose credentials are all present, or null. */
 export function store() {
-  const chosen = DRIVERS.find((driver) => driver.env.every((key) => process.env[key]));
+  const chosen = DRIVERS.find(satisfied);
   return chosen ? { name: chosen.name, label: chosen.label, ...chosen.build() } : null;
 }
+
+/*
+  Which variables count as worth mentioning when nothing matched. Only the
+  names are ever reported, never a value, and only names that look like they
+  belong to a store: a blanket listing of the environment would be a leak
+  waiting to happen.
+*/
+const STORAGE_NAME = /^(KV|UPSTASH|REDIS|BLOB|EDGE_CONFIG|POSTGRES|DATABASE|NEON|SUPABASE|REMEMBRE)_?/;
 
 /** What /api/status reports: never a value, only whether one is set. */
 export function storeReport() {
@@ -65,17 +89,23 @@ export function storeReport() {
     drivers: DRIVERS.map((driver) => ({
       name: driver.name,
       label: driver.label,
-      needs: driver.env,
-      ready: driver.env.every((key) => Boolean(process.env[key])),
+      needs: driver.env.map((names) => names[0]),
+      accepts: driver.env.map((names) => names.join(" or ")),
+      ready: satisfied(driver),
     })),
+    // The name of every storage-shaped variable this deployment can see. When
+    // a store has been attached and nothing matched, this is the answer: it
+    // says what the integration actually called things.
+    seen: Object.keys(process.env).filter((name) => STORAGE_NAME.test(name)).sort(),
   };
 }
 
 /* ---------- Upstash Redis over its REST API ---------- */
 
 function redisDriver() {
-  const base = String(process.env.KV_REST_API_URL).replace(/\/+$/, "");
-  const token = process.env.KV_REST_API_TOKEN;
+  const base = String(pick(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL", "REDIS_REST_URL"]))
+    .replace(/\/+$/, "");
+  const token = pick(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN", "REDIS_REST_TOKEN"]);
   const auth = { Authorization: `Bearer ${token}` };
 
   return {

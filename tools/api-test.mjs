@@ -82,9 +82,45 @@ const post = (body) => fetch(`${base}/api/sync`, {
   check("status picks the on-disk driver", body.using === "files", `got ${body.using}`);
   check("status lists every driver", body.drivers.length === 4, `got ${body.drivers.length}`);
   check(
+    "status names the variables it can see",
+    body.seen.includes("REMEMBRE_DATA_DIR"),
+    JSON.stringify(body.seen),
+  );
+  check(
     "status never reports a secret's value",
     !JSON.stringify(body).includes(dir),
   );
+}
+
+/* ---------- The same credential under a different name ---------- */
+
+{
+  // The Vercel-managed Redis and the Upstash integration name the same URL
+  // differently. Either has to be recognised, or attaching a store looks like
+  // it did nothing.
+  const { storeReport } = await import("../api/_store.js");
+  delete process.env.REMEMBRE_DATA_DIR;
+
+  process.env.UPSTASH_REDIS_REST_URL = "https://example.upstash.io";
+  process.env.UPSTASH_REDIS_REST_TOKEN = "not-a-real-token";
+  check("Upstash's own variable names are recognised", storeReport().using === "redis", storeReport().using);
+
+  delete process.env.UPSTASH_REDIS_REST_URL;
+  delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  process.env.KV_REST_API_URL = "https://example.upstash.io";
+  process.env.KV_REST_API_TOKEN = "not-a-real-token";
+  check("and so are Vercel's", storeReport().using === "redis", storeReport().using);
+
+  const report = storeReport();
+  check("each driver says which names it will accept", report.drivers[0].accepts.length === 2);
+  check(
+    "a token's value is never reported",
+    !JSON.stringify(report).includes("not-a-real-token"),
+  );
+
+  delete process.env.KV_REST_API_URL;
+  delete process.env.KV_REST_API_TOKEN;
+  process.env.REMEMBRE_DATA_DIR = dir;
 }
 
 /* ---------- A phrase has to be worth guessing ---------- */

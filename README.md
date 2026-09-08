@@ -303,13 +303,16 @@ variables -- the first one that is set is the one that gets used:
 
 | Set these | Store |
 | --- | --- |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis. Adding the Redis integration from the Vercel marketplace sets both for you. |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis. Adding the Redis integration from the Vercel marketplace sets both for you. `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are the same thing under the names Upstash's own integration uses, and are accepted too. |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob. Creating a Blob store sets it for you. |
 | `REMEMBRE_GITHUB_TOKEN`, `REMEMBRE_GITHUB_REPO` | A GitHub repository, under `remembre-data/`. Needs no storage product at all: a fine-grained token with read and write on Contents for one repository, and `owner/name` in the second variable. Add `REMEMBRE_GITHUB_BRANCH` if it is not `main`. |
 | `REMEMBRE_DATA_DIR` | A directory on disk. For running locally; a serverless filesystem does not survive a request, so this is last on the list. |
 
 Open `/api/status` after deploying: it says which one it found, or lists what
-each of them still needs. Until one is set, every sync answers 503 with that
+each of them still needs. If a store is attached and it still found nothing,
+the `seen` list names every storage-shaped variable the deployment can actually
+see -- names only, never values -- which is usually enough to spot that the
+integration called something by a name the app was not looking for. Until one is set, every sync answers 503 with that
 same explanation rather than pretending to have saved anything.
 
 Nothing here is a paid tier at the time of writing, and the GitHub option needs
