@@ -251,6 +251,21 @@ check("N opens the add dialog", await page.locator("#task-dialog[open]").count()
 await page.keyboard.press("Escape");
 
 console.log("\nreflow");
+// Scroll snapping once pulled the page back from its own end, which put the
+// footer permanently out of reach on a short page.
+for (const [width, height] of [[1340, 900], [420, 760], [320, 700]]) {
+  await page.setViewportSize({ width, height });
+  const reached = await page.evaluate(async () => {
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    if (max <= 0) return { ok: true, max: 0, landed: 0 };
+    window.scrollTo({ top: max, behavior: "instant" });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return { ok: Math.abs(window.scrollY - max) < 2, max: Math.round(max), landed: Math.round(window.scrollY) };
+  });
+  check(`the page reaches its own end at ${width}px`, reached.ok, true);
+}
+await page.evaluate(() => window.scrollTo(0, 0));
+
 for (const width of [1360, 900, 640, 390, 320]) {
   await page.setViewportSize({ width, height: 900 });
   check(`no horizontal scrolling at ${width}px`, await page.evaluate(() =>
@@ -410,6 +425,11 @@ check("delivery is recorded against the task and its date", reminders.stored, ["
   const z = (n) => String(n).padStart(2, "0"); const d = new Date();
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
 })]);
+
+check("with reminders on, the panel puts itself away",
+  await page.evaluate(() => { renderAlertsPanel(); return document.getElementById("alerts-panel").hidden; }), true);
+check("leaving a line of small print in the footer",
+  await page.evaluate(() => !document.getElementById("reminder-note").hidden), true);
 
 const proof = await page.evaluate(async () => {
   window.__notes = [];

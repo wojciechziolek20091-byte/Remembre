@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-15";
+const APP_VERSION = "2026.09.08-17";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1711,11 +1711,20 @@ async function deliverDueReminders() {
   return due.length;
 }
 
+/*
+  The panel only earns its space while there is something to do about it. Once
+  reminders are on it is put away, and all that remains is a line of small
+  print in the footer with a way to test them if they ever seem to stop.
+*/
 function renderAlertsPanel() {
   const status = $("alerts-status");
   const enable = $("alerts-enable");
   const test = $("alerts-test");
   if (!status) return;
+
+  const granted = notificationsOn();
+  $("alerts-panel").hidden = granted;
+  $("reminder-note").hidden = !granted;
 
   if (!notificationsSupported()) {
     status.textContent = "Your browser will not offer reminders here. On an iPhone or iPad, add Remembre to your home screen and open it from there.";
@@ -1785,12 +1794,16 @@ function setupReminders() {
   renderAlertsPanel();
   $("alerts-enable").addEventListener("click", enableReminders);
   $("alerts-test").addEventListener("click", sendTestNotification);
+  $("alerts-test-footer").addEventListener("click", sendTestNotification);
 
   deliverDueReminders();
   window.setInterval(deliverDueReminders, REMINDER_POLL_MS);
   // Coming back to the app is the moment a waiting reminder should appear.
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) deliverDueReminders();
+    if (document.hidden) return;
+    // Permission may have been changed in system settings while we were away.
+    renderAlertsPanel();
+    deliverDueReminders();
   });
 }
 

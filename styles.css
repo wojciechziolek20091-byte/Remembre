@@ -296,6 +296,13 @@ html {
 .update-bar,
 .layout { scroll-snap-align: start; }
 
+/*
+  The end of the document has to be a snap point of its own. Without it, a
+  short page whose last start-point sits within snapping distance of the
+  bottom is pulled back every time, and the footer can never be reached.
+*/
+.site-footer { scroll-snap-align: end; }
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -1370,6 +1377,18 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 }
 
 .site-footer p { margin: 0; }
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:hover { color: var(--accent); }
 
 .version {
   margin-top: .35rem !important;

@@ -152,7 +152,7 @@
       </fieldset>
     </section>
 
-    <section class="panel" aria-labelledby="alerts-heading">
+    <section class="panel" id="alerts-panel" aria-labelledby="alerts-heading">
       <h2 class="panel-title" id="alerts-heading">Reminders</h2>
       <p class="panel-hint" id="alerts-hint">A &ldquo;remember this&rdquo; reminder the day before each task, at 17:00. Remembre has no server, so a reminder arrives while the app is open, or the next time you open it &ndash; it cannot wake your device on its own.</p>
       <p class="sync-status" id="alerts-status" role="status"></p>
@@ -179,7 +179,13 @@
 
 <footer class="site-footer">
   <p>Remembre keeps everything on your own device. Press <kbd>N</kbd> at any time to add a task, or <kbd>T</kbd> to jump back to today.</p>
-  <p class="version">Version <span id="app-version"></span></p>
+  <p class="version">
+    Version <span id="app-version"></span>
+    <span id="reminder-note" hidden>
+      &middot; Reminders on &middot;
+      <button type="button" class="link-btn" id="alerts-test-footer">send a test</button>
+    </span>
+  </p>
 </footer>
 
 <p class="sr-only" role="status" id="live-region"></p>
