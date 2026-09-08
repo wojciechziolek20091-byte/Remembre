@@ -172,7 +172,17 @@ reminder is delivered the first moment the app is open after it falls due -- on
 launch, when the app returns to the foreground, and once a minute while it is
 in front.
 
-**Calendar alerts** get around that without a server. Export from the sidebar
+**Calendar alerts** get around that without a server.
+
+A calendar file is a snapshot: once imported, nothing updates it. So the panel
+keeps a fingerprint of everything the feed would contain and tells you how far
+behind your calendar has fallen -- "3 changes behind" -- which turns
+remembering to re-export into one tap from a line that says it is needed. Only
+things a calendar actually shows are counted, so editing a note changes
+nothing, and renaming one entry counts once rather than twice.
+
+Truly hands-off would mean a subscribed calendar URL, which needs a server to
+serve it. Export from the sidebar
 and Remembre writes an iCalendar file with an alarm on every deadline, set to
 17:00 the day before. Your own calendar then does the alerting, with Remembre
 closed, offline, on every device signed into the same account. Entries keep a

@@ -634,6 +634,53 @@ check("an alarm before the clocks change is 17:00 local", shifted[0], "20260924T
 check("and one after them is still 17:00 local, not an hour out", shifted[1], "20261119T160000Z");
 await warsaw.close();
 
+console.log("\nkeeping the calendar current");
+const staleness = await page.evaluate(() => {
+  const z = (n) => String(n).padStart(2, "0");
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; };
+  const mk = (id, title, off) => normaliseTask({
+    id, title, type: "test", subject: "mathematics", course: "M", date: day(off),
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  });
+  localStorage.removeItem("remembre.alerts.v1");
+  state.tasks = [mk("a", "Algebra test", 5)];
+  state.coursework = [];
+  state.sessions = [];
+  saveTasks();
+
+  const out = {};
+  out.neverExported = alertsBehind();
+  markAlertsExported();
+  out.justExported = alertsBehind();
+
+  state.tasks[0].notes = "revise chapter 4";
+  touch(state.tasks[0]);
+  out.afterEditingNotes = alertsBehind();
+
+  state.tasks[0].title = "Algebra test, unit 2";
+  touch(state.tasks[0]);
+  out.afterRenaming = alertsBehind();
+
+  markAlertsExported();
+  state.tasks.push(mk("b", "Essay", 7), mk("c", "Reading", 9));
+  out.afterAddingTwo = alertsBehind();
+
+  markAlertsExported();
+  state.tasks[1].deleted = true;
+  touch(state.tasks[1]);
+  out.afterDeletingOne = alertsBehind();
+  return out;
+});
+
+check("before it is set up, the panel says so", staleness.neverExported, -1);
+check("straight after exporting, nothing is outstanding", staleness.justExported, 0);
+check("a note the calendar never shows does not count", staleness.afterEditingNotes, 0);
+check("renaming one entry counts once, not twice", staleness.afterRenaming, 1);
+check("adding two counts two", staleness.afterAddingTwo, 2);
+check("and removing one counts one", staleness.afterDeletingOne, 1);
+
+await page.evaluate(() => { state.tasks = []; saveTasks(); localStorage.removeItem("remembre.alerts.v1"); renderAll(); });
+
 console.log("\nstudy organiser");
 check("the organiser is a box of its own below the calendar",
   await page.evaluate(() => {

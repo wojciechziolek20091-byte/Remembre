@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-22";
+const APP_VERSION = "2026.09.08-23";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -34,6 +34,7 @@ const SYNC_KEY = "remembre.sync.v1";
 const REMINDERS_KEY = "remembre.reminders.v1";
 const COURSEWORK_KEY = "remembre.coursework.v1";
 const SESSIONS_KEY = "remembre.sessions.v1";
+const ALERTS_KEY = "remembre.alerts.v1";
 
 /* A reminder is due at this hour on the day before the task. */
 const REMINDER_HOUR = 17;
@@ -1178,6 +1179,7 @@ function renderAll() {
   renderSubjectLegend();
   renderAlertsPanel();
   renderSyncPanel();
+  renderAlertsExport();
   renderCoursework();
 }
 
@@ -2850,6 +2852,84 @@ function buildCalendarFeed() {
   return { text: lines.map(icsFold).join("\r\n") + "\r\n", count };
 }
 
+/*
+  A calendar file is a snapshot: once imported, nothing updates it. Rather than
+  leave the reader to remember that, the app tracks what has changed since the
+  last export and says how far behind the calendar is, so refreshing it is one
+  tap from a line that tells you it is needed.
+
+  Only things that actually appear in the feed count. Renaming a subject, or
+  ticking a step, changes nothing a calendar shows.
+*/
+function alertsState() {
+  const stored = readStore(ALERTS_KEY, { exportedAt: "", digest: "" });
+  return stored && typeof stored === "object" ? stored : { exportedAt: "", digest: "" };
+}
+
+/** A fingerprint of everything the feed would contain. */
+function alertsDigest() {
+  const today = todayISO();
+  const parts = [];
+  liveTasks()
+    .filter((task) => !task.done && task.date >= today)
+    .forEach((task) => parts.push(`t:${task.id}:${task.date}:${task.time}:${task.title}`));
+  liveCoursework()
+    .filter((item) => item.due && item.stage !== "submitted" && item.due >= today)
+    .forEach((item) => parts.push(`c:${item.id}:${item.due}:${item.title}`));
+  liveSessions()
+    .filter((session) => !session.done && session.date >= today)
+    .forEach((session) => parts.push(`s:${session.id}:${session.date}:${session.time}:${session.minutes}`));
+  return parts.sort().join("|");
+}
+
+function alertsBehind() {
+  const { digest } = alertsState();
+  const now = alertsDigest();
+  if (!digest) return now ? -1 : 0;   // -1: never exported, but there is something to export
+  if (digest === now) return 0;
+
+  // Counted per entry, not per differing string, so renaming one thing reads
+  // as one change rather than two.
+  const index = (text) => {
+    const map = new Map();
+    text.split("|").filter(Boolean).forEach((entry) => {
+      const id = entry.split(":").slice(0, 2).join(":");
+      map.set(id, entry);
+    });
+    return map;
+  };
+
+  const before = index(digest);
+  const after = index(now);
+  let changed = 0;
+  after.forEach((entry, id) => { if (before.get(id) !== entry) changed += 1; });
+  before.forEach((entry, id) => { if (!after.has(id)) changed += 1; });
+  return changed;
+}
+
+function renderAlertsExport() {
+  const status = $("calendar-status");
+  if (!status) return;
+  const behind = alertsBehind();
+
+  if (behind === 0) {
+    const { exportedAt } = alertsState();
+    status.textContent = exportedAt
+      ? "Your calendar is up to date."
+      : "Nothing dated to send yet.";
+    status.classList.remove("is-stale");
+  } else if (behind < 0) {
+    status.textContent = "Your calendar has not been set up yet.";
+    status.classList.add("is-stale");
+  } else {
+    status.textContent = `Your calendar is ${behind} ${behind === 1 ? "change" : "changes"} behind.`;
+    status.classList.add("is-stale");
+  }
+  $("export-alerts").textContent = behind === 0 && alertsState().exportedAt
+    ? "Send it again"
+    : "Add to my calendar";
+}
+
 async function exportCalendarAlerts() {
   const { text, count } = buildCalendarFeed();
   if (count === 0) {
@@ -2865,6 +2945,7 @@ async function exportCalendarAlerts() {
     if (navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: "Remembre alerts" });
+        markAlertsExported();
         announce(`${count} alerts sent to your calendar.`);
         return;
       } catch (err) {
@@ -2879,7 +2960,13 @@ async function exportCalendarAlerts() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+  markAlertsExported();
   announce(`${count} alerts exported. Open the file to add them to your calendar.`);
+}
+
+function markAlertsExported() {
+  writeStore(ALERTS_KEY, { exportedAt: new Date().toISOString(), digest: alertsDigest() });
+  renderAlertsExport();
 }
 
 /* ---------- Sync: saving and loading a file ---------- */
