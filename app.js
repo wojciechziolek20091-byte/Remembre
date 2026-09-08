@@ -26,11 +26,17 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.07-14";
+const APP_VERSION = "2026.09.08-15";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
 const SYNC_KEY = "remembre.sync.v1";
+const REMINDERS_KEY = "remembre.reminders.v1";
+
+/* A reminder is due at this hour on the day before the task. */
+const REMINDER_HOUR = 17;
+/* How often to look, while the app is open. */
+const REMINDER_POLL_MS = 60000;
 const LOCALE = "en-GB";
 const MAX_CHIPS = 3;
 const UPCOMING_LIMIT = 6;
@@ -995,6 +1001,7 @@ function renderAll() {
   renderUpcoming();
   renderTypeFilters();
   renderSubjectLegend();
+  renderAlertsPanel();
   renderSyncPanel();
 }
 
@@ -1625,6 +1632,168 @@ function applyTheme(theme) {
   savePrefs();
 }
 
+/* ---------- Reminders ---------- */
+
+/*
+  There is no server, and the web has no way to schedule a notification for a
+  closed page: Notification Triggers was never shipped, and a push has to be
+  sent by something. So a reminder becomes due at 17:00 the day before a task,
+  and is delivered the first moment the app is open after that -- on load, when
+  it returns to the foreground, and once a minute while it is in front.
+
+  Keyed by task and date, so moving a task to a new day arms it again.
+*/
+
+function reminderKey(task) {
+  return `${task.id}:${task.date}`;
+}
+
+function reminderTimeFor(task) {
+  const when = fromISO(addDays(task.date, -1));
+  when.setHours(REMINDER_HOUR, 0, 0, 0);
+  return when.getTime();
+}
+
+function sentReminders() {
+  const stored = readStore(REMINDERS_KEY, {});
+  return stored && typeof stored === "object" ? stored : {};
+}
+
+function notificationsSupported() {
+  return typeof window.Notification === "function";
+}
+
+function notificationsOn() {
+  return notificationsSupported() && window.Notification.permission === "granted";
+}
+
+/** iOS only shows notifications raised through the service worker. */
+async function showNotification(title, options) {
+  if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+    const registration = await navigator.serviceWorker.ready;
+    return registration.showNotification(title, options);
+  }
+  return new window.Notification(title, options);
+}
+
+/**
+ * Tasks whose reminder has come due and not yet been delivered. A reminder for
+ * something already past its due date is dropped rather than shown late.
+ */
+function dueReminders(now = Date.now()) {
+  const today = todayISO();
+  const sent = sentReminders();
+  return liveTasks()
+    .filter((task) => !task.done && task.date >= today)
+    .filter((task) => reminderTimeFor(task) <= now)
+    .filter((task) => !sent[reminderKey(task)])
+    .sort(sortTasks);
+}
+
+async function deliverDueReminders() {
+  if (!notificationsOn()) return 0;
+  const due = dueReminders();
+  if (due.length === 0) return 0;
+
+  const sent = sentReminders();
+  for (const task of due) {
+    const when = task.date === todayISO() ? "today" : relativeDay(task.date, todayISO()).toLowerCase();
+    await showNotification(`Remember: ${task.title}`, {
+      body: `${subjectLabel(task)} \u00b7 ${TYPES[task.type].label} \u00b7 due ${when}, ${fmtMediumDate.format(fromISO(task.date))}`,
+      tag: reminderKey(task),
+      icon: "icons/icon-192.png",
+      badge: "icons/icon-192.png",
+    });
+    sent[reminderKey(task)] = new Date().toISOString();
+  }
+  writeStore(REMINDERS_KEY, sent);
+  renderAlertsPanel();
+  return due.length;
+}
+
+function renderAlertsPanel() {
+  const status = $("alerts-status");
+  const enable = $("alerts-enable");
+  const test = $("alerts-test");
+  if (!status) return;
+
+  if (!notificationsSupported()) {
+    status.textContent = "Your browser will not offer reminders here. On an iPhone or iPad, add Remembre to your home screen and open it from there.";
+    status.classList.add("is-stale");
+    enable.hidden = true;
+    test.hidden = true;
+    return;
+  }
+
+  const permission = window.Notification.permission;
+  enable.hidden = permission === "granted";
+  test.hidden = permission !== "granted";
+
+  if (permission === "granted") {
+    const waiting = dueReminders().length;
+    status.textContent = waiting > 0
+      ? `Reminders are on. ${waiting} waiting to be delivered.`
+      : "Reminders are on.";
+    status.classList.toggle("is-stale", waiting > 0);
+  } else if (permission === "denied") {
+    status.textContent = "Reminders are blocked. Turn notifications for Remembre back on in your device settings; the app cannot ask again.";
+    status.classList.add("is-stale");
+  } else {
+    status.textContent = "Reminders are off.";
+    status.classList.remove("is-stale");
+  }
+}
+
+async function enableReminders() {
+  if (!notificationsSupported()) return;
+  let permission;
+  try {
+    permission = await window.Notification.requestPermission();
+  } catch (err) {
+    console.warn("Could not ask for notification permission:", err);
+    return;
+  }
+
+  renderAlertsPanel();
+  if (permission !== "granted") {
+    announce("Reminders were not turned on.");
+    return;
+  }
+
+  await showNotification("Success", {
+    body: "Reminders are working. You will get one the day before each task, at 17:00.",
+    tag: "remembre-test",
+    icon: "icons/icon-192.png",
+    badge: "icons/icon-192.png",
+  });
+  announce("Reminders are on, and a test notification has been sent.");
+  await deliverDueReminders();
+}
+
+async function sendTestNotification() {
+  if (!notificationsOn()) return;
+  await showNotification("Success", {
+    body: "This is a test. Real reminders arrive the day before a task, at 17:00.",
+    tag: "remembre-test",
+    icon: "icons/icon-192.png",
+    badge: "icons/icon-192.png",
+  });
+  announce("Test notification sent.");
+}
+
+function setupReminders() {
+  renderAlertsPanel();
+  $("alerts-enable").addEventListener("click", enableReminders);
+  $("alerts-test").addEventListener("click", sendTestNotification);
+
+  deliverDueReminders();
+  window.setInterval(deliverDueReminders, REMINDER_POLL_MS);
+  // Coming back to the app is the moment a waiting reminder should appear.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) deliverDueReminders();
+  });
+}
+
 /* ---------- Sync: saving and loading a file ---------- */
 
 function syncState() {
@@ -1982,6 +2151,7 @@ function init() {
   restorePrefs();
   setupEvents();
   renderAll();
+  setupReminders();
 }
 
 /*

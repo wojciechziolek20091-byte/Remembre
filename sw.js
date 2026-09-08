@@ -22,7 +22,7 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "remembre-v3";
+const CACHE = "remembre-v4";
 
 /* How long to wait for the network before falling back to the cached shell.
    Long enough for a slow connection, short enough not to feel broken. */
@@ -59,6 +59,19 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+});
+
+/* Tapping a reminder should bring the app forward, not open a second copy. */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of open) {
+      if ("focus" in client) return client.focus();
+    }
+    if (self.clients.openWindow) return self.clients.openWindow("./");
+    return undefined;
+  })());
 });
 
 self.addEventListener("activate", (event) => {

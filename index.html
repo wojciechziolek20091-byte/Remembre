@@ -152,6 +152,16 @@
       </fieldset>
     </section>
 
+    <section class="panel" aria-labelledby="alerts-heading">
+      <h2 class="panel-title" id="alerts-heading">Reminders</h2>
+      <p class="panel-hint" id="alerts-hint">A &ldquo;remember this&rdquo; reminder the day before each task, at 17:00. Remembre has no server, so a reminder arrives while the app is open, or the next time you open it &ndash; it cannot wake your device on its own.</p>
+      <p class="sync-status" id="alerts-status" role="status"></p>
+      <div class="panel-actions" aria-describedby="alerts-hint">
+        <button type="button" class="btn btn-quiet" id="alerts-enable">Turn on reminders</button>
+        <button type="button" class="btn btn-quiet" id="alerts-test" hidden>Send a test</button>
+      </div>
+    </section>
+
     <section class="panel" aria-labelledby="sync-heading">
       <h2 class="panel-title" id="sync-heading">Sync and backup</h2>
       <p class="panel-hint" id="sync-hint">Remembre saves on this device only. To move work between your iPad and your phone, save a copy to iCloud Drive here, then load it on the other device. Loading merges &ndash; the newer version of each task wins and nothing is lost.</p>

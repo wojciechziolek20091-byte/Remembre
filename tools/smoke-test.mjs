@@ -349,6 +349,77 @@ check("and the name is left alone", await page.inputValue("#task-title"),
   "Short test Chapters 2\u20133 from HL AI");
 await page.keyboard.press("Escape");
 
+console.log("\nreminders");
+await page.context().grantPermissions(["notifications"], { origin: base });
+await page.evaluate(() => navigator.serviceWorker.ready);
+// Capture what the page raises rather than relying on the OS showing it.
+await page.evaluate(async () => {
+  window.__notes = [];
+  const registration = await navigator.serviceWorker.ready;
+  const real = registration.showNotification.bind(registration);
+  registration.showNotification = (title, options) => {
+    window.__notes.push({ title, body: options && options.body });
+    return real(title, options);
+  };
+});
+
+const reminders = await page.evaluate(async () => {
+  const z = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+  const mk = (id, title, date, done) => normaliseTask({
+    id, title, type: "test", subject: "mathematics", course: "Mathematics", date, done,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  });
+  localStorage.removeItem("remembre.reminders.v1");
+  state.tasks = [
+    mk("today", "Algebra test", day(0), false),   // reminded yesterday at 17:00
+    mk("past", "Old essay", day(-2), false),      // already overdue
+    mk("done", "Finished", day(0), true),         // already completed
+    mk("future", "Later test", day(5), false),    // reminder still ahead
+  ];
+  saveTasks();
+
+  const dueIds = dueReminders().map((task) => task.id);
+  const dueTomorrow = mk("t", "x", day(1), false);
+  const at = new Date(reminderTimeFor(dueTomorrow));
+
+  window.__notes = [];
+  await deliverDueReminders();
+  const first = [...window.__notes];
+  window.__notes = [];
+  await deliverDueReminders();
+  const second = [...window.__notes];
+
+  return {
+    dueIds, first, second,
+    remindAtHour: at.getHours(),
+    remindsDayBefore: iso(at) === day(0),
+    stored: Object.keys(JSON.parse(localStorage.getItem("remembre.reminders.v1"))),
+  };
+});
+
+check("a reminder falls the day before the task", reminders.remindsDayBefore, true);
+check("at 17:00", reminders.remindAtHour, 17);
+check("only work that is still ahead and unfinished is reminded", reminders.dueIds, ["today"]);
+check("the reminder says remember, and names the task",
+  reminders.first.map((n) => n.title), ["Remember: Algebra test"]);
+check("and carries the subject and type", reminders.first[0].body.startsWith("Mathematics"), true);
+check("a reminder is delivered once, not on every check", reminders.second, []);
+check("delivery is recorded against the task and its date", reminders.stored, ["today:" + await page.evaluate(() => {
+  const z = (n) => String(n).padStart(2, "0"); const d = new Date();
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+})]);
+
+const proof = await page.evaluate(async () => {
+  window.__notes = [];
+  await sendTestNotification();
+  return window.__notes;
+});
+check("the test notification reports success", proof.map((n) => n.title), ["Success"]);
+
+await page.evaluate(() => { state.tasks = []; saveTasks(); renderAll(); });
+
 console.log("\ntwo-device merge");
 /*
   Simulates the real workflow: two devices from a common starting point, each

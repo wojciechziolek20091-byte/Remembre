@@ -109,6 +109,25 @@ The footer shows the running version, which is the quickest way to tell whether
 a device is actually on the latest release.
 
 One caveat worth knowing: tasks live in the browser's storage on that device.
+## Reminders
+
+A reminder becomes due at 17:00 on the day before each task, and reads
+"Remember: *the task*". Turn them on from the sidebar, which asks the browser
+for permission and sends a test notification straight back so you can see they
+work.
+
+There is an honest limit. The web cannot schedule a notification for a page
+that is not running: the Notification Triggers proposal never shipped, and a
+push has to be sent by a server, which Remembre does not have. So a reminder is
+delivered the first moment the app is open after it falls due -- on launch,
+when the app returns to the foreground, and once a minute while it is in front.
+For an app you open most days that is usually enough; if it is not, it needs a
+backend, and the panel says so rather than pretending.
+
+Each reminder is delivered once, keyed by the task and its date, so moving a
+task to a different day arms it again. Work that is already overdue or already
+finished is not reminded about.
+
 ## Moving work between devices
 
 Remembre has no server, so nothing syncs by itself. Instead it moves work as a
