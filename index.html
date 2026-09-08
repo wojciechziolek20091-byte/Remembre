@@ -36,8 +36,6 @@
         <label for="view-month">Month</label>
         <input type="radio" name="view" id="view-list" value="list">
         <label for="view-list">Agenda</label>
-        <input type="radio" name="view" id="view-organiser" value="organiser">
-        <label for="view-organiser">Organiser</label>
       </div>
     </nav>
 
@@ -131,20 +129,23 @@
       <div id="agenda" tabindex="-1"></div>
     </section>
 
-    <section class="view" id="organiser-view" aria-labelledby="period-title" hidden>
-      <div class="organiser-head">
-        <p class="organiser-hint" id="organiser-hint">The long pieces: internal assessments, the extended essay, the TOK essay, CAS. Each can carry its own steps, and the one still to do leads the card.</p>
-        <div class="organiser-actions">
-          <button type="button" class="btn btn-quiet" id="plan-sessions">Plan study sessions</button>
-          <button type="button" class="btn btn-primary" id="add-coursework">
-            <span class="btn-plus" aria-hidden="true">+</span> Add coursework
-          </button>
-        </div>
-      </div>
-      <div id="coursework-list" aria-describedby="organiser-hint"></div>
-    </section>
-
   </main>
+
+  <section class="main organiser-panel" aria-labelledby="organiser-heading">
+    <div class="organiser-head">
+      <div>
+        <h2 class="organiser-title" id="organiser-heading">Study organiser</h2>
+        <p class="organiser-hint" id="organiser-hint">The long pieces: internal assessments, the extended essay, the TOK essay, CAS. Each can carry its own steps, and the one still to do leads the card.</p>
+      </div>
+      <div class="organiser-actions">
+        <button type="button" class="btn btn-quiet" id="plan-sessions">Plan study sessions</button>
+        <button type="button" class="btn btn-primary" id="add-coursework">
+          <span class="btn-plus" aria-hidden="true">+</span> Add coursework
+        </button>
+      </div>
+    </div>
+    <div id="coursework-list" aria-describedby="organiser-hint"></div>
+  </section>
 
   <aside class="sidebar sidebar-settings" aria-label="Filters and settings">
 

@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-21";
+const APP_VERSION = "2026.09.08-22";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1148,17 +1148,10 @@ function buildUpcomingItem(task, today) {
 /* ---------- Rendering: chrome ---------- */
 
 function renderPeriod() {
-  const organiser = state.view === "organiser";
-  $("period-title").textContent = organiser
-    ? "Study organiser"
-    : state.view === "week"
-      ? weekTitle(state.weekStart)
-      : fmtMonthYear.format(fromISO(state.periodStart));
+  $("period-title").textContent = state.view === "week"
+    ? weekTitle(state.weekStart)
+    : fmtMonthYear.format(fromISO(state.periodStart));
   $("today-label").textContent = fmtFullDate.format(new Date());
-
-  // Nothing to step through when the organiser is showing.
-  $("period-nav").hidden = organiser;
-  if (organiser) return;
 
   const unit = state.view === "week" ? "week" : "month";
   $("prev-period").querySelector(".sr-only").textContent = `Previous ${unit}`;
@@ -1191,11 +1184,10 @@ function renderAll() {
 /* ---------- View switching ---------- */
 
 function setView(view) {
-  state.view = ["week", "month", "list", "organiser"].includes(view) ? view : "week";
+  state.view = ["week", "month", "list"].includes(view) ? view : "week";
   $("week-view").hidden = state.view !== "week";
   $("month-view").hidden = state.view !== "month";
   $("list-view").hidden = state.view !== "list";
-  $("organiser-view").hidden = state.view !== "organiser";
   renderPeriod();
   savePrefs();
 }
@@ -3264,7 +3256,7 @@ function restorePrefs() {
   const themeInput = document.querySelector(`input[name="theme"][value="${state.theme}"]`);
   if (themeInput) themeInput.checked = true;
 
-  setView(["week", "month", "list", "organiser"].includes(prefs.view) ? prefs.view : "week");
+  setView(["week", "month", "list"].includes(prefs.view) ? prefs.view : "week");
   const viewInput = document.querySelector(`input[name="view"][value="${state.view}"]`);
   if (viewInput) viewInput.checked = true;
 

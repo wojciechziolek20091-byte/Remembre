@@ -635,10 +635,16 @@ check("and one after them is still 17:00 local, not an hour out", shifted[1], "2
 await warsaw.close();
 
 console.log("\nstudy organiser");
-await page.click('label[for="view-organiser"]');
-check("the organiser is a view of its own", await page.locator("#organiser-view").isVisible(), true);
-check("with nothing to step through", await page.locator("#period-nav").isHidden(), true);
-check("and its own heading", await page.textContent("#period-title"), "Study organiser");
+check("the organiser is a box of its own below the calendar",
+  await page.evaluate(() => {
+    const cal = document.querySelector("main.main").getBoundingClientRect();
+    const org = document.querySelector(".organiser-panel").getBoundingClientRect();
+    return org.top >= cal.bottom - 1 && Math.round(org.left) === Math.round(cal.left);
+  }), true);
+check("and is there whichever view is showing",
+  await page.locator(".organiser-panel").isVisible(), true);
+check("the view switcher is back to three",
+  await page.locator(".view-switch label").allInnerTexts(), ["Week", "Month", "Agenda"]);
 await page.evaluate(() => {
   const z = (n) => String(n).padStart(2, "0");
   const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; };
@@ -710,7 +716,6 @@ check("counting only what actually changed",
 await page.evaluate(() => { state.coursework = []; saveCoursework(); renderAll(); });
 check("the panel says so when there is nothing in it",
   (await page.textContent("#coursework-list")).startsWith("Nothing here yet"), true);
-await page.click('label[for="view-week"]');
 
 console.log("\ntwo-device merge");
 /*

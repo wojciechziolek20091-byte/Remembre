@@ -111,7 +111,7 @@ a device is actually on the latest release.
 One caveat worth knowing: tasks live in the browser's storage on that device.
 ## The study organiser
 
-Below the calendar sits a panel for the long pieces: internal assessments, the
+Below the calendar, in a box of its own, sits a panel for the long pieces: internal assessments, the
 extended essay, the TOK essay, CAS, and anything else that runs over weeks
 rather than landing on one day. Each carries a kind, an optional subject and
 deadline, a stage (Not started, In progress, Draft done, Submitted) and notes.

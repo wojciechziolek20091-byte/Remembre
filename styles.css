@@ -580,9 +580,14 @@ kbd {
            calc(1.25rem + env(safe-area-inset-left, 0px));
   display: grid;
   grid-template-columns: 19rem minmax(0, 1fr);
+  /*
+    Two rows, not three with main spanning: a spanning main is only as tall as
+    the rows it spans, which are sized by the sidebar beside it, so a tall
+    calendar spilled straight over whatever sat underneath.
+  */
   grid-template-areas:
     "upcoming main"
-    "settings main";
+    "settings organiser";
   gap: 1.5rem;
   align-items: start;
 }
@@ -590,6 +595,10 @@ kbd {
 .sidebar-upcoming { grid-area: upcoming; }
 .sidebar-settings { grid-area: settings; }
 .main { grid-area: main; }
+
+/* The organiser wears .main for the box treatment, so its own placement has to
+   come after .main or it inherits main's cell and lands on top of it. */
+.organiser-panel { grid-area: organiser; }
 
 .sidebar { display: grid; gap: 1rem; align-content: start; }
 
@@ -1128,6 +1137,13 @@ kbd {
 
 .organiser-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 
+.organiser-title {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 40;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
 .organiser-head {
   display: flex;
   flex-wrap: wrap;
@@ -1607,7 +1623,7 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 @media (max-width: 62rem) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "upcoming" "main" "settings";
+    grid-template-areas: "upcoming" "main" "organiser" "settings";
   }
   .calendar td { height: 5.5rem; }
   .day { min-height: 5.5rem; }
