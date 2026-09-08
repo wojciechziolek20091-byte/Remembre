@@ -3,9 +3,11 @@
 A personal work calendar for schoolwork: tests, homework and every other
 assignment in one month view, with a running list of what is due next.
 
-No accounts, no server, no build step. It is three files &ndash; `index.html`,
-`styles.css`, `app.js` &ndash; and two self-hosted typefaces. Tasks are saved in
-the browser's own storage, so nothing about your coursework leaves your device.
+No accounts, no build step. It is three files &ndash; `index.html`, `styles.css`,
+`app.js` &ndash; and two self-hosted typefaces. Tasks are saved in the browser's
+own storage, so nothing about your coursework leaves your device unless you ask
+it to: there is an optional server in `api/` that keeps two devices in step and
+feeds your calendar app, and the rest works with no server at all.
 
 ![The calendar in its light theme](docs/screenshot-light.png)
 
@@ -198,8 +200,32 @@ finished is not reminded about.
 
 ## Moving work between devices
 
-Remembre has no server, so nothing syncs by itself. Instead it moves work as a
-file, and does the merge properly:
+There are two ways, and the first one is automatic.
+
+### Automatic syncing
+
+Under **Automatic sync**, pick a phrase of at least twelve characters and enter
+the same phrase on every device. From then on Remembre pushes changes a few
+seconds after you make them, pulls again whenever you come back to the app, and
+merges both directions the same way the file does.
+
+It also gives you a **calendar address**. Subscribe to it once in your calendar
+app -- on iOS, Calendar, Add Account, Other, Add Subscribed Calendar -- and
+every deadline you add from then on turns up there on its own, with the same
+17:00 alarm the day before. No more exporting a file when the panel says your
+calendar has fallen behind.
+
+The phrase never leaves the device in readable form. The server stores a
+one-way hash of it, and the calendar address is a second, separate hash, so
+handing that URL to a calendar app exposes the calendar and nothing else.
+
+This needs a server with somewhere to store things; see
+[Setting up the server](#setting-up-the-server). Without one, the panel says so
+and the file route below still works.
+
+### As a file
+
+The way that needs nothing but the app, and the fallback when syncing is off:
 
 1. On the device you have been using, open **Sync and backup** and tap **Save a
    copy**. On iOS this opens the share sheet, so you can put the file in iCloud
@@ -215,7 +241,7 @@ nothing.
 The panel tells you where you stand -- when you last saved a copy and how many
 tasks have changed since -- so it is obvious when the other device is behind.
 
-Two honest limits. If you edit the *same* task on both devices, the later edit
+Two honest limits, and they apply to automatic syncing too. If you edit the *same* task on both devices, the later edit
 wins and the earlier one is lost; there is no field-by-field merge. And iOS can
 clear a web app's storage after a long unused stretch, which is the other
 reason to save a copy occasionally.
@@ -248,15 +274,62 @@ npm install       # playwright, for the browser test only
 npm test
 ```
 
-`tools/check-contrast.mjs` checks the palette. `tools/smoke-test.mjs` serves the
-site, drives it in Chromium and asserts the behaviour above. Both exit non-zero
-on failure.
+`tools/check-contrast.mjs` checks the palette. `tools/api-test.mjs` drives the
+sync routes directly against a temporary directory. `tools/smoke-test.mjs`
+serves the site and asserts the behaviour above in Chromium.
+`tools/sync-test.mjs` runs the site and the real sync routes together and drives
+two browser contexts, checking that work added on one turns up on the other and
+that the calendar address carries it. `tools/update-test.mjs` covers the update
+bar. All exit non-zero on failure.
+
+Set `CHROMIUM_PATH` if Playwright's bundled browser is not installed.
+
+## Setting up the server
+
+The app is a static site and works entirely without one. The three routes in
+`api/` exist only for the two things a device cannot do alone: let two devices
+meet in the middle, and give a calendar app an address it can poll by itself.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/status` | Which store is attached, and what it is waiting for if none is. Never reports a value. |
+| `GET /api/sync?code=` | What the server holds for that phrase. |
+| `POST /api/sync` | Merges a device's copy into it and returns the result. |
+| `GET /calendar/<token>.ics` | The subscription a calendar app polls. |
+
+They have no dependencies and run on Vercel's Node runtime as they are. What
+they need is somewhere to keep bytes, which is one of these environment
+variables -- the first one that is set is the one that gets used:
+
+| Set these | Store |
+| --- | --- |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis. Adding the Redis integration from the Vercel marketplace sets both for you. |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob. Creating a Blob store sets it for you. |
+| `REMEMBRE_GITHUB_TOKEN`, `REMEMBRE_GITHUB_REPO` | A GitHub repository, under `remembre-data/`. Needs no storage product at all: a fine-grained token with read and write on Contents for one repository, and `owner/name` in the second variable. Add `REMEMBRE_GITHUB_BRANCH` if it is not `main`. |
+| `REMEMBRE_DATA_DIR` | A directory on disk. For running locally; a serverless filesystem does not survive a request, so this is last on the list. |
+
+Open `/api/status` after deploying: it says which one it found, or lists what
+each of them still needs. Until one is set, every sync answers 503 with that
+same explanation rather than pretending to have saved anything.
+
+Nothing here is a paid tier at the time of writing, and the GitHub option needs
+no storage product to be provisioned at all.
+
+### A note on what a server still cannot do
+
+Push notifications to a *closed* app are a separate thing again: they need the
+Web Push protocol, a VAPID key pair and a subscription stored per device. This
+server does not do that. The calendar subscription is the reliable route to
+being alerted while the app is shut, which is why it is the one the app pushes
+you towards.
 
 ## Deploying
 
 There is nothing to build. Point any static host at the repository root; the
-included `vercel.json` sets long-lived caching for the fonts and the usual
-security headers.
+included `vercel.json` sets long-lived caching for the fonts, the usual
+security headers, and the `/calendar/<token>.ics` rewrite. A host with no
+serverless functions serves the app perfectly well; only the sync panel goes
+quiet.
 
 A GitHub Pages workflow lived at `.github/workflows/deploy.yml` until it was
 removed in favour of Vercel. It works, but only once Pages has been switched on
@@ -270,7 +343,8 @@ not allowed to do that itself. Recover it from git history if you ever want it.
 | `index.html` | The whole document: app bar, sidebars, month table, agenda and the two dialogs. |
 | `styles.css` | Design tokens for both themes, then components. Fonts are declared at the top. |
 | `app.js` | State, storage, rendering, keyboard handling. No dependencies. |
-| `tools/` | The contrast checker and the browser smoke test. |
+| `api/` | The sync and calendar routes, and the storage drivers behind them. No dependencies. |
+| `tools/` | The contrast checker and the four test suites. |
 
 Dates are stored as local `YYYY-MM-DD` strings and never as `Date` objects, so
 a task due on the 14th stays on the 14th in every time zone.

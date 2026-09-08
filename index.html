@@ -181,16 +181,42 @@
 
     <section class="panel" aria-labelledby="calendar-heading">
       <h2 class="panel-title" id="calendar-heading">Calendar alerts</h2>
-      <p class="panel-hint" id="calendar-hint">Hand your deadlines to your phone&rsquo;s own calendar and it will alert you at 17:00 the day before, whether or not Remembre is open. A calendar file is a snapshot, so send it again when this says the calendar has fallen behind; entries update rather than duplicate.</p>
+      <p class="panel-hint" id="calendar-hint">Hand your deadlines to your phone&rsquo;s own calendar and it will alert you at 17:00 the day before, whether or not Remembre is open. A calendar file is a snapshot, so send it again when this says the calendar has fallen behind; entries update rather than duplicate. Turning on automatic syncing below replaces this with an address your calendar keeps up to date by itself.</p>
       <p class="sync-status" id="calendar-status" role="status"></p>
       <div class="panel-actions" aria-describedby="calendar-hint">
         <button type="button" class="btn btn-quiet" id="export-alerts">Add to my calendar</button>
       </div>
     </section>
 
+    <section class="panel" id="cloud-panel" aria-labelledby="cloud-heading">
+      <h2 class="panel-title" id="cloud-heading">Automatic sync</h2>
+      <p class="panel-hint" id="cloud-hint">Pick a phrase and enter the same one on every device. Remembre then keeps them in step by itself, and gives your calendar app an address it can subscribe to once and never touch again.</p>
+      <p class="sync-status" id="cloud-status" role="status"></p>
+
+      <div class="cloud-setup" id="cloud-setup">
+        <label class="field-label" for="cloud-code">Your sync phrase</label>
+        <input type="password" id="cloud-code" class="input" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="at least 12 characters" aria-describedby="cloud-code-hint">
+        <p class="field-hint" id="cloud-code-hint">Anything you will remember and nobody would guess. It is the only key to your work, so it is never sent anywhere in readable form.</p>
+        <div class="panel-actions">
+          <button type="button" class="btn btn-quiet" id="cloud-connect">Turn on syncing</button>
+        </div>
+      </div>
+
+      <div class="cloud-live" id="cloud-live" hidden>
+        <label class="field-label" for="cloud-feed">Calendar address</label>
+        <input type="text" id="cloud-feed" class="input" readonly spellcheck="false" aria-describedby="cloud-feed-hint">
+        <p class="field-hint" id="cloud-feed-hint">Subscribe to this once in your calendar app and every deadline you add from now on turns up there on its own.</p>
+        <div class="panel-actions">
+          <button type="button" class="btn btn-quiet" id="cloud-copy">Copy the address</button>
+          <button type="button" class="btn btn-quiet" id="cloud-now">Sync now</button>
+          <button type="button" class="btn btn-quiet" id="cloud-off">Turn off</button>
+        </div>
+      </div>
+    </section>
+
     <section class="panel" aria-labelledby="sync-heading">
       <h2 class="panel-title" id="sync-heading">Sync and backup</h2>
-      <p class="panel-hint" id="sync-hint">Remembre saves on this device only. To move work between your iPad and your phone, save a copy to iCloud Drive here, then load it on the other device. Loading merges &ndash; the newer version of each task wins and nothing is lost.</p>
+      <p class="panel-hint" id="sync-hint">A copy you keep yourself, and the way to move work between devices when syncing is off. Save it to iCloud Drive here, then load it on the other device. Loading merges &ndash; the newer version of each task wins and nothing is lost.</p>
       <p class="sync-status" id="sync-status" role="status"></p>
       <div class="panel-actions" aria-describedby="sync-hint">
         <button type="button" class="btn btn-quiet" id="save-copy">Save a copy</button>
@@ -204,7 +230,7 @@
 </div>
 
 <footer class="site-footer">
-  <p>Remembre keeps everything on your own device. Press <kbd>N</kbd> at any time to add a task, or <kbd>T</kbd> to jump back to today.</p>
+  <p>Remembre keeps everything on your own device unless you turn on syncing. Press <kbd>N</kbd> at any time to add a task, or <kbd>T</kbd> to jump back to today.</p>
   <p class="version">
     Version <span id="app-version"></span>
     <span id="reminder-note" hidden>

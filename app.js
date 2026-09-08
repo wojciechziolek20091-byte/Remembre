@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-23";
+const APP_VERSION = "2026.09.08-24";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -463,6 +463,7 @@ function saveCoursework() {
   if (!writeStore(COURSEWORK_KEY, state.coursework)) {
     announce("Your browser would not let this page save data, so changes will be lost when you close the tab.");
   }
+  cloudSchedulePush();
 }
 
 function liveCoursework() {
@@ -513,6 +514,7 @@ function saveTasks() {
   if (!writeStore(STORAGE_KEY, state.tasks)) {
     announce("Your browser would not let this page save data, so changes will be lost when you close the tab.");
   }
+  cloudSchedulePush();
 }
 
 function savePrefs() {
@@ -1179,6 +1181,7 @@ function renderAll() {
   renderSubjectLegend();
   renderAlertsPanel();
   renderSyncPanel();
+  renderCloudPanel();
   renderAlertsExport();
   renderCoursework();
 }
@@ -2485,6 +2488,7 @@ function saveSessions() {
   if (!writeStore(SESSIONS_KEY, state.sessions)) {
     announce("Your browser would not let this page save data, so changes will be lost when you close the tab.");
   }
+  cloudSchedulePush();
 }
 
 function liveSessions() {
@@ -2969,6 +2973,307 @@ function markAlertsExported() {
   renderAlertsExport();
 }
 
+/* ---------- Sync: automatic, through the server ---------- */
+
+/*
+  Saving a file to iCloud and loading it on the other device works, but it is
+  something the reader has to remember to do. When the deployment has a store
+  behind it, this does the same job on its own: everything is pushed a few
+  seconds after it changes, pulled again when the app comes back to the front,
+  and merged the same last-write-wins way in both directions.
+
+  The sync phrase never leaves this device in readable form. The server holds
+  a one-way hash of it, so it cannot read a vault back without being told the
+  phrase, and the calendar address is a second, separate hash: handing that URL
+  to a calendar app exposes the calendar and nothing else.
+*/
+
+const CLOUD_KEY = "remembre.cloud.v1";
+const CLOUD_DEBOUNCE = 4000;      // Quiet enough to batch a burst of edits.
+const CLOUD_MIN_CODE = 12;
+
+let cloudTimer = null;
+let cloudBusy = false;
+let cloudApplying = false;        // Guards the push a pull's own save would start.
+let cloudNote = "";
+
+function cloudState() {
+  const stored = readStore(CLOUD_KEY, null);
+  const base = { code: "", feed: "", lastSyncAt: "", enabled: false };
+  return stored && typeof stored === "object" ? { ...base, ...stored } : base;
+}
+
+function setCloudState(patch) {
+  writeStore(CLOUD_KEY, { ...cloudState(), ...patch });
+}
+
+/**
+ * The single-file build and a page opened from disk have no server behind
+ * them, so the panel says so rather than offering a button that cannot work.
+ */
+function cloudAvailable() {
+  return window.location.protocol === "http:" || window.location.protocol === "https:";
+}
+
+function cloudFeedUrl(feed) {
+  return feed ? `${window.location.origin}/calendar/${feed}.ics` : "";
+}
+
+async function cloudFetch(path, options) {
+  const res = await fetch(path, { cache: "no-store", ...options });
+  let body = null;
+  try {
+    body = await res.json();
+  } catch (err) {
+    body = null;
+  }
+  if (!res.ok) {
+    const message = body && body.message
+      ? body.message
+      : `The server answered ${res.status}.`;
+    const error = new Error(message);
+    error.code = body && body.error;
+    throw error;
+  }
+  return body;
+}
+
+/** Fold whatever the server holds into this device. */
+async function cloudPull({ quiet = false } = {}) {
+  const { code, enabled } = cloudState();
+  if (!enabled || !code) return null;
+
+  const body = await cloudFetch(`/api/sync?code=${encodeURIComponent(code)}`);
+  applyCloudVault(body.vault);
+  setCloudState({ feed: body.feed, lastSyncAt: new Date().toISOString() });
+  if (!quiet) announce("Synced with your other devices.");
+  return body;
+}
+
+/** Hand this device's copy up, and adopt the merge that comes back. */
+async function cloudPush({ quiet = false } = {}) {
+  const { code, enabled } = cloudState();
+  if (!enabled || !code) return null;
+
+  const { text } = buildCalendarFeed();
+  const body = await cloudFetch("/api/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code,
+      ics: text,
+      vault: { tasks: state.tasks, coursework: state.coursework, sessions: state.sessions },
+    }),
+  });
+
+  applyCloudVault(body.vault);
+  setCloudState({ feed: body.feed, lastSyncAt: new Date().toISOString() });
+  markSaved();
+  // The subscription is now carrying these dates, so the "your calendar has
+  // fallen behind" nag has nothing left to warn about.
+  markAlertsExported();
+  if (!quiet) announce("Synced. Your calendar will pick this up shortly.");
+  return body;
+}
+
+function applyCloudVault(vault) {
+  if (!vault || typeof vault !== "object") return;
+
+  cloudApplying = true;
+  try {
+    mergeTasks((Array.isArray(vault.tasks) ? vault.tasks : []).map(normaliseTask).filter(Boolean));
+    mergeCoursework((Array.isArray(vault.coursework) ? vault.coursework : []).map(normaliseCoursework).filter(Boolean));
+    mergeSessions((Array.isArray(vault.sessions) ? vault.sessions : []).map(normaliseSession).filter(Boolean));
+    saveTasks();
+    saveCoursework();
+    saveSessions();
+    renderAll();
+  } finally {
+    cloudApplying = false;
+  }
+}
+
+/**
+ * Called from every save. A burst of edits collapses into one push, and the
+ * saves a pull performs do not bounce straight back up again.
+ */
+function cloudSchedulePush() {
+  if (cloudApplying) return;
+  const { enabled, code } = cloudState();
+  if (!enabled || !code || !cloudAvailable()) return;
+
+  window.clearTimeout(cloudTimer);
+  cloudTimer = window.setTimeout(() => {
+    cloudTimer = null;
+    // A sync already in flight is carrying an older copy, so wait it out
+    // rather than dropping this round of changes on the floor.
+    if (cloudBusy) return cloudSchedulePush();
+    runCloud(() => cloudPush({ quiet: true }));
+  }, CLOUD_DEBOUNCE);
+  renderCloudPanel();
+}
+
+/** One sync at a time, with whatever went wrong left on the panel to read. */
+async function runCloud(work) {
+  if (cloudBusy) return;
+  cloudBusy = true;
+  cloudNote = "";
+  renderCloudPanel();
+  try {
+    await work();
+    cloudNote = "";
+  } catch (err) {
+    cloudNote = err && err.message ? err.message : "The server could not be reached.";
+    console.warn("Sync failed:", err);
+  } finally {
+    cloudBusy = false;
+    renderCloudPanel();
+  }
+}
+
+function renderCloudPanel() {
+  const status = $("cloud-status");
+  if (!status) return;
+
+  const { enabled, code, feed, lastSyncAt } = cloudState();
+  const live = enabled && Boolean(code);
+  $("cloud-setup").hidden = live;
+  $("cloud-live").hidden = !live;
+
+  if (!cloudAvailable()) {
+    status.textContent = "Automatic syncing needs the installed app, not this copy.";
+    status.classList.remove("is-stale");
+    $("cloud-setup").hidden = true;
+    $("cloud-live").hidden = true;
+    return;
+  }
+
+  if (!live) {
+    status.textContent = cloudNote || "Not syncing. This device is on its own.";
+    status.classList.toggle("is-stale", Boolean(cloudNote));
+    return;
+  }
+
+  $("cloud-feed").value = cloudFeedUrl(feed);
+
+  if (cloudBusy) {
+    status.textContent = "Syncing…";
+    status.classList.remove("is-stale");
+    return;
+  }
+  if (cloudNote) {
+    status.textContent = cloudNote;
+    status.classList.add("is-stale");
+    return;
+  }
+  if (cloudTimer && pendingChangeCount() > 0) {
+    status.textContent = "Changes will be sent in a moment.";
+    status.classList.remove("is-stale");
+    return;
+  }
+
+  status.textContent = lastSyncAt
+    ? `Synced ${relativeClock(lastSyncAt)}.`
+    : "Syncing is on.";
+  status.classList.remove("is-stale");
+}
+
+/** "just now", "12 minutes ago", "yesterday" -- enough to trust it, no more. */
+function relativeClock(iso) {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (!Number.isFinite(minutes) || minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+async function connectCloud() {
+  const field = $("cloud-code");
+  const code = field.value.trim();
+  if (code.length < CLOUD_MIN_CODE) {
+    cloudNote = `A sync phrase needs at least ${CLOUD_MIN_CODE} characters.`;
+    renderCloudPanel();
+    field.focus();
+    return;
+  }
+
+  setCloudState({ code, enabled: true });
+  field.value = "";
+
+  await runCloud(async () => {
+    // Take what is already up there first, then hand over this device's copy,
+    // so a second device joining an established phrase gains everything and
+    // loses nothing.
+    await cloudPull({ quiet: true });
+    await cloudPush({ quiet: true });
+    announce("Syncing is on. Copy the calendar address to subscribe to it.");
+  });
+
+  // A phrase that the server would not accept should not sit there looking on.
+  if (cloudNote) setCloudState({ enabled: false, code: "" });
+  renderCloudPanel();
+}
+
+function disconnectCloud() {
+  if (!window.confirm("Stop syncing this device? Your work stays here, and the calendar you subscribed to will stop updating.")) {
+    return;
+  }
+  window.clearTimeout(cloudTimer);
+  cloudTimer = null;
+  cloudNote = "";
+  writeStore(CLOUD_KEY, { code: "", feed: "", lastSyncAt: "", enabled: false });
+  renderCloudPanel();
+  announce("Syncing turned off.");
+}
+
+async function copyFeedAddress() {
+  const url = cloudFeedUrl(cloudState().feed);
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    announce("Calendar address copied. Paste it into your calendar app to subscribe.");
+  } catch (err) {
+    // Clipboard access can be refused; selecting it is the next best thing.
+    const field = $("cloud-feed");
+    field.focus();
+    field.select();
+    announce("Copy the selected address and paste it into your calendar app.");
+  }
+}
+
+function setupCloud() {
+  if (!$("cloud-panel")) return;
+  $("cloud-connect").addEventListener("click", connectCloud);
+  $("cloud-off").addEventListener("click", disconnectCloud);
+  $("cloud-copy").addEventListener("click", copyFeedAddress);
+  $("cloud-now").addEventListener("click", () => {
+    window.clearTimeout(cloudTimer);
+    cloudTimer = null;
+    runCloud(async () => { await cloudPull({ quiet: true }); await cloudPush(); });
+  });
+
+  $("cloud-code").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      connectCloud();
+    }
+  });
+
+  // Coming back to the app is the moment the other device's work is most
+  // likely to be missing, so that is when to go and look for it.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (!cloudState().enabled) return;
+    runCloud(() => cloudPull({ quiet: true }));
+  });
+
+  if (cloudState().enabled && cloudAvailable()) {
+    runCloud(async () => { await cloudPull({ quiet: true }); await cloudPush({ quiet: true }); });
+  }
+}
+
 /* ---------- Sync: saving and loading a file ---------- */
 
 function syncState() {
@@ -3372,6 +3677,7 @@ function init() {
   setupCoursework();
   renderAll();
   setupReminders();
+  setupCloud();
 }
 
 /*

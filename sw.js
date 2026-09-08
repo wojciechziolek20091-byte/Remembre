@@ -22,7 +22,7 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "remembre-v4";
+const CACHE = "remembre-v5";
 
 /* How long to wait for the network before falling back to the cached shell.
    Long enough for a slow connection, short enough not to feel broken. */
@@ -135,6 +135,11 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // The sync and calendar routes are the live state of things. A cached copy
+  // of either is worse than no answer at all, so they go straight to the
+  // network and the app decides what to do when it is not there.
+  if (url.pathname.startsWith("/api/")) return;
 
   const isShell = request.mode === "navigate" || SHELL_PATTERN.test(url.pathname);
   event.respondWith(isShell ? networkFirst(request) : staleWhileRevalidate(request));

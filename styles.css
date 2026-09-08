@@ -653,6 +653,41 @@ kbd {
 .panel-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .panel-actions .btn { flex: 1; font-size: .88rem; }
 
+/* ---------- The sync panel's own small form ---------- */
+
+.field-label {
+  display: block;
+  font-size: .85rem;
+  font-weight: 600;
+  margin-bottom: .35rem;
+}
+
+.input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: .55rem .65rem;
+  min-height: 2.75rem;
+  font: inherit;
+  font-size: .9rem;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.input::placeholder { color: var(--ink-2); opacity: 1; }
+
+/* The calendar address is long and there is nowhere to wrap it, so it scrolls
+   rather than pushing the sidebar wider. */
+#cloud-feed {
+  font-size: .78rem;
+  text-overflow: ellipsis;
+}
+
+.cloud-setup .field-hint,
+.cloud-live .field-hint { margin: .35rem 0 .75rem; }
+
 /* ---------- Checkboxes ---------- */
 
 .filters { border: 0; margin: 0; padding: 0; display: grid; gap: .15rem; }

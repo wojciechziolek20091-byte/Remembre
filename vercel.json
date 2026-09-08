@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "",
+  "installCommand": "npm install --omit=dev --no-audit --no-fund",
   "buildCommand": "",
   "outputDirectory": ".",
   "cleanUrls": true,
@@ -34,6 +34,15 @@
       ]
     },
     {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
       "source": "/(.*)",
       "headers": [
         {
@@ -49,6 +58,12 @@
           "value": "SAMEORIGIN"
         }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/calendar/:feed.ics",
+      "destination": "/api/calendar?feed=:feed"
     }
   ]
 }

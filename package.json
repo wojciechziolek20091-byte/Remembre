@@ -7,7 +7,7 @@
   "scripts": {
     "serve": "python3 -m http.server 8000",
     "build": "node tools/build-single-file.mjs",
-    "test": "node tools/check-contrast.mjs && node tools/smoke-test.mjs && node tools/update-test.mjs"
+    "test": "node tools/check-contrast.mjs && node tools/api-test.mjs && node tools/smoke-test.mjs && node tools/sync-test.mjs && node tools/update-test.mjs"
   },
   "devDependencies": {
     "playwright": "^1.56.0"
