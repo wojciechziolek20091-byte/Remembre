@@ -303,7 +303,7 @@ variables -- the first one that is set is the one that gets used:
 
 | Set these | Store |
 | --- | --- |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis. Adding the Redis integration from the Vercel marketplace sets both for you. `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are the same thing under the names Upstash's own integration uses, and are accepted too. |
+| A `*_REST_API_URL` and `*_REST_API_TOKEN` pair | Upstash Redis. Adding the Redis integration from the Vercel marketplace sets both for you. The prefix is chosen when the store is connected, so they may arrive as `KV_`, `UPSTASH_REDIS_`, `STORAGE_` or anything else; the app looks for the shape of the pair rather than a fixed name, and `/api/status` reports which two it settled on. |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob. Creating a Blob store sets it for you. |
 | `REMEMBRE_GITHUB_TOKEN`, `REMEMBRE_GITHUB_REPO` | A GitHub repository, under `remembre-data/`. Needs no storage product at all: a fine-grained token with read and write on Contents for one repository, and `owner/name` in the second variable. Add `REMEMBRE_GITHUB_BRANCH` if it is not `main`. |
 | `REMEMBRE_DATA_DIR` | A directory on disk. For running locally; a serverless filesystem does not survive a request, so this is last on the list. |

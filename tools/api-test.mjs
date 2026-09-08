@@ -86,40 +86,63 @@ const post = (body) => fetch(`${base}/api/sync`, {
     body.seen.includes("REMEMBRE_DATA_DIR"),
     JSON.stringify(body.seen),
   );
+  check("status says what each driver would need", typeof body.drivers[0].needs === "string");
   check(
     "status never reports a secret's value",
     !JSON.stringify(body).includes(dir),
   );
 }
 
-/* ---------- The same credential under a different name ---------- */
+/* ---------- The same credential under any prefix ---------- */
 
 {
-  // The Vercel-managed Redis and the Upstash integration name the same URL
-  // differently. Either has to be recognised, or attaching a store looks like
-  // it did nothing.
+  /*
+    A Redis store attached through Vercel's marketplace names its variables
+    after a prefix chosen when it was connected, so the same URL arrives as
+    KV_REST_API_URL, UPSTASH_REDIS_REST_URL or STORAGE_REST_API_URL depending
+    on nothing the app can predict. All of them have to be recognised, or a
+    correctly attached store reads as no store at all.
+  */
   const { storeReport } = await import("../api/_store.js");
   delete process.env.REMEMBRE_DATA_DIR;
 
-  process.env.UPSTASH_REDIS_REST_URL = "https://example.upstash.io";
-  process.env.UPSTASH_REDIS_REST_TOKEN = "not-a-real-token";
-  check("Upstash's own variable names are recognised", storeReport().using === "redis", storeReport().using);
+  const prefixes = [
+    ["KV_REST_API_URL", "KV_REST_API_TOKEN", "Vercel's own"],
+    ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "Upstash's own"],
+    ["STORAGE_REST_API_URL", "STORAGE_REST_API_TOKEN", "a STORAGE prefix"],
+    ["REMEMBRE_KV_REST_API_URL", "REMEMBRE_KV_REST_API_TOKEN", "a prefix nobody could guess"],
+  ];
 
-  delete process.env.UPSTASH_REDIS_REST_URL;
-  delete process.env.UPSTASH_REDIS_REST_TOKEN;
-  process.env.KV_REST_API_URL = "https://example.upstash.io";
-  process.env.KV_REST_API_TOKEN = "not-a-real-token";
-  check("and so are Vercel's", storeReport().using === "redis", storeReport().using);
+  for (const [urlName, tokenName, description] of prefixes) {
+    process.env[urlName] = "https://example.upstash.io";
+    process.env[tokenName] = "not-a-real-token";
+    const report = storeReport();
+    check(`a store named with ${description} is found`, report.using === "redis", report.using);
+    check(
+      `and status says which two variables it used (${description})`,
+      report.matched.join(",") === `${urlName},${tokenName}`,
+      report.matched.join(","),
+    );
+    check(`and names it among what it can see (${description})`, report.seen.includes(urlName));
+    check(
+      `without ever reporting the token (${description})`,
+      !JSON.stringify(report).includes("not-a-real-token"),
+    );
+    delete process.env[urlName];
+    delete process.env[tokenName];
+  }
 
-  const report = storeReport();
-  check("each driver says which names it will accept", report.drivers[0].accepts.length === 2);
-  check(
-    "a token's value is never reported",
-    !JSON.stringify(report).includes("not-a-real-token"),
-  );
+  // The TCP endpoint is not the REST one and cannot be used from a function.
+  process.env.STORAGE_URL = "rediss://default:secret@example.upstash.io:6379";
+  check("a rediss:// URL alone is not mistaken for a REST endpoint", storeReport().configured === false);
+  delete process.env.STORAGE_URL;
 
-  delete process.env.KV_REST_API_URL;
-  delete process.env.KV_REST_API_TOKEN;
+  // A URL with no matching token is not half a store.
+  process.env.STORAGE_REST_API_URL = "https://example.upstash.io";
+  check("a URL with no token is not enough", storeReport().configured === false);
+  check("but it is still reported as seen", storeReport().seen.includes("STORAGE_REST_API_URL"));
+  delete process.env.STORAGE_REST_API_URL;
+
   process.env.REMEMBRE_DATA_DIR = dir;
 }
 

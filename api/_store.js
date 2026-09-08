@@ -18,70 +18,100 @@ const BLOB_API = "https://blob.vercel-storage.com";
 
 /* ---------- Which store are we talking to? ---------- */
 
+/*
+  Finding the credentials is its own small problem. A Redis store attached
+  through Vercel's marketplace names its variables after a prefix chosen at the
+  moment it was connected -- KV_REST_API_URL, UPSTASH_REDIS_REST_URL and
+  STORAGE_REST_API_URL are all the same URL under three different prefixes --
+  and a store that was attached correctly but named unexpectedly looks exactly
+  like no store at all.
+
+  So rather than a list of names, look for the shape: any variable whose name
+  ends in one of these, paired with the matching token under the same prefix.
+*/
+const REST_PAIRS = [
+  ["_REST_API_URL", "_REST_API_TOKEN"],
+  ["_REDIS_REST_URL", "_REDIS_REST_TOKEN"],
+  ["_REST_URL", "_REST_TOKEN"],
+];
+
+/** The first complete URL-and-token pair in the environment, whatever its prefix. */
+function findRestPair() {
+  const names = Object.keys(process.env);
+  for (const [urlSuffix, tokenSuffix] of REST_PAIRS) {
+    for (const name of names.sort()) {
+      if (!name.endsWith(urlSuffix)) continue;
+      const token = `${name.slice(0, -urlSuffix.length)}${tokenSuffix}`;
+      const url = process.env[name];
+      // A rediss:// URL is the TCP endpoint, not the REST one, and needs a
+      // client we do not have. Only the HTTPS endpoint is usable from here.
+      if (url && /^https:\/\//.test(url) && process.env[token]) {
+        return { url, token: process.env[token], names: [name, token] };
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * The drivers, most preferred first.
- *
- * Each thing a driver needs is a list of names rather than one name, because
- * the same credential arrives under different names depending on how the store
- * was attached: the Vercel-managed Redis calls it KV_REST_API_URL, the Upstash
- * integration calls it UPSTASH_REDIS_REST_URL, and either is the same URL.
- * Whichever name is set is the one used.
+ * The drivers, most preferred first. Each one says how to tell whether it can
+ * run, and what to set if it cannot, so /api/status can explain itself without
+ * ever reporting a value.
  */
 const DRIVERS = [
   {
     name: "redis",
     label: "Upstash Redis",
-    env: [
-      ["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL", "REDIS_REST_URL"],
-      ["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN", "REDIS_REST_TOKEN"],
-    ],
+    needs: "A REST URL and token pair, under any prefix: KV_REST_API_URL and KV_REST_API_TOKEN, UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, or the same two suffixes behind whatever prefix your store was connected with.",
+    detect: findRestPair,
     build: redisDriver,
   },
   {
     name: "blob",
     label: "Vercel Blob",
-    env: [["BLOB_READ_WRITE_TOKEN"]],
+    needs: "BLOB_READ_WRITE_TOKEN",
+    detect: () => (process.env.BLOB_READ_WRITE_TOKEN ? {} : null),
     build: blobDriver,
   },
   {
     name: "github",
     label: "a GitHub repository",
-    env: [["REMEMBRE_GITHUB_TOKEN"], ["REMEMBRE_GITHUB_REPO"]],
+    needs: "REMEMBRE_GITHUB_TOKEN and REMEMBRE_GITHUB_REPO",
+    detect: () =>
+      process.env.REMEMBRE_GITHUB_TOKEN && process.env.REMEMBRE_GITHUB_REPO ? {} : null,
     build: githubDriver,
   },
   {
     name: "files",
     label: "a directory on disk",
-    env: [["REMEMBRE_DATA_DIR"]],
+    needs: "REMEMBRE_DATA_DIR",
+    detect: () => (process.env.REMEMBRE_DATA_DIR ? {} : null),
     build: fileDriver,
   },
 ];
 
-/** The first name in the list that is actually set, or "". */
-function pick(names) {
-  const found = names.find((name) => process.env[name]);
-  return found ? process.env[found] : "";
-}
-
-const satisfied = (driver) => driver.env.every((names) => Boolean(pick(names)));
-
 /** The first driver whose credentials are all present, or null. */
 export function store() {
-  const chosen = DRIVERS.find(satisfied);
-  return chosen ? { name: chosen.name, label: chosen.label, ...chosen.build() } : null;
+  for (const driver of DRIVERS) {
+    const found = driver.detect();
+    if (found) return { name: driver.name, label: driver.label, ...driver.build(found) };
+  }
+  return null;
 }
 
 /*
-  Which variables count as worth mentioning when nothing matched. Only the
-  names are ever reported, never a value, and only names that look like they
-  belong to a store: a blanket listing of the environment would be a leak
-  waiting to happen.
+  Which variable names are worth mentioning when nothing matched. Only names
+  are ever reported, never values, and only names shaped like a credential a
+  store would set: listing the whole environment would be a leak waiting to
+  happen.
 */
-const STORAGE_NAME = /^(KV|UPSTASH|REDIS|BLOB|EDGE_CONFIG|POSTGRES|DATABASE|NEON|SUPABASE|REMEMBRE)_?/;
+const STORAGE_NAME =
+  /^(KV|UPSTASH|REDIS|BLOB|EDGE_CONFIG|POSTGRES|DATABASE|NEON|SUPABASE|STORAGE|REMEMBRE)_|_(URL|TOKEN|REST_API_URL|REST_API_TOKEN|CONNECTION_STRING)$/;
 
 /** What /api/status reports: never a value, only whether one is set. */
 export function storeReport() {
   const live = store();
+  const pair = findRestPair();
   return {
     configured: Boolean(live),
     using: live ? live.name : null,
@@ -89,23 +119,22 @@ export function storeReport() {
     drivers: DRIVERS.map((driver) => ({
       name: driver.name,
       label: driver.label,
-      needs: driver.env.map((names) => names[0]),
-      accepts: driver.env.map((names) => names.join(" or ")),
-      ready: satisfied(driver),
+      needs: driver.needs,
+      ready: Boolean(driver.detect()),
     })),
-    // The name of every storage-shaped variable this deployment can see. When
-    // a store has been attached and nothing matched, this is the answer: it
-    // says what the integration actually called things.
+    // Which two variables the Redis driver settled on, so a store that was
+    // attached under an unexpected prefix can be confirmed at a glance.
+    matched: pair ? pair.names : [],
+    // Every credential-shaped variable this deployment can see. When a store
+    // is attached and nothing matched, this is the answer.
     seen: Object.keys(process.env).filter((name) => STORAGE_NAME.test(name)).sort(),
   };
 }
 
 /* ---------- Upstash Redis over its REST API ---------- */
 
-function redisDriver() {
-  const base = String(pick(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL", "REDIS_REST_URL"]))
-    .replace(/\/+$/, "");
-  const token = pick(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN", "REDIS_REST_TOKEN"]);
+function redisDriver({ url, token }) {
+  const base = String(url).replace(/\/+$/, "");
   const auth = { Authorization: `Bearer ${token}` };
 
   return {
