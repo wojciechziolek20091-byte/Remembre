@@ -113,6 +113,18 @@ async function waitForSynced(page) {
   );
 }
 
+/*
+  Dates are relative, never written down. Past work deletes itself, so a fixed
+  date turns this suite red the moment the calendar walks past it -- and worse,
+  would pass for months first.
+*/
+const inDays = (days) => {
+  const when = new Date();
+  when.setDate(when.getDate() + days);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
+};
+
 /** Adds a task the way the dialog would, then lets the debounce carry it up. */
 async function addTask(page, title, date) {
   await page.evaluate(([title, date]) => {
@@ -184,7 +196,7 @@ const feedUrl = await ipad.page.inputValue("#cloud-feed");
 
 console.log("\nfrom the iPad to the phone");
 
-await addTask(ipad.page, "Cold War essay", "2026-09-25");
+await addTask(ipad.page, "Cold War essay", inDays(25));
 {
   check(
     "a change is queued rather than sent at once",
@@ -211,7 +223,7 @@ await waitForSynced(phone.page);
 
 console.log("\nand back again");
 
-await addTask(phone.page, "Maths problem set", "2026-09-22");
+await addTask(phone.page, "Maths problem set", inDays(22));
 await waitForSynced(phone.page);
 
 await ipad.page.click("#cloud-now");
@@ -306,7 +318,7 @@ await ipad.page.click("#cloud-off");
   check("the work stays on the device", await titlesOn(ipad.page), ["Cold War essay, final"]);
 }
 
-await addTask(ipad.page, "Not shared", "2026-09-28");
+await addTask(ipad.page, "Not shared", inDays(28));
 await ipad.page.waitForTimeout(5500);
 await phone.page.click("#cloud-now");
 await waitForSynced(phone.page);

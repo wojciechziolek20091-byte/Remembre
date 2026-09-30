@@ -176,9 +176,25 @@ export function dueReminders(vault, clock) {
       if (at === null) return;
       const name = named.get(session.courseworkId) || "your coursework";
 
+      /*
+        The title carries the whole message, work included: a lock screen shows
+        it with the app's name beside it and the body cut short, so "Time to
+        study" on its own says nothing about what. Worded to match the app's own
+        reminders and the calendar alarms, which say the same thing.
+      */
       const moments = [
-        { key: `session-soon:${session.id}`, at: at - SESSION_LEAD_MINUTES, title: "In an hour", body: `${name} · ${session.minutes} minutes` },
-        { key: `session-now:${session.id}`, at, title: "Time to study", body: `${name} · ${session.minutes} minutes` },
+        {
+          key: `session-soon:${session.id}`,
+          at: at - SESSION_LEAD_MINUTES,
+          title: `Study ${name} in an hour`,
+          body: `At ${session.time} · ${session.minutes} minutes`,
+        },
+        {
+          key: `session-now:${session.id}`,
+          at,
+          title: `It’s time to study ${name}`,
+          body: `${session.minutes} minutes, starting now`,
+        },
       ];
 
       moments.forEach((moment) => {

@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.08-36";
+const APP_VERSION = "2026.09.30-37";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -2537,6 +2537,21 @@ function dueSessionReminders(now = Date.now()) {
   return due;
 }
 
+/*
+  What a study reminder calls itself.
+
+  A notification is read on a lock screen, at a glance, with the app's name
+  already beside it -- so the title has to carry the whole message including
+  what the work is, and the body is only detail. The same words go out however
+  the reminder arrives: from the app, from the calendar alarm, or from the
+  server while the app is shut.
+*/
+function sessionTitle(phase, name) {
+  return phase === "pre"
+    ? `Study ${name} in an hour`
+    : `It\u2019s time to study ${name}`;
+}
+
 async function deliverSessionReminders() {
   if (!notificationsOn()) return 0;
   const due = dueSessionReminders();
@@ -2549,15 +2564,15 @@ async function deliverSessionReminders() {
     const time = formatTime(session.time);
 
     if (phase === "pre") {
-      await showNotification(`In an hour: ${name}`, {
-        body: `Study session at ${time}, ${session.minutes} minutes.`,
+      await showNotification(sessionTitle("pre", name), {
+        body: `At ${time} \u00b7 ${session.minutes} minutes.`,
         tag: `session-${session.id}-pre`,
         icon: "icons/icon-192.png",
         badge: "icons/icon-192.png",
       });
     } else {
-      await showNotification("Time to study", {
-        body: `${name} \u00b7 ${session.minutes} minutes, starting now.`,
+      await showNotification(sessionTitle("go", name), {
+        body: `${session.minutes} minutes, starting now.`,
         tag: `session-${session.id}-go`,
         icon: "icons/icon-192.png",
         badge: "icons/icon-192.png",
@@ -3228,12 +3243,12 @@ function buildCalendarFeed() {
         // An hour's warning, then a nudge as it starts.
         "BEGIN:VALARM",
         "ACTION:DISPLAY",
-        `DESCRIPTION:${icsEscape(`In an hour: ${name}`)}`,
+        `DESCRIPTION:${icsEscape(sessionTitle("pre", name))}`,
         "TRIGGER:-PT1H",
         "END:VALARM",
         "BEGIN:VALARM",
         "ACTION:DISPLAY",
-        `DESCRIPTION:${icsEscape(`Time to study: ${name}`)}`,
+        `DESCRIPTION:${icsEscape(sessionTitle("go", name))}`,
         "TRIGGER:PT0S",
         "END:VALARM",
         "END:VEVENT"

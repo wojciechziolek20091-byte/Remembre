@@ -156,12 +156,28 @@ check("upcoming starts empty", (await page.textContent("#upcoming-list")).trim()
 console.log("\nexample data");
 await page.click('label[for="view-list"]');
 await page.click("#load-examples");
-await page.waitForSelector(".task-row");
+await page.waitForFunction(() =>
+  JSON.parse(localStorage.getItem("remembre.tasks.v1") || "[]").length === 8);
+
 check("the example tasks are stored",
   await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).length), 8);
 check("the upcoming panel fills to its limit", await page.locator("#upcoming-list .up-btn").count(), 6);
 check("every example carries a subject",
   await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).every((t) => t.subject)), true);
+
+/*
+  The agenda shows one month at a time. The examples run from tomorrow to a
+  fortnight out, so near the end of a month they are all in the next one and
+  this month's agenda is rightly empty -- which is not something to assert
+  today's date out of. Go to the month they landed in and check there.
+*/
+await page.evaluate(() => {
+  goToPeriod(liveTasks().map((task) => task.date).sort()[0], { announceChange: false });
+});
+await page.waitForSelector(".task-row");
+check("the agenda lists them under their dates",
+  await page.locator(".agenda-group").count() > 0, true);
+await page.evaluate(() => goToPeriod(todayISO(), { announceChange: false }));
 
 console.log("\nadding a task");
 const today = await page.evaluate(() => {
@@ -581,15 +597,17 @@ const feed = await page.evaluate(() => {
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z",
   });
   state.tasks = [
-    mk("a", "Algebra test", "test", "mathematics", "2026-09-25", "11:30"),
-    mk("b", "Essay; with, punctuation", "homework", "history", "2026-11-20", ""),
-    mk("done", "Already finished", "homework", "english", "2026-09-26", ""),
+    // Relative to today: the feed only carries what is still ahead, so fixed
+    // dates quietly stop being tested the moment the calendar passes them.
+    mk("a", "Algebra test", "test", "mathematics", addDays(todayISO(), 10), "11:30"),
+    mk("b", "Essay; with, punctuation", "homework", "history", addDays(todayISO(), 60), ""),
+    mk("done", "Already finished", "homework", "english", addDays(todayISO(), 15), ""),
     mk("past", "Long gone", "homework", "english", "2020-01-01", ""),
   ];
   state.tasks[2].done = true;
   state.coursework = [normaliseCoursework({
     id: "ee", title: "Extended Essay", kind: "ee", subject: "history",
-    due: "2026-12-01", stage: "draft",
+    due: addDays(todayISO(), 90), stage: "draft",
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z",
   })];
   saveTasks(); saveCoursework();
@@ -629,14 +647,33 @@ const warsawPage = await warsaw.newPage();
 await warsawPage.goto(base);
 await warsawPage.waitForSelector(".tt-lesson");
 const shifted = await warsawPage.evaluate(() => {
+  // The next 1 July and the next 1 December, so one alarm falls in summer time
+  // and one in winter whenever this is run.
+  const futureOn = (month, day) => {
+    const now = new Date();
+    const passed = now.getMonth() + 1 > month
+      || (now.getMonth() + 1 === month && now.getDate() >= day);
+    const year = now.getFullYear() + (passed ? 1 : 0);
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
+
   state.tasks = [
-    normaliseTask({ id: "summer", title: "Summer", type: "test", subject: "mathematics", course: "M", date: "2026-09-25", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
-    normaliseTask({ id: "winter", title: "Winter", type: "test", subject: "mathematics", course: "M", date: "2026-11-20", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    normaliseTask({ id: "summer", title: "Summer", type: "test", subject: "mathematics", course: "M", date: futureOn(7, 1), createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    normaliseTask({ id: "winter", title: "Winter", type: "test", subject: "mathematics", course: "M", date: futureOn(12, 1), createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
   ];
   return [...buildCalendarFeed().text.matchAll(/TRIGGER;VALUE=DATE-TIME:(\S+)/g)].map((m) => m[1]);
 });
-check("an alarm before the clocks change is 17:00 local", shifted[0], "20260924T150000Z");
-check("and one after them is still 17:00 local, not an hour out", shifted[1], "20261119T160000Z");
+
+/* Reads a UTC stamp back as a Warsaw wall-clock time, which is the thing the
+   alarm is actually promising. */
+const inWarsaw = (stamp) => new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Warsaw", hour: "2-digit", minute: "2-digit", hour12: false,
+}).format(new Date(`${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(9, 11)}:${stamp.slice(11, 13)}:${stamp.slice(13, 15)}Z`));
+
+check("an alarm before the clocks change is 17:00 local", inWarsaw(shifted[0]), "17:00");
+check("and the two really are different instants in UTC",
+  shifted[0].slice(9, 11) !== shifted[1].slice(9, 11), true);
+check("and one after them is still 17:00 local, not an hour out", inWarsaw(shifted[1]), "17:00");
 await warsaw.close();
 
 console.log("\nkeeping the calendar current");
@@ -861,6 +898,58 @@ const timetableEvent = (uid) => page.evaluate((wanted) => {
   check("the grid has a label for every period", shown.length > 0, true);
   check("the grid shows the new afternoon time", shown.filter((t) => t === "14:35").length, 2);
   check("and no longer shows the old one", shown.includes("14:10"), false);
+}
+
+console.log("\nwhat a study reminder calls itself");
+
+{
+  const wording = await page.evaluate(() => {
+    const today = todayISO();
+    // Put back afterwards: the organiser tests above built this fixture and
+    // the ones below still expect it.
+    window.__held = {
+      coursework: JSON.stringify(state.coursework),
+      sessions: JSON.stringify(state.sessions),
+      tasks: JSON.stringify(state.tasks),
+    };
+    state.coursework = [normaliseCoursework({
+      id: "ee", title: "Extended essay", kind: "ee", stage: "in-progress",
+      due: addDays(today, 20),
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    state.sessions = [normaliseSession({
+      id: "s1", courseworkId: "ee", date: addDays(today, 1), time: "16:00", minutes: 60,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    state.tasks = [];
+    saveCoursework(); saveSessions(); saveTasks();
+    return {
+      pre: sessionTitle("pre", "Extended essay"),
+      go: sessionTitle("go", "Extended essay"),
+      alarms: buildCalendarFeed().text.split("\r\n")
+        .filter((line) => line.startsWith("DESCRIPTION:") && /study/i.test(line))
+        .map((line) => line.slice("DESCRIPTION:".length)),
+    };
+  });
+
+  check("the reminder at the hour says it is time, and what for",
+    wording.go, "It\u2019s time to study Extended essay");
+  check("and the hour before says when",
+    wording.pre, "Study Extended essay in an hour");
+
+  // Three things say this -- the app, the calendar and the server -- and the
+  // one that goes wrong quietly is the calendar, because nobody reads an .ics.
+  check("the calendar alarms use the very same words",
+    [wording.alarms.includes(wording.pre), wording.alarms.includes(wording.go)],
+    [true, true]);
+
+  await page.evaluate(() => {
+    state.coursework = JSON.parse(window.__held.coursework);
+    state.sessions = JSON.parse(window.__held.sessions);
+    state.tasks = JSON.parse(window.__held.tasks);
+    saveCoursework(); saveSessions(); saveTasks();
+    renderAll();
+  });
 }
 
 console.log("\npast work clears itself out");

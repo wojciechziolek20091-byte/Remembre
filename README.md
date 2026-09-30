@@ -184,8 +184,10 @@ as "two things due, one thing to work on". Replanning replaces the planner's
 own future guesses but never touches a sitting you already did or moved
 yourself.
 
-Two notices come with each: one an hour before, and "Time to study" as it
-starts. Both are in the calendar export too, so they fire with the app closed.
+Two notices come with each: *Study the extended essay in an hour*, and *It’s
+time to study the extended essay* as it starts. The title carries the work
+itself rather than leaving it to the second line, because a lock screen shows
+the title beside the app’s name and cuts the body short. Both are in the calendar export too, so they fire with the app closed.
 
 ## Reminders
 

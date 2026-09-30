@@ -217,19 +217,36 @@ console.log("\nstudy session reminders");
   check("and the stale hour-before is not sent with it", keysAt(16 * 60 + 40).join() === "session-now:s1", keysAt(16 * 60 + 40).join());
   check("a reminder more than 90 minutes late is dropped", keysAt(17 * 60 + 45).length === 0, JSON.stringify(keysAt(17 * 60 + 45)));
 
+  /*
+    A lock screen shows the title beside the app's name and cuts the body
+    short, so the title has to carry the work itself rather than leaving it to
+    the second line.
+  */
   const named = dueReminders(vault, at(15 * 60))[0];
-  check("the nudge names the coursework", named.message.body === "Extended essay · 60 minutes", named.message.body);
-  check("and says what it is", named.message.title === "In an hour", named.message.title);
+  check("the nudge names the coursework in its title",
+    named.message.title === "Study Extended essay in an hour", named.message.title);
+  check("and leaves the detail to the body",
+    named.message.body === "At 16:00 · 60 minutes", named.message.body);
+
+  const starting = dueReminders(vault, at(16 * 60)).find((item) => item.key.startsWith("session-now"));
+  check("and the one at the hour says it is time",
+    starting.message.title === "It’s time to study Extended essay", starting.message.title);
+  check("with the length underneath",
+    starting.message.body === "60 minutes, starting now", starting.message.body);
 
   const done = { ...vault, sessions: [{ ...vault.sessions[0], done: true }] };
   check("a session already done is not reminded about", dueReminders(done, at(16 * 60)).length === 0);
   const other = { ...vault, sessions: [{ ...vault.sessions[0], date: "2026-09-09" }] };
   check("nor is one on another day", dueReminders(other, at(16 * 60)).length === 0);
 
+  // At 16:00 the hour-before is still inside its window, so both are due; this
+  // is about the one that has just come round.
   const orphan = { ...vault, coursework: [] };
+  const unnamed = dueReminders(orphan, at(16 * 60)).find((item) => item.key.startsWith("session-now"));
   check(
     "a session with no coursework still reads sensibly",
-    dueReminders(orphan, at(16 * 60))[0].message.body === "your coursework · 60 minutes",
+    unnamed.message.title === "It’s time to study your coursework",
+    unnamed.message.title,
   );
 
   // A session early enough that its reminders and the evening digest are both
