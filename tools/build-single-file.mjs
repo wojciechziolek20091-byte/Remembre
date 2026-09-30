@@ -4,7 +4,7 @@
   click with no server and no network.
 
   Run with:  npm run build
-  Writes dist/remembre.html, and dist/remembre.body.html -- the same page
+  Writes dist/get-a-grip.html, and dist/get-a-grip.body.html -- the same page
   without the document scaffolding, for hosts that supply their own.
 */
 
@@ -54,9 +54,9 @@ const styleEnd = rest.indexOf("</style>") + "</style>".length;
 const final = `${head}${rest.slice(0, styleEnd)}\n</head>\n<body>\n${rest.slice(styleEnd).trim()}\n</body>\n</html>\n`;
 
 mkdirSync(join(root, "dist"), { recursive: true });
-writeFileSync(join(root, "dist", "remembre.html"), final);
-writeFileSync(join(root, "dist", "remembre.body.html"), inlined);
+writeFileSync(join(root, "dist", "get-a-grip.html"), final);
+writeFileSync(join(root, "dist", "get-a-grip.body.html"), inlined);
 
 const kb = (s) => `${Math.round(Buffer.byteLength(s) / 1024)} KB`;
-console.log(`dist/remembre.html       ${kb(final)}  (standalone, opens from a double click)`);
-console.log(`dist/remembre.body.html  ${kb(inlined)}  (no document scaffolding)`);
+console.log(`dist/get-a-grip.html       ${kb(final)}  (standalone, opens from a double click)`);
+console.log(`dist/get-a-grip.body.html  ${kb(inlined)}  (no document scaffolding)`);

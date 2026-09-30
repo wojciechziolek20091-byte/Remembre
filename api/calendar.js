@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
   if (!/^[a-f0-9]{32}$/.test(token)) {
     res.statusCode = 400;
-    return res.end("That is not a Remembre calendar address.");
+    return res.end("That is not a Get a grip calendar address.");
   }
 
   let text = null;
@@ -43,10 +43,10 @@ export default async function handler(req, res) {
   const body = text || [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Remembre//EN",
+    "PRODID:-//Get a grip//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    "X-WR-CALNAME:Remembre",
+    "X-WR-CALNAME:Get a grip",
     "END:VCALENDAR",
     "",
   ].join("\r\n");

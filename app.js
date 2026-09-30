@@ -1,5 +1,5 @@
 /*
-  Remembre
+  Get a grip
   --------
   A single-file, dependency-free calendar for schoolwork. Tasks live in
   localStorage on the reader's own machine; nothing is sent anywhere.
@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.30-37";
+const APP_VERSION = "2026.09.30-39";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -45,7 +45,9 @@ const MAX_CHIPS = 3;
 const UPCOMING_LIMIT = 6;
 /* Tombstones are kept long enough to reach every device, then dropped. */
 const TOMBSTONE_DAYS = 90;
-const BACKUP_FILENAME = "remembre.json";
+/* The filename is what the reader sees in iCloud Drive; the keys and the
+   calendar UIDs below keep the old spelling deliberately. */
+const BACKUP_FILENAME = "get-a-grip.json";
 
 const TYPES = {
   homework: { label: "Homework", plural: "Homework", order: 0 },
@@ -2627,7 +2629,7 @@ function renderAlertsPanel() {
   $("reminder-note").hidden = !granted;
 
   if (!notificationsSupported()) {
-    status.textContent = "Your browser will not offer reminders here. On an iPhone or iPad, add Remembre to your home screen and open it from there.";
+    status.textContent = "Your browser will not offer reminders here. On an iPhone or iPad, add Get a grip to your home screen and open it from there.";
     status.classList.add("is-stale");
     enable.hidden = true;
     test.hidden = true;
@@ -2645,7 +2647,7 @@ function renderAlertsPanel() {
       : "Reminders are on.";
     status.classList.toggle("is-stale", waiting > 0);
   } else if (permission === "denied") {
-    status.textContent = "Reminders are blocked. Turn notifications for Remembre back on in your device settings; the app cannot ask again.";
+    status.textContent = "Reminders are blocked. Turn notifications for Get a grip back on in your device settings; the app cannot ask again.";
     status.classList.add("is-stale");
   } else {
     status.textContent = "Reminders are off.";
@@ -2972,7 +2974,7 @@ function toggleSessionDone(id, done) {
   The web cannot raise a notification for an app that is not running. A
   calendar can. Exporting the work as an iCalendar file with an alarm on each
   entry hands the job to the phone's own calendar, which fires at 17:00 the day
-  before whether or not Remembre is open, with no server anywhere.
+  before whether or not Get a grip is open, with no server anywhere.
 
   Entries keep a stable UID, so importing again updates what is already there
   rather than laying down a second copy.
@@ -3173,10 +3175,10 @@ function buildCalendarFeed() {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Remembre//Study Calendar//EN",
+    "PRODID:-//Get a grip//Study Calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    "X-WR-CALNAME:Remembre",
+    "X-WR-CALNAME:Get a grip",
   ];
 
   let count = 0;
@@ -3375,14 +3377,14 @@ async function exportCalendarAlerts() {
     return;
   }
 
-  const name = "remembre-alerts.ics";
+  const name = "get-a-grip.ics";
   const type = "text/calendar";
 
   if (typeof File === "function" && navigator.canShare) {
     const file = new File([text], name, { type });
     if (navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: "Remembre alerts" });
+        await navigator.share({ files: [file], title: "Get a grip" });
         markAlertsExported();
         announce(`${count} alerts sent to your calendar.`);
         return;
@@ -3499,7 +3501,7 @@ async function registerPush({ quiet = false } = {}) {
 
   writeStore(PUSH_KEY, { device: body.device, subscribedAt: new Date().toISOString() });
   renderPushNote();
-  if (!quiet) announce("Reminders will now reach you with Remembre closed.");
+  if (!quiet) announce("Reminders will now reach you with Get a grip closed.");
   return true;
 }
 
@@ -3547,12 +3549,12 @@ function renderPushNote() {
     return;
   }
   if (window.Notification.permission !== "granted") {
-    note.textContent = "Turn on reminders to be told about tomorrow with Remembre closed.";
+    note.textContent = "Turn on reminders to be told about tomorrow with Get a grip closed.";
     note.classList.add("is-stale");
     return;
   }
   if (pushState().device) {
-    note.textContent = "Reminders reach this device with Remembre closed.";
+    note.textContent = "Reminders reach this device with Get a grip closed.";
     note.classList.remove("is-stale");
     return;
   }
@@ -3921,7 +3923,7 @@ async function saveCopy() {
     const file = new File([payload], BACKUP_FILENAME, { type: "application/json" });
     if (navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: "Remembre" });
+        await navigator.share({ files: [file], title: "Get a grip" });
         markSaved();
         announce("Copy saved. Load it on your other device to merge.");
         return;
@@ -4001,7 +4003,7 @@ function loadCopy(file) {
     try {
       parsed = JSON.parse(String(reader.result));
     } catch (err) {
-      window.alert("That file is not a Remembre copy: it is not valid JSON.");
+      window.alert("That file is not a Get a grip copy: it is not valid JSON.");
       return;
     }
     const list = Array.isArray(parsed) ? parsed : parsed && parsed.tasks;
@@ -4311,7 +4313,7 @@ function showUpdateBar(worker) {
   const bar = $("update-bar");
   if (!bar.hidden) return;
   bar.hidden = false;
-  announce("A new version of Remembre is ready. Reload to update.");
+  announce("A new version of Get a grip is ready. Reload to update.");
 
   $("update-reload").onclick = () => {
     $("update-reload").disabled = true;
@@ -4321,7 +4323,7 @@ function showUpdateBar(worker) {
   };
   $("update-dismiss").onclick = () => {
     bar.hidden = true;
-    announce("Update postponed. It will be applied next time you open Remembre.");
+    announce("Update postponed. It will be applied next time you open Get a grip.");
     $("add-task-top").focus();
   };
 }
@@ -4360,7 +4362,56 @@ function registerServiceWorker() {
   });
 }
 
+/* ---------- The welcome ---------- */
+
+/*
+  Plays once per launch, not once per page load. Reopening the installed app
+  starts a new session and earns the animation; a reload inside the same
+  session -- taking an update, mostly -- does not, because sitting through it
+  again on the way back to where you were is a punishment rather than a
+  welcome.
+*/
+
+const WELCOME_KEY = "getagrip.welcomed";
+const WELCOME_SAFETY_MS = 5000;
+
+function runWelcome() {
+  const welcome = $("welcome");
+  if (!welcome) return;
+
+  let seen = false;
+  try {
+    seen = window.sessionStorage.getItem(WELCOME_KEY) === "yes";
+    window.sessionStorage.setItem(WELCOME_KEY, "yes");
+  } catch (err) {
+    // A browser refusing storage should still get the app, not a stuck splash.
+    seen = false;
+  }
+
+  const finish = () => {
+    welcome.remove();
+    document.body.classList.remove("is-booting");
+  };
+
+  if (seen) {
+    finish();
+    return;
+  }
+
+  document.body.classList.add("is-booting");
+
+  welcome.addEventListener("animationend", (event) => {
+    // The segments and the name animate too, and those bubble up to here.
+    if (event.target === welcome) finish();
+  });
+
+  // A backgrounded tab may never report the animation finishing. The app has
+  // to arrive regardless.
+  window.setTimeout(finish, WELCOME_SAFETY_MS);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   init();
   registerServiceWorker();
+  runWelcome();
 });

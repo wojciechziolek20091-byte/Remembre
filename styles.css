@@ -1,5 +1,5 @@
 /*
-  Remembre
+  Get a grip
   --------
   A quiet, paper-like academic calendar. The palette is warm and muted so a
   month of colour-coded work still reads as calm: sage page ground, off-white
@@ -103,15 +103,7 @@
   --line: #DDD3C3;
   --line-strong: #8B7C6B;
 
-  --bar: #A81D33;
-  --bar-ink: #FFFFFF;
-  --bar-ink-2: #F2CCD2;
-  --signature: #F7DFC9;
-  /* The primary button sits on the bar, so it cannot borrow the accent: the
-     accent is the bar. */
-  --bar-btn: #F7DFC9;
-  --bar-btn-hover: #EFCFB0;
-  --bar-btn-ink: #2A1E1F;
+  --signature: #7A4A2E;
 
   --accent: #A81D33;
   --accent-hover: #85162A;
@@ -172,13 +164,7 @@
     --line: #3D3333;
     --line-strong: #857672;
 
-    --bar: #7E1527;
-    --bar-ink: #FFF5F6;
-    --bar-ink-2: #E9BEC5;
-    --signature: #F3D9C2;
-    --bar-btn: #F08098;
-    --bar-btn-hover: #F79BAE;
-    --bar-btn-ink: #2A0710;
+      --signature: #E0B48C;
 
     --accent: #F08098;
     --accent-hover: #F79BAE;
@@ -230,13 +216,7 @@
   --line: #3D3333;
   --line-strong: #857672;
 
-  --bar: #7E1527;
-  --bar-ink: #FFF5F6;
-  --bar-ink-2: #E9BEC5;
-  --signature: #F3D9C2;
-  --bar-btn: #F08098;
-  --bar-btn-hover: #F79BAE;
-  --bar-btn-ink: #2A0710;
+  --signature: #E0B48C;
 
   --accent: #F08098;
   --accent-hover: #F79BAE;
@@ -379,11 +359,15 @@ kbd {
 
 /* ---------- App bar ---------- */
 
+/*
+  The bar used to be a band of cherry across the top. The welcome carries the
+  brand now, so this is furniture: the page's own paper, a hairline to part it
+  from the grid, and colour saved for the one thing worth pressing.
+*/
 .app-bar {
-  --focus: #FFD9A8;
-  --focus-halo: rgba(0, 0, 0, .55);
-  background: var(--bar);
-  color: var(--bar-ink);
+  background: var(--surface);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
   /* Installed on an iPad the page runs under the status bar, so the bar pays
      for its own clearance rather than letting the wordmark sit beneath it. */
   padding-top: env(safe-area-inset-top, 0px);
@@ -399,23 +383,30 @@ kbd {
   gap: 1rem 1.25rem;
 }
 
-/* The wordmark and the signature travel together and take the free space,
-   so the rest of the bar still sits hard right. */
-.wordmark-group {
+.wordmark {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0 .6rem;
+  align-items: center;
+  gap: .5rem;
   margin-right: auto;
   min-width: 0;
-}
-
-.wordmark {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-variation-settings: "opsz" 40;
   letter-spacing: .005em;
+}
+
+.wordmark-mark {
+  width: 1.45rem;
+  height: 1.45rem;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+/* On a narrow phone the mark alone identifies the app and the controls need
+   the room more than the name does. */
+@media (max-width: 26rem) {
+  .wordmark-text { display: none; }
 }
 
 /*
@@ -424,22 +415,31 @@ kbd {
   nudged along the baseline the way a hand-signed name overlaps what it signs.
 */
 .signature {
-  margin: 0;
   font-family: var(--font-signature);
   font-weight: 400;
-  font-size: 1.85rem;
+  font-size: 1.5rem;
   line-height: 1;
   color: var(--signature);
   white-space: nowrap;
-  transform: translateY(.12em) rotate(-2deg);
+  transform: translateY(.1em) rotate(-2deg);
   transform-origin: left baseline;
+}
+
+.footer-signature {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: .45rem;
+  margin: 0 0 .35rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .view-switch { display: flex; }
 
-.app-bar .segmented { --seg-bg: rgba(255, 255, 255, .12); }
-.app-bar .segmented label { color: var(--bar-ink-2); }
-.app-bar .segmented input:checked + label { background: var(--bar-ink); color: var(--bar); }
+.app-bar .segmented { --seg-bg: var(--surface-2); }
 
 /* ---------- Segmented control ---------- */
 
@@ -471,7 +471,7 @@ kbd {
 }
 
 .segmented label:hover { color: var(--ink); }
-.app-bar .segmented label:hover { color: var(--bar-ink); }
+.app-bar .segmented label:hover { color: var(--ink); }
 
 .segmented input:checked + label {
   background: var(--surface);
@@ -536,13 +536,9 @@ kbd {
 
 .btn-plus { font-size: 1.15em; line-height: 1; }
 
-.app-bar-add {
-  flex-shrink: 0;
-  background: var(--bar-btn);
-  color: var(--bar-btn-ink);
-}
-
-.app-bar-add:hover { background: var(--bar-btn-hover); }
+/* With the band gone, this is the only cherry left up here, which is the
+   point: the one thing worth pressing is the one thing with colour. */
+.app-bar-add { flex-shrink: 0; }
 
 /* ---------- Update bar ---------- */
 
@@ -1837,4 +1833,142 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
   .main { border: 0; box-shadow: none; padding: 0; }
   .calendar td { height: auto; min-height: 4.5rem; }
   .chip { border: 1px solid #000; }
+}
+
+/* ---------- The welcome ---------- */
+
+/*
+  A brand moment, then the app. Three seconds, once per launch, with nothing to
+  press: the segments scramble into a grip, the name arrives, and the whole
+  thing lifts away.
+
+  It is decorative from end to end -- aria-hidden, and pointer-events none, so a
+  screen reader is handed the app underneath immediately and a stray tap during
+  it reaches what it was aimed at rather than being swallowed.
+
+  The ground is a warm near-black rather than pure black. Against it the cherry
+  reads as cherry instead of turning fluorescent, and it is the same ink the
+  dark theme is built on, so the welcome dissolves into the app rather than
+  cutting to a different room.
+*/
+
+.welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: #141011;
+  pointer-events: none;
+  animation: welcome-leave .55s cubic-bezier(.4, 0, .2, 1) 2.35s both;
+}
+
+/* While it is up, the page behind must not scroll under it. */
+body.is-booting { overflow: hidden; }
+
+.welcome-inner {
+  display: grid;
+  justify-items: center;
+  gap: .35rem;
+  padding: 2rem;
+}
+
+.welcome-logo {
+  width: clamp(5.5rem, 22vmin, 8.5rem);
+  height: clamp(5.5rem, 22vmin, 8.5rem);
+}
+
+.welcome-ring { stroke: #D4374F; }
+.welcome-dot { fill: #F7DFC9; }
+
+/*
+  Each segment swings into place around the ring's own centre, from a different
+  angle and a different distance out, so they arrive as three separate things
+  finding each other rather than as one object fading up.
+*/
+.welcome-seg {
+  transform-box: view-box;
+  transform-origin: 32px 32px;
+  animation: welcome-grip .85s cubic-bezier(.22, 1.2, .36, 1) both;
+}
+
+.welcome-seg-a { animation-delay: .05s; --from: -150deg; }
+.welcome-seg-b { animation-delay: .17s; --from: 120deg; }
+.welcome-seg-c { animation-delay: .29s; --from: -85deg; }
+
+@keyframes welcome-grip {
+  from { opacity: 0; transform: rotate(var(--from)) scale(1.45); }
+  to   { opacity: 1; transform: rotate(0deg) scale(1); }
+}
+
+/* The centre is what the grip closes on, so it lands last and settles. */
+.welcome-dot {
+  transform-box: view-box;
+  transform-origin: 32px 32px;
+  animation: welcome-catch .5s cubic-bezier(.34, 1.56, .64, 1) .62s both;
+}
+
+@keyframes welcome-catch {
+  from { opacity: 0; transform: scale(0); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.welcome-name {
+  margin: 1.1rem 0 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.9rem, 7vmin, 2.9rem);
+  font-variation-settings: "opsz" 48;
+  letter-spacing: .01em;
+  color: #FCFBF8;
+  animation: welcome-rise .6s cubic-bezier(.2, .8, .3, 1) 1s both;
+}
+
+.welcome-signature {
+  margin: 0;
+  font-family: var(--font-signature);
+  font-size: clamp(1.4rem, 5vmin, 2rem);
+  line-height: 1;
+  color: #C98A63;
+  transform-origin: center;
+  animation: welcome-rise .6s cubic-bezier(.2, .8, .3, 1) 1.25s both;
+}
+
+@keyframes welcome-rise {
+  from { opacity: 0; transform: translateY(.6rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes welcome-leave {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(1.06); visibility: hidden; }
+}
+
+/*
+  Asked for stillness, the mark is simply there: no scramble, no travel, and
+  the whole thing is over in well under half the time.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .welcome { animation: welcome-leave-quiet .4s linear 1.1s both; }
+
+  .welcome-seg,
+  .welcome-dot,
+  .welcome-name,
+  .welcome-signature {
+    animation: welcome-appear .3s linear both;
+    transform: none;
+  }
+
+  .welcome-name { animation-delay: .2s; }
+  .welcome-signature { animation-delay: .3s; }
+
+  @keyframes welcome-appear {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  @keyframes welcome-leave-quiet {
+    from { opacity: 1; }
+    to   { opacity: 0; visibility: hidden; }
+  }
 }

@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     return json(res, 503, {
       error: "no-keys",
       message:
-        "This Remembre server has no notification keys yet, so it cannot send anything. " +
+        "This Get a grip server has no notification keys yet, so it cannot send anything. " +
         "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY need setting.",
     });
   }

@@ -1,5 +1,5 @@
 /**
- * Remembre still keeps everything on the reader's device. This server exists
+ * Get a grip still keeps everything on the reader's device. This server exists
  * for the two things a device cannot do alone: let an iPad and a phone meet in
  * the middle, and hand a calendar app a URL it can poll by itself.
  *
@@ -239,7 +239,7 @@ function githubDriver() {
         method: "PUT",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `Remembre: update ${key}`,
+          message: `Get a grip: update ${key}`,
           content: Buffer.from(value, "utf8").toString("base64"),
           branch,
           ...(existing && existing.sha ? { sha: existing.sha } : {}),
@@ -326,7 +326,7 @@ export function notConfigured(res) {
   json(res, 503, {
     error: "no-store",
     message:
-      "This Remembre server has no storage attached yet, so there is nothing to sync with. " +
+      "This Get a grip server has no storage attached yet, so there is nothing to sync with. " +
       "See /api/status for what it is waiting for.",
   });
 }

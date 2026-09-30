@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Remembre &ndash; tests, homework and assignments</title>
-<meta name="description" content="A personal academic calendar for tracking tests, homework and assignments. Add a task in seconds, see what is due next, and keep the whole term in one month view. Everything is stored on your own device.">
-<meta name="theme-color" content="#37535F">
+<title>Get a grip &ndash; tests, homework and assignments</title>
+<meta name="description" content="A personal academic calendar for tracking tests, homework and assignments. Add a task in seconds, see what is due next, and keep the whole term in one week view. Everything is stored on your own device.">
+<meta name="theme-color" content="#141011">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Remembre">
+<meta name="apple-mobile-web-app-title" content="Get a grip">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="preload" href="fonts/inter-var-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -19,14 +19,36 @@
 </head>
 <body>
 
+<div class="welcome" id="welcome" aria-hidden="true">
+  <div class="welcome-inner">
+    <svg class="welcome-logo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <g class="welcome-ring" fill="none" stroke-width="6.5" stroke-linecap="round">
+        <path class="welcome-seg welcome-seg-a" d="M36.84 12.59A20 20 0 0 1 51.23 37.51"/>
+        <path class="welcome-seg welcome-seg-b" d="M46.39 45.89A20 20 0 0 1 17.61 45.89"/>
+        <path class="welcome-seg welcome-seg-c" d="M12.77 37.51A20 20 0 0 1 27.16 12.59"/>
+      </g>
+      <circle class="welcome-dot" cx="32" cy="32" r="5.5"/>
+    </svg>
+    <p class="welcome-name">Get a grip</p>
+    <p class="welcome-signature">by Wojciech Ziolek</p>
+  </div>
+</div>
+
 <a class="skip-link" href="#calendar-region">Skip to the calendar</a>
 
 <header class="app-bar">
   <div class="app-bar-inner">
-    <div class="wordmark-group">
-      <h1 class="wordmark">Remembre</h1>
-      <p class="signature">by Wojciech Ziolek</p>
-    </div>
+    <h1 class="wordmark">
+      <svg class="wordmark-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <g fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round">
+          <path d="M36.84 12.59A20 20 0 0 1 51.23 37.51"/>
+          <path d="M46.39 45.89A20 20 0 0 1 17.61 45.89"/>
+          <path d="M12.77 37.51A20 20 0 0 1 27.16 12.59"/>
+        </g>
+        <circle cx="32" cy="32" r="5.5" fill="currentColor"/>
+      </svg>
+      <span class="wordmark-text">Get a grip</span>
+    </h1>
 
     <nav class="view-switch" aria-label="Calendar view">
       <div class="segmented" role="group">
@@ -46,7 +68,7 @@
 </header>
 
 <div class="update-bar" id="update-bar" hidden>
-  <p class="update-text">A new version of Remembre is ready.</p>
+  <p class="update-text">A new version of Get a grip is ready.</p>
   <button type="button" class="btn btn-primary btn-tiny" id="update-reload">Reload now</button>
   <button type="button" class="btn btn-quiet btn-tiny" id="update-dismiss">Later</button>
 </div>
@@ -172,7 +194,7 @@
 
     <section class="panel" id="alerts-panel" aria-labelledby="alerts-heading">
       <h2 class="panel-title" id="alerts-heading">Reminders</h2>
-      <p class="panel-hint" id="alerts-hint">A &ldquo;remember this&rdquo; reminder the evening before each task, an hour before each study session, and again when it is time to start. Turn on automatic syncing as well and these are sent from the server, so they reach you with Remembre shut; without it, a reminder waits until the next time you open the app.</p>
+      <p class="panel-hint" id="alerts-hint">A &ldquo;remember this&rdquo; reminder the evening before each task, an hour before each study session, and again when it is time to start. Turn on automatic syncing as well and these are sent from the server, so they reach you with Get a grip shut; without it, a reminder waits until the next time you open the app.</p>
       <p class="sync-status" id="alerts-status" role="status"></p>
       <div class="panel-actions" aria-describedby="alerts-hint">
         <button type="button" class="btn btn-quiet" id="alerts-enable">Turn on reminders</button>
@@ -182,7 +204,7 @@
 
     <section class="panel" aria-labelledby="calendar-heading">
       <h2 class="panel-title" id="calendar-heading">Calendar alerts</h2>
-      <p class="panel-hint" id="calendar-hint">Hand your deadlines to your phone&rsquo;s own calendar and it will alert you at 17:00 the day before, whether or not Remembre is open. A calendar file is a snapshot, so send it again when this says the calendar has fallen behind; entries update rather than duplicate. Turning on automatic syncing below replaces this with an address your calendar keeps up to date by itself.</p>
+      <p class="panel-hint" id="calendar-hint">Hand your deadlines to your phone&rsquo;s own calendar and it will alert you at 17:00 the day before, whether or not Get a grip is open. A calendar file is a snapshot, so send it again when this says the calendar has fallen behind; entries update rather than duplicate. Turning on automatic syncing below replaces this with an address your calendar keeps up to date by itself.</p>
       <label class="check"><input type="checkbox" id="lesson-alerts" checked> Timetable alarms</label>
       <p class="field-hint" id="lesson-alerts-hint">Leave for school 17 minutes before your first lesson, and a nudge 5 minutes before every lesson block. These repeat every week and your calendar rings them on the minute, so they are right even with no signal.</p>
       <div id="calendar-export">
@@ -195,7 +217,7 @@
 
     <section class="panel" id="cloud-panel" aria-labelledby="cloud-heading">
       <h2 class="panel-title" id="cloud-heading">Automatic sync</h2>
-      <p class="panel-hint" id="cloud-hint">Pick a phrase and enter the same one on every device. Remembre then keeps them in step by itself, and gives your calendar app an address it can subscribe to once and never touch again.</p>
+      <p class="panel-hint" id="cloud-hint">Pick a phrase and enter the same one on every device. Get a grip then keeps them in step by itself, and gives your calendar app an address it can subscribe to once and never touch again.</p>
       <p class="sync-status" id="cloud-status" role="status"></p>
 
       <div class="cloud-setup" id="cloud-setup">
@@ -236,7 +258,8 @@
 </div>
 
 <footer class="site-footer">
-  <p>Remembre keeps everything on your own device unless you turn on syncing. Press <kbd>N</kbd> at any time to add a task, or <kbd>T</kbd> to jump back to today.</p>
+  <p class="footer-signature">Get a grip <span class="signature">by Wojciech Ziolek</span></p>
+  <p>Everything stays on your own device unless you turn on syncing. Press <kbd>N</kbd> at any time to add a task, or <kbd>T</kbd> to jump back to today.</p>
   <p class="version">
     Version <span id="app-version"></span>
     <span id="reminder-note" hidden>

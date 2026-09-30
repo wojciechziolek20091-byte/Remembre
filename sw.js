@@ -22,7 +22,7 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "remembre-v6";
+const CACHE = "getagrip-v7";
 
 /* How long to wait for the network before falling back to the cached shell.
    Long enough for a slow connection, short enough not to feel broken. */
@@ -75,7 +75,7 @@ self.addEventListener("push", (event) => {
     sent = { body: event.data ? event.data.text() : "" };
   }
 
-  const title = sent.title || "Remembre";
+  const title = sent.title || "Get a grip";
   event.waitUntil(self.registration.showNotification(title, {
     body: sent.body || "Something is due tomorrow.",
     // Re-sending the same day's reminder replaces it rather than stacking.

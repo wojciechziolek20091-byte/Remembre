@@ -1,4 +1,4 @@
-# Remembre
+# Get a grip
 
 A personal work calendar for schoolwork: tests, homework and every other
 assignment in one month view, with a running list of what is due next.
@@ -10,6 +10,24 @@ it to: there is an optional server in `api/` that keeps two devices in step and
 feeds your calendar app, and the rest works with no server at all.
 
 ![The calendar in its light theme](docs/screenshot-light.png)
+
+## The welcome
+
+Opening the app plays a three-second title: three arcs swing in and close around
+a centre -- a grip -- then the name arrives, then the whole thing lifts away. It
+has nothing to press and nothing to dismiss, and it is `aria-hidden` and
+`pointer-events: none` throughout, so a screen reader is handed the app
+immediately and a tap aimed past it reaches what it was aimed at.
+
+It plays once per *launch*, not once per page load: reopening the installed app
+earns it, a reload inside the same session does not, because sitting through it
+again on the way back to where you were is a punishment rather than a welcome.
+Asked for reduced motion it simply fades, in under half the time.
+
+The one thing it must never do is stay. It leaves on its own even with the
+animation refused, with `sessionStorage` throwing, and with the `animationend`
+event never arriving; `tools/welcome-test.mjs` checks all three, because there
+is no way out of a splash that sticks.
 
 ## What it does
 
@@ -98,7 +116,7 @@ Keyboard shortcuts: <kbd>N</kbd> adds a task, <kbd>T</kbd> jumps back to today.
 
 ## Installing it on a phone or tablet
 
-Remembre is a Progressive Web App, so it installs to a home screen from the
+Get a grip is a Progressive Web App, so it installs to a home screen from the
 browser with no app store involved. It needs to be served over HTTPS first.
 
 On an iPhone or iPad, open the site **in Safari** (iOS only offers this from
@@ -198,7 +216,7 @@ work.
 
 There is an honest limit. The web cannot schedule a notification for a page
 that is not running: the Notification Triggers proposal never shipped, and a
-push has to be sent by a server, which Remembre does not have. So an in-app
+push has to be sent by a server, which Get a grip does not have. So an in-app
 reminder is delivered the first moment the app is open after it falls due -- on
 launch, when the app returns to the foreground, and once a minute while it is
 in front.
@@ -214,8 +232,8 @@ nothing, and renaming one entry counts once rather than twice.
 
 Truly hands-off would mean a subscribed calendar URL, which needs a server to
 serve it. Export from the sidebar
-and Remembre writes an iCalendar file with an alarm on every deadline, set to
-17:00 the day before. Your own calendar then does the alerting, with Remembre
+and Get a grip writes an iCalendar file with an alarm on every deadline, set to
+17:00 the day before. Your own calendar then does the alerting, with Get a grip
 closed, offline, on every device signed into the same account. Entries keep a
 stable id, so exporting again updates what is there rather than duplicating it.
 
@@ -234,7 +252,7 @@ There are two ways, and the first one is automatic.
 ### Automatic syncing
 
 Under **Automatic sync**, pick a phrase of at least twelve characters and enter
-the same phrase on every device. From then on Remembre pushes changes a few
+the same phrase on every device. From then on Get a grip pushes changes a few
 seconds after you make them, pulls again whenever you come back to the app, and
 merges both directions the same way the file does.
 
@@ -296,7 +314,7 @@ to load the fonts over `file://`, so the page falls back to system faces.
 ## A single-file build
 
 ```sh
-npm run build      # writes dist/remembre.html
+npm run build      # writes dist/get-a-grip.html
 ```
 
 That bundles the stylesheet, the script and both typefaces into one HTML file
@@ -363,7 +381,7 @@ no storage product to be provisioned at all.
 ### Notifications while the app is closed
 
 The in-app reminders need the app to be running. To be told about tomorrow with
-Remembre shut, the server sends the notification instead, which needs two more
+Get a grip shut, the server sends the notification instead, which needs two more
 things.
 
 **A key pair.** `npm run vapid` prints one. Set `VAPID_PUBLIC_KEY`,
@@ -444,6 +462,7 @@ not allowed to do that itself. Recover it from git history if you ever want it.
 | `index.html` | The whole document: app bar, sidebars, month table, agenda and the two dialogs. |
 | `styles.css` | Design tokens for both themes, then components. Fonts are declared at the top. |
 | `app.js` | State, storage, rendering, keyboard handling. No dependencies. |
+| `favicon.svg`, `icons/` | The mark, and the icons `npm run icons` renders from it. |
 | `api/` | The sync, calendar and notification routes, the storage drivers, and Web Push written out by hand. No dependencies. |
 | `tools/` | The contrast checker and the four test suites. |
 

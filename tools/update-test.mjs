@@ -73,14 +73,15 @@ await page.waitForSelector(".tt-lesson");
 await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
 check("the bar stays out of the way when nothing has changed", await page.locator("#update-bar").isVisible(), false);
 
-const before = await page.evaluate(() => document.querySelector(".signature").textContent);
+const before = await page.evaluate(() => document.querySelector(".footer-signature .signature").textContent);
 
 // A deploy: the worker and a visible asset both change on disk.
 // Any byte change to sw.js is what makes the browser treat it as a new
 // worker, so bump whatever cache name is in there rather than a fixed one.
 await writeFile(join(site, "sw.js"),
-  (await readFile(join(site, "sw.js"), "utf8")).replace(/remembre-v\d+/, "remembre-test-build-2"));
-await writeFile(join(site, "index.html"), (await readFile(join(site, "index.html"), "utf8")).replace("by Wojciech Ziolek", "by A New Version"));
+  (await readFile(join(site, "sw.js"), "utf8"))
+    .replace(/const CACHE = "[^"]+"/, 'const CACHE = "test-build-2"'));
+await writeFile(join(site, "index.html"), (await readFile(join(site, "index.html"), "utf8")).replaceAll("by Wojciech Ziolek", "by A New Version"));
 
 await page.evaluate(async () => { const r = await navigator.serviceWorker.ready; await r.update(); });
 await page.waitForSelector("#update-bar:visible", { timeout: 20000 });
@@ -94,7 +95,7 @@ check("and it is announced", announced, true);
 check("the new worker waits instead of taking over",
   await page.evaluate(async () => Boolean((await navigator.serviceWorker.ready).waiting)), true);
 check("the page is still showing the old version", await page.evaluate(() =>
-  document.querySelector(".signature").textContent), before);
+  document.querySelector(".footer-signature .signature").textContent), before);
 
 console.log("\npostponing");
 await page.click("#update-dismiss");
@@ -110,7 +111,7 @@ await Promise.all([
 ]);
 await page.waitForSelector(".tt-lesson");
 check("reloading lands on the new version",
-  await page.evaluate(() => document.querySelector(".signature").textContent), "by A New Version");
+  await page.evaluate(() => document.querySelector(".footer-signature .signature").textContent), "by A New Version");
 check("the bar is gone afterwards", await page.locator("#update-bar").isVisible(), false);
 check("and nothing is left waiting",
   await page.evaluate(async () => Boolean((await navigator.serviceWorker.ready).waiting)), false);
@@ -129,11 +130,11 @@ await page2.waitForSelector(".tt-lesson");
 await page2.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
 
 await writeFile(join(site, "index.html"),
-  (await readFile(join(site, "index.html"), "utf8")).replace("by A New Version", "by Second Release"));
+  (await readFile(join(site, "index.html"), "utf8")).replaceAll("by A New Version", "by Second Release"));
 await page2.reload();
 await page2.waitForSelector(".tt-lesson");
 check("one reload is enough to see a change",
-  await page2.evaluate(() => document.querySelector(".signature").textContent), "by Second Release");
+  await page2.evaluate(() => document.querySelector(".footer-signature .signature").textContent), "by Second Release");
 
 console.log("\nstill works with no network");
 await fresh.setOffline(true);
