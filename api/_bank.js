@@ -218,6 +218,10 @@ export async function bankSession(code) {
 
   return {
     sessionId: answer.session_id || "",
+    // How many the bank named at all, as against how many were usable. An
+    // empty consent and a consent whose accounts have no uid are different
+    // problems with the same symptom.
+    rawCount: accounts.length,
     accounts: accounts.map((account, index) => ({
       uid: account.uid || "",
       // Enough to recognise which account this is, never the full number.

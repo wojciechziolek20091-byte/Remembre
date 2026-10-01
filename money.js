@@ -958,8 +958,11 @@ function renderBank(connection) {
   const status = $("bank-status");
   if (!status) return;
 
-  // The balance travels with the status, so this is where it is picked up.
+  // The balance travels with the status, so this is where it is picked up,
+  // and the connection itself is what the dashboard's line is drawn from.
   bankBalance = (connection && connection.balance) || bankBalance;
+  bankConnection = connection && connection.connected ? connection : null;
+  if (typeof renderBalanceCard === "function") renderBalanceCard();
 
   const connect = $("bank-connect");
   const fetchNow = $("bank-fetch");
@@ -1022,14 +1025,23 @@ async function refreshBank() {
   cleaned out of the URL, so a reload does not announce a week-old outcome.
 */
 const BANK_OUTCOMES = {
-  connected: "mBank is connected. Fetching your transactions now.",
-  refused: "mBank was not approved, so nothing is connected.",
-  expired: "That took too long. Try connecting again.",
-  "no-accounts": "mBank approved it but returned no accounts. Link the account in the Enable Banking Control Panel first.",
-  "bad-return": "mBank sent back something unexpected. Try connecting again.",
-  "no-store": "The server has no storage attached, so there is nowhere to keep the connection.",
-  failed: "Connecting failed. Try again.",
+  connected: { tone: "good", text: "mBank is connected. Fetching your transactions now." },
+  refused: { tone: "warn", text: "mBank was not approved, so nothing is connected. Nothing has changed." },
+  expired: { tone: "warn", text: "That took too long and the approval went stale. Tap Connect and go straight through." },
+  // Much the commonest way for this to fail, and the old wording sent you to
+  // the wrong place: the tick box is on mBank's own consent screen.
+  "no-accounts": {
+    tone: "warn",
+    text: "mBank approved the connection but handed back no account. On mBank's screen there is a list of accounts with tick boxes — your eKonto has to be ticked before you confirm. Approving the consent alone is not enough.",
+  },
+  "bad-return": { tone: "warn", text: "mBank sent back something unexpected. Tap Connect and try once more." },
+  "no-store": { tone: "warn", text: "The server has no storage attached, so there is nowhere to keep the connection." },
+  failed: { tone: "warn", text: "Connecting failed on the way back. Tap Connect and try once more." },
 };
+
+const outcomeText = (outcome) => (BANK_OUTCOMES[outcome] || {
+  tone: "warn", text: "Something happened connecting to mBank, and it did not finish.",
+});
 
 function readBankOutcome() {
   const url = new URL(window.location.href);
@@ -1052,6 +1064,7 @@ function setupBank() {
       window.location.href = url;
     } catch (err) {
       bankNote = err.message;
+      showMoneyNotice(`Connecting could not even be started: ${err.message}`, { tone: "warn" });
       $("bank-connect").disabled = false;
       renderBank(null);
     }
@@ -1067,12 +1080,15 @@ function setupBank() {
       // same sync that carries everything else.
       await runCloud(() => cloudPull({ quiet: true }));
       moneyChanged();
-      announce(result.added === 0
-        ? "Nothing new at the bank."
-        : `${result.added} new ${result.added === 1 ? "transaction" : "transactions"} from mBank.`);
+      const said = result.added === 0
+        ? `Nothing new at the bank. It read ${result.read} ${result.read === 1 ? "transaction" : "transactions"} back to ${result.from}, and had them all already.`
+        : `${result.added} new ${result.added === 1 ? "transaction" : "transactions"} from mBank.`;
+      announce(said);
+      showMoneyNotice(said, { tone: result.added === 0 ? "plain" : "good" });
       await refreshBank();
     } catch (err) {
       bankNote = err.message;
+      showMoneyNotice(`mBank would not hand anything over: ${err.message}`, { tone: "warn" });
       renderBank(null);
     } finally {
       $("bank-fetch").disabled = false;
@@ -1081,19 +1097,72 @@ function setupBank() {
 
   const outcome = readBankOutcome();
   if (outcome) {
-    announce(BANK_OUTCOMES[outcome] || "Something happened connecting to mBank.");
+    const said = outcomeText(outcome);
+    announce(said.text);
+    showMoneyNotice(said.text, {
+      tone: said.tone,
+      act: outcome === "connected" ? null : { label: "Try again", go: () => $("bank-connect").click() },
+    });
     // Coming back from the bank always lands on the half it concerns.
     setArea("money");
     if (outcome === "connected") {
       refreshBank().then(() => $("bank-fetch").click());
       return;
     }
-    bankNote = BANK_OUTCOMES[outcome] || "";
+    bankNote = said.text;
+  } else {
+    // A message from a previous visit outlives the redirect it arrived on:
+    // the explanation is worth more than the moment.
+    const held = readStore(MONEY_NOTICE_KEY, null);
+    if (held && held.text) showMoneyNotice(held.text, { tone: held.tone, keep: false });
   }
 
   // Otherwise the panel is drawn from what is known, and the server is asked
   // only when this half is opened -- see setArea.
   renderBank(null);
+}
+
+/* ---------- Saying something where it can be seen ---------- */
+
+/*
+  announce() writes to a region only a screen reader reads, which is right for
+  a running commentary and wrong for the one message that explains why nothing
+  happened. Coming back from the bank is exactly that case: the page looks
+  identical whether it worked or not, and the explanation was going somewhere
+  nobody could see.
+*/
+const MONEY_NOTICE_KEY = "remembre.moneynotice.v1";
+
+function showMoneyNotice(text, { tone = "plain", act = null, keep = true } = {}) {
+  const box = $("money-notice");
+  if (!box) return;
+
+  if (!text) {
+    box.hidden = true;
+    box.replaceChildren();
+    if (keep) writeStore(MONEY_NOTICE_KEY, null);
+    return;
+  }
+
+  box.className = `notice is-${tone}`;
+  box.hidden = false;
+  show(box, [
+    el("p", { class: "notice-text", text }),
+    el(
+      "div",
+      { class: "notice-acts" },
+      act ? el("button", { type: "button", class: "btn btn-primary btn-tiny", text: act.label, onclick: act.go }) : null,
+      el("button", {
+        type: "button",
+        class: "link-btn",
+        text: "Dismiss",
+        onclick: () => showMoneyNotice(""),
+      })
+    ),
+  ]);
+
+  // Kept so a reload does not lose the one explanation there was.
+  if (keep) writeStore(MONEY_NOTICE_KEY, { text, tone, at: new Date().toISOString() });
 }
 
 /* ---------- Where you stand ---------- */
@@ -1166,6 +1235,7 @@ function rememberBalance(found) {
   call is already being made there and the figure comes back with it.
 */
 let bankBalance = null;
+let bankConnection = null;
 
 /**
  * The balance, with its provenance. `pending` is what has happened since the
@@ -1409,6 +1479,7 @@ function renderBalanceCard() {
         class: "kpi-note",
         text: "No statement has told us what is in the account yet. Import a CSV, or connect mBank and it arrives on its own.",
       }),
+      bankLine(),
     ]);
     return;
   }
@@ -1434,6 +1505,7 @@ function renderBalanceCard() {
         })
       : null,
     el("p", { class: "kpi-note", text: provenance }),
+    bankLine(),
     el(
       "ul",
       { class: "kpi-strip" },
@@ -1453,6 +1525,51 @@ function renderBalanceCard() {
 /* replaceChildren prints the word "null" where el() would drop it. */
 function show(node, children) {
   node.replaceChildren(...children.filter(Boolean));
+}
+
+/**
+ * Whether the bank is connected, said on the page somebody actually looks at.
+ *
+ * It used to live only in the setup panel, which is now behind a fold -- so
+ * "not connected" was indistinguishable from "connected and quiet", which is
+ * the one distinction that matters when nothing is arriving.
+ */
+function bankLine() {
+  if (!bankPhrase()) {
+    return el("p", { class: "kpi-bank" },
+      el("span", { class: "kpi-dot is-off", "aria-hidden": "true" }),
+      el("span", { text: "mBank can only be connected once syncing is on — the server has to know whose account it is." }));
+  }
+
+  if (!bankConnection || !bankConnection.connected) {
+    return el("p", { class: "kpi-bank" },
+      el("span", { class: "kpi-dot is-off", "aria-hidden": "true" }),
+      el("span", { text: "mBank is not connected, so transactions only arrive when you import a CSV." }),
+      el("button", {
+        type: "button",
+        class: "link-btn",
+        text: "Connect it",
+        onclick: () => { const go = $("bank-connect"); if (go) go.click(); },
+      }));
+  }
+
+  const where = bankConnection.accounts.map((a) => `${a.name}${a.iban ? ` ${a.iban}` : ""}`).join(", ");
+  if (bankConnection.expired) {
+    return el("p", { class: "kpi-bank" },
+      el("span", { class: "kpi-dot is-stale", "aria-hidden": "true" }),
+      el("span", { text: `mBank wants approving again — ${where}.` }),
+      el("button", {
+        type: "button",
+        class: "link-btn",
+        text: "Approve again",
+        onclick: () => { const go = $("bank-connect"); if (go) go.click(); },
+      }));
+  }
+
+  const checked = bankConnection.fetchedTo ? `, last checked ${ageInWords(bankConnection.fetchedTo)}` : "";
+  return el("p", { class: "kpi-bank" },
+    el("span", { class: "kpi-dot is-on", "aria-hidden": "true" }),
+    el("span", { text: `mBank connected — ${where}${checked}.` }));
 }
 
 /** The top handful of payees inside one category, for when a bar is opened. */

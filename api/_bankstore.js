@@ -84,3 +84,40 @@ export function onlyNewRows(existing, incoming) {
 
   return fresh;
 }
+
+/* ---------- A note of what happened, for when nothing happens ---------- */
+
+/*
+  Connecting is a round trip through the bank, and when it fails it fails on
+  the way back: the reader lands on a page that looks exactly as it did
+  before. Without this there is no way to tell "the bank refused" from "the
+  bank returned no accounts" from "nobody ever tapped the button" -- not from
+  the page, and not from here either.
+
+  What goes in is an outcome and a short reason. Never the code, never the
+  nonce, never the vault key, never anything about an account: the whole point
+  is that it can be read by anybody without telling them whose it is.
+*/
+export const BANK_JOURNAL = "bank_journal";
+const JOURNAL_KEEP = 20;
+
+export async function noteOutcome(store, outcome, detail = "") {
+  try {
+    const held = await readJson(store, BANK_JOURNAL, []);
+    const entries = Array.isArray(held) ? held : [];
+    entries.push({
+      at: new Date().toISOString(),
+      outcome: String(outcome).slice(0, 40),
+      detail: String(detail).slice(0, 200),
+    });
+    await store.put(BANK_JOURNAL, JSON.stringify(entries.slice(-JOURNAL_KEEP)));
+  } catch (err) {
+    // A journal that cannot be written must never break the thing it watches.
+    console.error("bank journal write failed:", err.message);
+  }
+}
+
+export async function readJournal(store) {
+  const held = await readJson(store, BANK_JOURNAL, []);
+  return Array.isArray(held) ? held : [];
+}

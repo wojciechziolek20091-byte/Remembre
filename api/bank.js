@@ -3,7 +3,8 @@ import {
   asTransaction, bankAuthorise, bankBalances, bankFetch, bankReport, bankTransactions, CONSENT_DAYS,
 } from "./_bank.js";
 import {
-  handoverKey, listConnections, loadConnection, newNonce, onlyNewRows, saveConnection,
+  handoverKey, listConnections, loadConnection, newNonce, noteOutcome, onlyNewRows,
+  readJournal, saveConnection,
 } from "./_bankstore.js";
 
 /**
@@ -35,6 +36,7 @@ export default async function handler(req, res) {
   if (action === "status") return connectionStatus(req, res);
   if (action === "fetch") return fetchForOne(req, res);
   if (action === "daily") return fetchForEveryone(req, res);
+  if (action === "journal") return journal(req, res);
   if (action !== "check") {
     return json(res, 400, { error: "unknown-action", message: `There is no "${action}".` });
   }
@@ -136,9 +138,11 @@ async function startConnecting(req, res) {
       validUntil,
       startedAt: new Date().toISOString(),
     }));
+    await noteOutcome(live, "sent-to-bank", `consent asked for until ${validUntil}`);
     return json(res, 200, { ok: true, url, validUntil, days: CONSENT_DAYS });
   } catch (err) {
     console.error("bank connect failed:", err.status || "", err.message);
+    await noteOutcome(live, "connect-failed", `${err.status || "no status"}: ${String(err.message).slice(0, 140)}`);
     return json(res, 502, { ok: false, message: err.message });
   }
 }
@@ -304,6 +308,26 @@ async function fetchForEveryone(req, res) {
   }
 
   return json(res, 200, { ok: true, connections: report.length, report });
+}
+
+/**
+ * What the round trips through the bank have been doing.
+ *
+ * Outcomes and short reasons, with a count of the connections stored. No
+ * vault keys, no account numbers, no codes -- it answers "did the connecting
+ * work, and if not where did it stop", which is the question that cannot be
+ * answered from a page that looks unchanged.
+ */
+async function journal(req, res) {
+  const live = store();
+  if (!live) return notConfigured(res);
+  const connections = await listConnections(live);
+  return json(res, 200, {
+    ok: true,
+    connections: connections.length,
+    accounts: connections.reduce((sum, held) => sum + held.accounts.length, 0),
+    entries: await readJournal(live),
+  });
 }
 
 /* ---------- Odds and ends ---------- */

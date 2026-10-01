@@ -2750,3 +2750,55 @@ body.is-booting { overflow: hidden; }
   .fold-body > .subpanel:first-child { grid-column: 1 / -1; }
   #money-more .fold-body, #money-history .fold-body { grid-template-columns: 1fr; }
 }
+
+/* ---------- Saying something where it can be seen ---------- */
+
+/*
+  The message that explains why nothing happened cannot live in a region only
+  a screen reader reads, nor behind a fold. This sits above everything on the
+  money page and stays until it is dismissed.
+*/
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem 1rem;
+  margin: 0 0 .75rem;
+  padding: .75rem .9rem;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.notice-text { margin: 0; font-size: .9rem; line-height: 1.5; max-width: 62ch; }
+.notice-acts { display: flex; align-items: center; gap: .9rem; margin-left: auto; }
+
+.notice.is-good { border-left-color: var(--s-ess); }
+.notice.is-warn { border-left-color: var(--now); }
+.notice.is-plain { border-left-color: var(--line-strong); }
+
+/* The connection, on the card rather than behind a fold. */
+.kpi-bank {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin: .45rem 0 0;
+  font-size: .82rem;
+  color: var(--ink-2);
+}
+
+.kpi-dot {
+  flex: 0 0 auto;
+  width: .5rem;
+  height: .5rem;
+  border-radius: 50%;
+  align-self: center;
+}
+
+/* Never the only signal: the sentence beside it says the same thing. */
+.kpi-dot.is-on { background: var(--s-ess); }
+.kpi-dot.is-off { background: var(--line-strong); }
+.kpi-dot.is-stale { background: var(--now); }

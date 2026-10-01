@@ -679,6 +679,106 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
   check("and it says what is missing", /nothing to measure the spending against/.test(noIncome.why), true);
 }
 
+/* ---------- Coming back from the bank ---------- */
+
+/*
+  Every one of these used to be silent. The page looked identical whether the
+  approval had worked or not, because the only thing that said otherwise went
+  to a region screen readers read and to a panel behind a fold.
+*/
+
+console.log("\nwhat the bank's answer looks like");
+
+{
+  const states = await page.evaluate(() => {
+    const read = () => ({
+      hidden: document.querySelector("#money-notice").hidden,
+      text: (document.querySelector(".notice-text") || {}).textContent || "",
+      tone: document.querySelector("#money-notice").className,
+      line: (document.querySelector(".kpi-bank") || {}).textContent || "",
+      dot: [...(document.querySelector(".kpi-dot") || { classList: [] }).classList].join(" "),
+    });
+
+    const out = {};
+
+    // Without a sync phrase the server cannot be told whose account it is, so
+    // that is the first thing the line has to say.
+    bankConnection = null;
+    renderBalanceCard();
+    out.noPhrase = read();
+
+    // From here on, as it looks once syncing is on.
+    bankPhrase = () => "a phrase";
+    renderBalanceCard();
+    out.notConnected = read();
+
+    renderBank({
+      connected: true, expired: false, fetchedTo: todayISO(),
+      accounts: [{ name: "eKonto", iban: "…8067" }],
+    });
+    out.connected = read();
+
+    renderBank({
+      connected: true, expired: true, fetchedTo: "",
+      accounts: [{ name: "eKonto", iban: "…8067" }],
+    });
+    out.expired = read();
+
+    showMoneyNotice(outcomeText("no-accounts").text, { tone: "warn" });
+    out.noAccounts = read();
+
+    showMoneyNotice("");
+    out.dismissed = read();
+    return out;
+  });
+
+  // "Not connected" and "connected and quiet" are the one pair that has to be
+  // told apart when nothing is arriving.
+  check("with syncing off, it says that is what is in the way",
+    /once syncing is on/.test(states.noPhrase.line), true, states.noPhrase.line);
+  check("the dashboard says when the bank is not connected",
+    /not connected/.test(states.notConnected.line), true, states.notConnected.line);
+  check("and offers to connect it there", /Connect it/.test(states.notConnected.line), true);
+  check("it says when it is connected, and to what",
+    /connected — eKonto …8067/.test(states.connected.line), true, states.connected.line);
+  check("and when it was last checked", /last checked/.test(states.connected.line), true);
+  check("a consent that has run out says so in words",
+    /wants approving again/.test(states.expired.line), true, states.expired.line);
+  // Colour is never the only signal: each dot has a sentence beside it.
+  check("the dot is never the only thing saying which",
+    [states.notConnected.dot, states.connected.dot, states.expired.dot],
+    ["kpi-dot is-off", "kpi-dot is-on", "kpi-dot is-stale"]);
+
+  check("an outcome from the bank is shown, not only announced",
+    states.noAccounts.hidden, false);
+  check("and says what to do about it",
+    /ticked before you confirm/.test(states.noAccounts.text), true, states.noAccounts.text);
+  check("the notice can be put away", states.dismissed.hidden, true);
+}
+
+{
+  // The explanation outlives the redirect it arrived on.
+  const kept = await page.evaluate(() => {
+    showMoneyNotice("something happened", { tone: "warn" });
+    const stored = readStore("remembre.moneynotice.v1", null);
+    showMoneyNotice("");
+    return { stored, cleared: readStore("remembre.moneynotice.v1", null) };
+  });
+  check("a notice is kept for the next visit", kept.stored.text, "something happened");
+  check("and dismissing it clears that too", kept.cleared, null);
+}
+
+{
+  const outcomes = await page.evaluate(() =>
+    ["connected", "refused", "expired", "no-accounts", "bad-return", "no-store", "failed", "nonsense"]
+      .map((name) => ({ name, tone: outcomeText(name).tone, words: outcomeText(name).text.length })));
+  check("every outcome has something to say", outcomes.every((o) => o.words > 30), true);
+  check("including one nobody wrote down",
+    outcomes.find((o) => o.name === "nonsense").tone, "warn");
+  check("and the good one is not dressed as a problem",
+    outcomes.find((o) => o.name === "connected").tone, "good");
+}
+
 /* ---------- The analytics sector ---------- */
 
 console.log("\nthe analytics sector");
