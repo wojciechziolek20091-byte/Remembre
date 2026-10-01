@@ -1,5 +1,6 @@
 import { cors, json, storeReport } from "./_store.js";
 import { vapidReport } from "./_push.js";
+import { bankReport } from "./_bank.js";
 
 /**
  * A deployment can be missing its storage entirely, and the app needs to be
@@ -21,5 +22,6 @@ export default function handler(req, res) {
     ok: true,
     ...storeReport(),
     push: { needs: "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY", ...push },
+    bank: { needs: "ENABLE_BANKING_APP_ID and ENABLE_BANKING_PRIVATE_KEY", ...bankReport() },
   });
 }
