@@ -27,6 +27,8 @@ export default async function handler(req, res) {
   const url = new URL(req.url, "http://localhost");
   const action = url.searchParams.get("action") || "check";
 
+  if (action === "aspsp") return namesForMbank(req, res);
+  if (action === "preflight") return preflight(req, res);
   if (action === "connect") return startConnecting(req, res);
   if (action === "status") return connectionStatus(req, res);
   if (action === "fetch") return fetchForOne(req, res);
@@ -301,4 +303,63 @@ async function readBody(req) {
     chunks.push(chunk);
   }
   return safeParse(Buffer.concat(chunks).toString("utf8")) || {};
+}
+
+/* ---------- Checks that need no bank login ---------- */
+
+/*
+  The authorisation names the bank by a string that has to match their
+  catalogue exactly. "mBank" is a guess until it is read back, and a wrong one
+  fails at the moment the reader taps Connect -- the worst time to find out.
+*/
+async function namesForMbank(req, res) {
+  try {
+    const answer = await bankFetch("/aspsps?country=PL");
+    const banks = Array.isArray(answer && answer.aspsps) ? answer.aspsps : [];
+    return json(res, 200, {
+      ok: true,
+      matches: banks
+        .filter((bank) => /mbank/i.test(bank.name || ""))
+        .map((bank) => ({
+          name: bank.name,
+          country: bank.country,
+          psuTypes: bank.psu_types || bank.psuTypes || null,
+          beta: Boolean(bank.beta),
+        })),
+    });
+  } catch (err) {
+    return json(res, 502, { ok: false, message: err.message });
+  }
+}
+
+/**
+ * Starts a real authorisation and throws the result away.
+ *
+ * It proves the three things that can only fail at the tap: that the bank name
+ * matches their catalogue, that this deployment's callback is a registered
+ * redirect URL, and that a 180-day consent is accepted. No bank login is
+ * involved -- the URL that comes back is simply not followed.
+ */
+async function preflight(req, res) {
+  try {
+    const { url, validUntil } = await bankAuthorise({
+      redirectUrl: redirectUrl(req),
+      state: newNonce(),
+    });
+    return json(res, 200, {
+      ok: true,
+      wouldSendYouTo: new URL(url).host,
+      consentDays: CONSENT_DAYS,
+      validUntil,
+      redirectUrl: redirectUrl(req),
+    });
+  } catch (err) {
+    return json(res, 502, {
+      ok: false,
+      status: err.status || 0,
+      message: err.message,
+      detail: err.detail || "",
+      redirectUrl: redirectUrl(req),
+    });
+  }
 }
