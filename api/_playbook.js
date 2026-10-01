@@ -126,17 +126,8 @@ ${FRAMEWORKS}
 The numbers you may compare against:
 ${BENCHMARKS}
 
-Answer as JSON and nothing else, in this shape:
-
-{
-  "headline": "one sentence, the single most useful thing in the data",
-  "verdict": "sustainable" | "tight" | "overspending" | "unclear",
-  "reading": "two or three short paragraphs of analysis, plain text",
-  "notes": [
-    { "label": "short name of a finding", "detail": "one sentence, with the number in it" }
-  ],
-  "watch": ["at most three things to keep an eye on, each under ten words"]
-}
+Answer by calling the "report" tool, which is the only way to answer. Its
+fields are "headline", "verdict", "reading", "notes" and "watch".
 
 The verdict is about the rate of spending against money coming in, not about
 whether the person is good or bad with money. "unclear" is the honest answer
@@ -164,17 +155,8 @@ What a good plan does here:
 - Handles the known lumpy costs as sinking funds where the data shows them.
 - Uses only categories that appear in the summary. Do not invent one.
 
-Answer as JSON and nothing else, in this shape:
-
-{
-  "approach": "which framework you leaned on and why, one sentence",
-  "monthly": [
-    { "category": "exactly as spelled in the summary", "limit": 0, "was": 0, "why": "one short sentence" }
-  ],
-  "save": { "amount": 0, "why": "one sentence" },
-  "tradeoffs": ["what each tightening costs in practice, at most three"],
-  "year": "what this adds up to over twelve months if kept, one sentence"
-}
+Answer by calling the "report" tool, which is the only way to answer. Its
+fields are "approach", "monthly", "save", "tradeoffs" and "year".
 
 Limits are whole zloty, not grosze. "was" is what they actually spent in the
 month you were given, so the two can be read side by side.`;

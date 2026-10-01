@@ -162,6 +162,17 @@ console.log("\nwhat the model is told before it sees a number");
     (playbook.match(/https:\/\//g) || []).length >= 5);
   check("the answer is pinned to a shape",
     /"verdict"/.test(playbook) && /"monthly"/.test(playbook));
+  // A shape asked for in prose is a hope; a tool it must call is not.
+  const advise = read("advise.js");
+  check("and the shape is the tool's, not a hope about JSON",
+    /tool_choice: \{ type: "tool", name: "report" \}/.test(advise)
+    && /input_schema/.test(advise));
+  check("a prose answer is still shown rather than erroring over",
+    /result: null, prose/.test(advise));
+  // Both were refused outright by the current Opus, and the 400 reads as
+  // "the analysis is broken" to anyone who only sees the page.
+  check("nothing the current model refuses is sent",
+    !/temperature:/.test(advise) && !/role: "assistant"/.test(advise));
   check("and it is told not to invent transactions",
     /[Dd]o not invent/.test(playbook));
   // The reader is seventeen and lives at home. Pension advice is noise.

@@ -69,48 +69,115 @@ export default async function handler(req, res) {
   }
 }
 
-/**
- * One call to Claude, with the answer parsed.
- *
- * The model is asked for JSON and nothing else, and the request is prefilled
- * with an opening brace so there is no prose to strip -- the one reliable way
- * to get JSON out of a chat model. Even so the parse is defended: a reply that
- * cannot be read comes back as prose rather than as an error, because an
- * analysis is still worth reading when it has lost its shape.
- */
+/*
+  The shape of the answer, declared rather than asked for.
+
+  Asking a chat model for "JSON and nothing else" works until it does not, and
+  the two ways round that -- prefilling an opening brace, or stripping prose
+  off the front -- are both a guess. A tool the model must call is not: the
+  fields below are the schema it answers against, so there is no parsing step
+  that can fail at the one moment somebody is looking at the page.
+*/
+const SHAPES = {
+  analyse: {
+    type: "object",
+    properties: {
+      headline: { type: "string", description: "One sentence: the single most useful thing in the data." },
+      verdict: {
+        type: "string",
+        enum: ["sustainable", "tight", "overspending", "unclear"],
+        description: "The rate of spending against money coming in. 'unclear' when there is less than three weeks of data or no income in it.",
+      },
+      reading: { type: "string", description: "Two or three short paragraphs of analysis, separated by blank lines. Plain text, at most 220 words." },
+      notes: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string", description: "Short name of the finding." },
+            detail: { type: "string", description: "One sentence, with the number in it." },
+          },
+          required: ["label", "detail"],
+        },
+      },
+      watch: {
+        type: "array",
+        maxItems: 3,
+        items: { type: "string", description: "Something to keep an eye on, under ten words." },
+      },
+    },
+    required: ["headline", "verdict", "reading", "notes", "watch"],
+  },
+
+  plan: {
+    type: "object",
+    properties: {
+      approach: { type: "string", description: "Which framework you leaned on and why, one sentence." },
+      monthly: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            category: { type: "string", description: "Exactly as spelled in the summary. Never a category that is not in it." },
+            limit: { type: "number", description: "The monthly limit in whole zloty." },
+            was: { type: "number", description: "What they actually spent on it in the month given, in whole zloty." },
+            why: { type: "string", description: "One short sentence." },
+          },
+          required: ["category", "limit", "was", "why"],
+        },
+      },
+      save: {
+        type: "object",
+        properties: {
+          amount: { type: "number", description: "Whole zloty to put aside each month." },
+          why: { type: "string" },
+        },
+        required: ["amount", "why"],
+      },
+      tradeoffs: {
+        type: "array",
+        maxItems: 3,
+        items: { type: "string", description: "What a tightening costs in practice." },
+      },
+      year: { type: "string", description: "What this adds up to over twelve months if kept, one sentence." },
+    },
+    required: ["approach", "monthly", "save", "tradeoffs", "year"],
+  },
+};
+
+/** One call to Claude, answered through the tool so the shape is guaranteed. */
 async function ask(action, digest) {
   const client = aiClient();
   const system = action === "plan" ? PLAN_SYSTEM : ANALYSIS_SYSTEM;
 
   const message = await client.messages.create({
     model: MODEL,
-    max_tokens: action === "plan" ? 1600 : 1200,
+    max_tokens: action === "plan" ? 2000 : 1600,
     system,
-    // No temperature: the current Opus refuses it outright ("`temperature` is
-    // deprecated for this model"), and a 400 here reads as "the analysis is
-    // broken" to somebody who only sees the page.
     messages: [
       { role: "user", content: `Here is the summary of my spending.\n\n${JSON.stringify(digest, null, 1)}` },
-      { role: "assistant", content: "{" },
     ],
+    tools: [{
+      name: "report",
+      description: action === "plan"
+        ? "Report the budget you propose. This is the only way to answer."
+        : "Report what you read in the spending. This is the only way to answer.",
+      input_schema: SHAPES[action],
+    }],
+    tool_choice: { type: "tool", name: "report" },
   });
 
-  const text = "{" + message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("");
-
   const usage = message.usage || {};
-  const cost = {
-    in: usage.input_tokens || 0,
-    out: usage.output_tokens || 0,
-  };
+  const cost = { in: usage.input_tokens || 0, out: usage.output_tokens || 0 };
 
-  try {
-    return { result: JSON.parse(text), cost };
-  } catch (err) {
-    return { result: null, prose: text.replace(/^\{/, "").trim(), cost };
-  }
+  const reported = message.content.find((block) => block.type === "tool_use");
+  if (reported) return { result: reported.input, cost };
+
+  // It answered in prose instead. Worth showing rather than erroring over.
+  const prose = message.content.filter((block) => block.type === "text")
+    .map((block) => block.text).join("").trim();
+  return { result: null, prose, cost };
 }
 
 /* The status is the useful part: 401 is a bad key, 402 an empty balance, 429 a
