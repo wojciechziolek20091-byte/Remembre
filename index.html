@@ -305,7 +305,27 @@
         <button type="button" class="btn btn-quiet" id="money-pick">Choose a CSV file</button>
         <input type="file" id="money-file" accept=".csv,text/csv" class="sr-only" tabindex="-1" aria-hidden="true">
         <button type="button" class="btn btn-quiet" id="money-sample">Try it with sample data</button>
+        <button type="button" class="btn btn-quiet" id="money-paste-open">Paste it instead</button>
       </div>
+      <div id="money-paste" hidden>
+        <label class="field-label" for="money-paste-text">Paste the contents of the CSV</label>
+        <textarea id="money-paste-text" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none" placeholder="#Data operacji;#Data ksiegowania;..."></textarea>
+        <div class="panel-actions">
+          <button type="button" class="btn btn-quiet" id="money-paste-import">Import what I pasted</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="money-report-heading">
+      <div class="report-head">
+        <h2 class="panel-title" id="money-report-heading">Spending</h2>
+        <div class="report-nav">
+          <button type="button" class="btn btn-quiet btn-tiny" id="money-prev" aria-label="The month before">&larr;</button>
+          <span class="report-month" id="money-month" role="status"></span>
+          <button type="button" class="btn btn-quiet btn-tiny" id="money-next" aria-label="The month after">&rarr;</button>
+        </div>
+      </div>
+      <div id="money-report"></div>
     </section>
 
     <section class="panel" aria-labelledby="money-rules-heading">
@@ -324,6 +344,14 @@
         <button type="button" class="btn btn-quiet" id="money-rules-reset">Restore the defaults</button>
       </div>
       <div id="money-tally"></div>
+
+      <hr class="panel-rule">
+      <label class="field-label" for="money-budgets">Monthly budgets</label>
+      <p class="field-hint" id="money-budgets-hint">One per line: the category, an equals sign, and a limit in z&#322;oty. Leave a category out and it is simply not watched.</p>
+      <textarea id="money-budgets" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none"></textarea>
+      <div class="panel-actions">
+        <button type="button" class="btn btn-quiet" id="money-budgets-save">Save the budgets</button>
+      </div>
     </section>
 
     <section class="panel" aria-labelledby="money-list-heading">

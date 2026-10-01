@@ -32,6 +32,24 @@ the bank spelled it. Money coming in with no rule of its own is counted as
 income rather than left loose, because a positive amount is already a strong
 signal and leaving it uncategorised makes every total read wrong.
 
+**Spending** is the panel that answers a question. It shows one month at a
+time, opening on the month the data ends in rather than on today -- import a
+statement on the 1st and today's month would otherwise be empty and look like
+the import had failed. Each category carries what you spent, what you spent in
+the month before, and a bar where a budget says what the month is allowed to be.
+Under it: the five biggest things you paid for, and anything that looks like it
+comes every month.
+
+Recurring is judged by *similar* amounts in two or more different months, not
+identical ones -- a subscription's price changes and a charge billed abroad
+moves with the exchange rate, so identical-amount matching would quietly lose
+exactly the charges worth noticing.
+
+Budgets live in their own box under the rules, in the same shape: a category, an
+equals sign, a limit in złoty. Leave a category out and it is simply not
+watched. Past 80% the bar changes colour and the words beside it change too,
+because colour is never the only signal.
+
 The tally under the rules is there to tune them: it shows what landed in each
 category and marks the pile nothing has claimed, which is the one worth writing
 a rule for. The rules live on the device that wrote them; the categories they

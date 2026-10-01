@@ -283,6 +283,138 @@ console.log("\ncategorising");
     (await page.inputValue("#money-rules")).includes("biedronka"), true);
 }
 
+/* ---------- The month ---------- */
+
+console.log("\nthe month's report");
+
+/* Two months of invented statement, so there is something to compare against. */
+const TWO_MONTHS = [
+  "#Numer rachunku;",
+  "PL61109010140000071219812874;",
+  "",
+  "#Data operacji;#Data ksiegowania;#Opis operacji;#Tytul;#Nadawca/Odbiorca;#Numer konta;#Kwota;#Saldo po operacji",
+  "2026-08-04;2026-08-05;PLATNOSC KARTA;SPOTIFY P0A1B2C3;SPOTIFY AB;;-23,99 PLN;900,00 PLN",
+  "2026-08-09;2026-08-10;PLATNOSC KARTA;BIEDRONKA 4471;JERONIMO MARTINS;;-120,00 PLN;780,00 PLN",
+  "2026-08-20;2026-08-21;PLATNOSC KARTA;BILET MPK KRAKOW;MPK;;-40,00 PLN;740,00 PLN",
+  "2026-09-03;2026-09-04;PLATNOSC KARTA;SPOTIFY P0A1B2C3;SPOTIFY AB;;-23,99 PLN;716,01 PLN",
+  "2026-09-07;2026-09-08;PLATNOSC KARTA;BIEDRONKA 4471;JERONIMO MARTINS;;-500,00 PLN;216,01 PLN",
+  "2026-09-11;2026-09-12;PLATNOSC KARTA;ZABKA Z1;ZABKA;;-80,00 PLN;136,01 PLN",
+  "2026-09-15;2026-09-16;PRZELEW PRZYCHODZACY;Kieszonkowe;JAN ZIOLEK;;1 000,00 PLN;1 136,01 PLN",
+  "2026-09-18;2026-09-19;PLATNOSC KARTA;BILET MPK KRAKOW;MPK;;-30,00 PLN;1 106,01 PLN",
+].join("\r\n");
+
+{
+  const report = await page.evaluate(async (csv) => {
+    state.transactions = [];
+    writeStore("remembre.moneyrules.v1", DEFAULT_RULES);
+    writeStore("remembre.moneybudgets.v1", "food = 400\ntransport = 100");
+    await importCsvText(csv, { label: "two months" });
+    const september = monthReport("2026-09");
+    const august = monthReport("2026-08");
+    return {
+      opensOn: state.moneyMonth,
+      septemberSpent: september.spent,
+      septemberIn: september.received,
+      augustSpent: august.spent,
+      food: september.byCategory.get("food"),
+      transport: september.byCategory.get("transport"),
+      biggest: september.biggest.map((e) => e.amount),
+      change: describeChange(september.spent, august.spent, "2026-08"),
+    };
+  }, TWO_MONTHS);
+
+  check("it opens on the month the data ends in", report.opensOn, "2026-09");
+  check("September's spending is totalled", report.septemberSpent, -63399);
+  check("money in is counted apart from it", report.septemberIn, 100000);
+  check("so a transfer in cannot look like frugal living",
+    report.septemberSpent < 0 && report.septemberIn > 0, true);
+  check("August is there to compare with", report.augustSpent, -18399);
+  check("food adds up across the month", report.food, -58000);
+  check("and transport too", report.transport, -3000);
+  check("the biggest come first", report.biggest[0], -50000);
+  check("and there are at most five", report.biggest.length <= 5, true);
+  check("the comparison is said in words, not just a number",
+    report.change, "450,00 z\u0142 more than August");
+}
+
+{
+  const months = await page.evaluate(() => {
+    const seen = [];
+    state.moneyMonth = "2026-09";
+    seen.push(state.moneyMonth);
+    state.moneyMonth = shiftMonth(state.moneyMonth, -1);
+    seen.push(state.moneyMonth);
+    // Over a year boundary, where a naive month subtraction goes wrong.
+    seen.push(shiftMonth("2026-01", -1), shiftMonth("2026-12", 1));
+    return seen;
+  });
+  check("stepping back a month works", months.slice(0, 2), ["2026-09", "2026-08"]);
+  check("and over a year boundary in both directions",
+    months.slice(2), ["2025-12", "2027-01"]);
+}
+
+{
+  const budgets = await page.evaluate(() => {
+    const parsed = parseBudgets("# comment\nfood = 400\ntransport = 100\nnonsense\nfun = 0\n");
+    return [...parsed.entries()];
+  });
+  check("budgets are read in grosze", budgets, [["food", 40000], ["transport", 10000]]);
+  check("and a zero limit is not a budget", budgets.some(([name]) => name === "fun"), false);
+}
+
+{
+  // Idempotent: an earlier block may already have opened this half, and then
+  // the tile that opens it is not on screen to click.
+  await page.evaluate(() => { setArea("money"); state.moneyMonth = "2026-09"; renderReport(); });
+
+  check("the month is named", (await page.textContent("#money-month")).trim(), "September 2026");
+  // innerText gives what is rendered, and the stylesheet capitalises it; the
+  // category itself is lower case.
+  check("a category over its limit is marked",
+    (await page.locator(".report-row.is-over .report-name").first().innerText()).toLowerCase(), "food");
+  check("and says by how much",
+    (await page.locator(".report-row.is-over .report-limit").first().innerText()).includes("over"), true);
+
+  // Colour is never the only signal, so the words have to carry it too.
+  const underText = await page.locator(".report-row").filter({ hasText: "transport" }).first().innerText();
+  check("one still inside its limit says what is left", underText.includes("left of"), true);
+
+  check("the recurring charges are picked out",
+    (await page.locator(".report-sub").allInnerTexts()).some((t) => t.includes("every month")), true);
+  const repeats = await page.evaluate(() => recurringCharges().map((c) => [c.name, c.typical, c.months]));
+  check("a subscription seen in two months is recurring",
+    repeats.find((r) => r[0] === "SPOTIFY AB"), ["SPOTIFY AB", 2399, 2]);
+  check("but a shop whose amount swings wildly is not",
+    repeats.some((r) => r[0] === "JERONIMO MARTINS"), false);
+  check("and something seen once is not either",
+    repeats.some((r) => r[0] === "ZABKA"), false);
+
+  await page.click("#money-prev");
+  check("stepping back shows August", (await page.textContent("#money-month")).trim(), "August 2026");
+  await page.click("#money-next");
+  await page.click("#money-next");
+  check("and forward lands on an empty month, saying so",
+    (await page.textContent("#money-report")).includes("Nothing in this month"), true);
+  await page.evaluate(() => { state.moneyMonth = "2026-09"; renderReport(); });
+}
+
+{
+  // Pasting takes the same path as the file picker, which is the point.
+  const pasted = await page.evaluate(async () => {
+    state.transactions = [];
+    renderMoney();
+    return importCsvText(SAMPLE_CSV, { label: "what you pasted" });
+  });
+  check("pasted text imports like a file", pasted, { added: 6, already: 0 });
+
+  await page.click("#money-paste-open");
+  check("the paste box opens", await page.locator("#money-paste").isVisible(), true);
+  await page.fill("#money-paste-text", "not a statement");
+  await page.click("#money-paste-import");
+  check("and nonsense in it is refused by name",
+    (await page.textContent("#money-status")).includes("mBank operations export"), true);
+}
+
 /* ---------- On the page ---------- */
 
 console.log("\nthe two halves");

@@ -2183,3 +2183,98 @@ body.is-booting { overflow: hidden; }
   color: var(--accent);
   background: var(--accent-soft);
 }
+
+/* ---------- Money: the month's report ---------- */
+
+.report-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: .5rem;
+}
+
+.report-nav { display: flex; align-items: center; gap: .4rem; }
+
+.report-month {
+  font-weight: 600;
+  font-size: .9rem;
+  min-width: 8.5rem;
+  text-align: center;
+}
+
+.report-total {
+  margin: 0 0 .9rem;
+  font-size: 1.05rem;
+}
+
+.report-total strong {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-against {
+  display: block;
+  font-size: .85rem;
+  color: var(--ink-2);
+}
+
+.report-sub {
+  margin: 1.25rem 0 .35rem;
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.report-list { list-style: none; margin: 0; padding: 0; }
+
+.report-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .1rem .75rem;
+  padding: .5rem .1rem;
+  border-top: 1px solid var(--line);
+}
+
+.report-name { text-transform: capitalize; overflow-wrap: anywhere; font-size: .92rem; }
+
+.report-now {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: .92rem;
+}
+
+.report-was {
+  grid-column: 1 / -1;
+  font-size: .78rem;
+  color: var(--ink-2);
+}
+
+.report-budget { grid-column: 1 / -1; display: grid; gap: .2rem; margin-top: .15rem; }
+
+.report-bar {
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.report-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--s-ess);
+  border-radius: 999px;
+}
+
+.report-limit { font-size: .76rem; color: var(--ink-2); }
+
+/* Close to the line, and past it. Colour is never the only signal: the words
+   beside the bar say which it is. */
+.report-row.is-close .report-bar-fill { background: var(--now); }
+.report-row.is-close .report-limit { color: var(--ink); font-weight: 600; }
+
+.report-row.is-over .report-bar-fill { background: var(--danger); }
+.report-row.is-over .report-limit { color: var(--danger); font-weight: 600; }

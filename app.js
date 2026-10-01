@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.01-42";
+const APP_VERSION = "2026.10.01-43";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -627,6 +627,8 @@ function savePrefs() {
 const state = {
   tasks: [],
   transactions: [],
+  /* Which month the spending report is showing, as "YYYY-MM". */
+  moneyMonth: "",
   /* "" is the chooser; otherwise "school" or "money". */
   area: "",
   seenDay: "",

@@ -373,8 +373,12 @@ async function importCsvText(text, { label = "that file" } = {}) {
   const result = mergeTransactions(identified);
   recategorise();
   saveTransactions();
+  // A fresh import usually brings the newest month with it, and opening on an
+  // empty month would look like the import had failed.
+  state.moneyMonth = latestMonth();
   renderMoney();
   renderRules();
+  renderReport();
 
   const parts = [];
   if (result.added) parts.push(`${result.added} added`);
@@ -437,11 +441,14 @@ function setupMoney() {
   });
 
   setupRules();
+  setupPaste();
+  setupReport();
   // Rules may have been edited on a visit when nothing was imported yet, and
   // transactions may have arrived from the other device since.
   recategorise();
   renderMoney();
   renderRules();
+  renderReport();
 }
 
 /**
@@ -472,6 +479,7 @@ function mergeIncomingTransactions(incoming) {
     writeStore(MONEY_KEY, state.transactions);
     renderMoney();
     renderRules();
+    renderReport();
   }
   return changed;
 }
@@ -633,6 +641,7 @@ function setupRules() {
     const changed = recategorise();
     renderMoney();
     renderRules();
+    renderReport();
     announce(changed === 0
       ? "Rules saved. Nothing changed category."
       : `Rules saved. ${changed} ${changed === 1 ? "transaction" : "transactions"} recategorised.`);
@@ -645,5 +654,268 @@ function setupRules() {
     renderMoney();
     renderRules();
     announce("Default rules restored.");
+  });
+}
+
+/* ---------- Pasting instead of picking a file ---------- */
+
+/*
+  A downloaded .csv is awkward to get at on an iPad -- Files will not preview
+  it, and the share sheet has nowhere useful to send it. Pasting the contents
+  takes the same path and avoids the whole business.
+*/
+function setupPaste() {
+  $("money-paste-open").addEventListener("click", () => {
+    const box = $("money-paste");
+    box.hidden = !box.hidden;
+    if (!box.hidden) $("money-paste-text").focus();
+  });
+
+  $("money-paste-import").addEventListener("click", () => {
+    const text = $("money-paste-text").value;
+    if (!text.trim()) {
+      setMoneyStatus("There is nothing pasted yet.", true);
+      return;
+    }
+    importCsvText(text, { label: "what you pasted" }).then((result) => {
+      if (result) {
+        $("money-paste-text").value = "";
+        $("money-paste").hidden = true;
+      }
+    });
+  });
+}
+
+/* ---------- Budgets ---------- */
+
+const MONEY_BUDGETS_KEY = "remembre.moneybudgets.v1";
+
+const DEFAULT_BUDGETS = `# A limit per month, in złoty. Leave one out and it is not watched.
+food = 600
+transport = 120
+subscriptions = 80
+fun = 150
+clothes = 150
+`;
+
+/** Same shape as the rules: one line, a name, an equals sign, a number. */
+function parseBudgets(text) {
+  const budgets = new Map();
+  String(text).split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const at = trimmed.indexOf("=");
+    if (at === -1) return;
+    const category = trimmed.slice(0, at).trim().toLowerCase();
+    const grosze = parseAmount(trimmed.slice(at + 1));
+    if (category && grosze !== null && grosze > 0) budgets.set(category, grosze);
+  });
+  return budgets;
+}
+
+function budgetsText() {
+  const stored = readStore(MONEY_BUDGETS_KEY, null);
+  return typeof stored === "string" && stored.trim() ? stored : DEFAULT_BUDGETS;
+}
+
+/* ---------- The month ---------- */
+
+const monthOf = (date) => String(date).slice(0, 7);
+
+/** "2026-10" shifted by some months, without a Date going near a time zone. */
+function shiftMonth(key, by) {
+  const [year, month] = key.split("-").map(Number);
+  const total = year * 12 + (month - 1) + by;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
+}
+
+const monthName = (key) => {
+  const [year, month] = key.split("-").map(Number);
+  return `${["January", "February", "March", "April", "May", "June", "July",
+    "August", "September", "October", "November", "December"][month - 1]} ${year}`;
+};
+
+/**
+ * Everything the report needs for one month. Money in is kept apart from money
+ * out: a month with a big transfer in would otherwise look like a month of
+ * frugal living.
+ */
+function monthReport(key) {
+  const entries = liveTransactions().filter((entry) => monthOf(entry.date) === key);
+  const out = entries.filter((entry) => entry.amount < 0);
+
+  const byCategory = new Map();
+  out.forEach((entry) => {
+    const name = entry.category || "other";
+    byCategory.set(name, (byCategory.get(name) || 0) + entry.amount);
+  });
+
+  return {
+    key,
+    count: entries.length,
+    spent: out.reduce((sum, entry) => sum + entry.amount, 0),
+    received: entries.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0),
+    byCategory,
+    biggest: out.slice().sort((a, b) => a.amount - b.amount).slice(0, 5),
+  };
+}
+
+/*
+  A charge is recurring when the same payee has taken a similar amount in two
+  or more different months. Similar rather than identical, because a
+  subscription's price changes and the exchange rate moves under one billed
+  abroad; identical-amount matching would quietly lose exactly the charges
+  worth noticing.
+*/
+function recurringCharges() {
+  const groups = new Map();
+  liveTransactions()
+    .filter((entry) => entry.amount < 0)
+    .forEach((entry) => {
+      const name = fold(entry.counterparty || entry.title || entry.description).slice(0, 40);
+      if (!name) return;
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(entry);
+    });
+
+  const found = [];
+  groups.forEach((entries, name) => {
+    const months = new Set(entries.map((entry) => monthOf(entry.date)));
+    if (months.size < 2) return;
+
+    const amounts = entries.map((entry) => Math.abs(entry.amount)).sort((a, b) => a - b);
+    const typical = amounts[Math.floor(amounts.length / 2)];
+    const steady = amounts.every((amount) => Math.abs(amount - typical) <= typical * 0.15);
+    if (!steady) return;
+
+    found.push({
+      name: entries[0].counterparty || entries[0].title,
+      category: entries[0].category || "other",
+      typical,
+      months: months.size,
+    });
+  });
+
+  return found.sort((a, b) => b.typical - a.typical);
+}
+
+/* ---------- Showing the month ---------- */
+
+/** Opens on the month the newest transaction is in, not on an empty one. */
+function latestMonth() {
+  const dates = liveTransactions().map((entry) => entry.date).sort();
+  return dates.length ? monthOf(dates[dates.length - 1]) : monthOf(todayISO());
+}
+
+function renderReport() {
+  const wrap = $("money-report");
+  if (!wrap) return;
+
+  if (!state.moneyMonth) state.moneyMonth = latestMonth();
+  const now = monthReport(state.moneyMonth);
+  const before = monthReport(shiftMonth(state.moneyMonth, -1));
+  const budgets = parseBudgets(budgetsText());
+
+  $("money-month").textContent = monthName(state.moneyMonth);
+
+  if (now.count === 0) {
+    wrap.replaceChildren(el("p", { class: "empty", text: "Nothing in this month." }));
+    return;
+  }
+
+  const pieces = [];
+
+  pieces.push(el(
+    "p",
+    { class: "report-total" },
+    el("strong", { text: zloty(now.spent) }),
+    el("span", { class: "report-against", text: describeChange(now.spent, before.spent, before.key) })
+  ));
+
+  // Categories, biggest spend first, with last month beside each and a bar
+  // where a budget says what the month is allowed to be.
+  const names = [...new Set([...now.byCategory.keys(), ...before.byCategory.keys()])]
+    .sort((a, b) => (now.byCategory.get(a) || 0) - (now.byCategory.get(b) || 0));
+
+  pieces.push(el("ul", { class: "report-list" }, names.map((name) => {
+    const spent = Math.abs(now.byCategory.get(name) || 0);
+    const was = Math.abs(before.byCategory.get(name) || 0);
+    const limit = budgets.get(name) || 0;
+    const share = limit ? Math.min(1, spent / limit) : 0;
+    const state_ = !limit ? "" : spent >= limit ? " is-over" : spent >= limit * 0.8 ? " is-close" : "";
+
+    return el(
+      "li",
+      { class: `report-row${state_}` },
+      el("span", { class: "report-name", text: name }),
+      el("span", { class: "report-now", text: zloty(-spent) }),
+      el("span", { class: "report-was", text: was ? `was ${zloty(-was)}` : "new" }),
+      limit
+        ? el(
+            "span",
+            { class: "report-budget" },
+            el("span", { class: "report-bar" }, el("span", {
+              class: "report-bar-fill", style: `width:${Math.round(share * 100)}%`,
+            })),
+            el("span", {
+              class: "report-limit",
+              text: spent >= limit
+                ? `${zloty(spent - limit)} over ${zloty(limit)}`
+                : `${zloty(limit - spent)} left of ${zloty(limit)}`,
+            })
+          )
+        : null
+    );
+  })));
+
+  if (now.biggest.length) {
+    pieces.push(el("h3", { class: "report-sub", text: "Biggest this month" }));
+    pieces.push(el("ul", { class: "report-list" }, now.biggest.map((entry) => el(
+      "li",
+      { class: "report-row" },
+      el("span", { class: "report-name", text: entry.counterparty || entry.title || "—" }),
+      el("span", { class: "report-now", text: zloty(entry.amount) }),
+      el("span", { class: "report-was", text: `${entry.date.slice(5)} · ${entry.category || "other"}` })
+    ))));
+  }
+
+  const repeats = recurringCharges();
+  if (repeats.length) {
+    pieces.push(el("h3", { class: "report-sub", text: "Looks like it comes every month" }));
+    pieces.push(el("ul", { class: "report-list" }, repeats.map((charge) => el(
+      "li",
+      { class: "report-row" },
+      el("span", { class: "report-name", text: charge.name }),
+      el("span", { class: "report-now", text: zloty(-charge.typical) }),
+      el("span", { class: "report-was", text: `seen in ${charge.months} months` })
+    ))));
+  }
+
+  wrap.replaceChildren(...pieces);
+}
+
+/** "187,20 zł more than September" -- a number alone says nothing. */
+function describeChange(spent, was, beforeKey) {
+  if (!was) return `nothing to compare with ${monthName(beforeKey).split(" ")[0]}`;
+  const difference = Math.abs(spent) - Math.abs(was);
+  const month = monthName(beforeKey).split(" ")[0];
+  if (difference === 0) return `exactly what you spent in ${month}`;
+  return `${zloty(Math.abs(difference))} ${difference > 0 ? "more" : "less"} than ${month}`;
+}
+
+function setupReport() {
+  $("money-prev").addEventListener("click", () => {
+    state.moneyMonth = shiftMonth(state.moneyMonth || latestMonth(), -1);
+    renderReport();
+  });
+  $("money-next").addEventListener("click", () => {
+    state.moneyMonth = shiftMonth(state.moneyMonth || latestMonth(), 1);
+    renderReport();
+  });
+  $("money-budgets").value = budgetsText();
+  $("money-budgets-save").addEventListener("click", () => {
+    writeStore(MONEY_BUDGETS_KEY, $("money-budgets").value);
+    renderReport();
+    announce("Budgets saved.");
   });
 }
