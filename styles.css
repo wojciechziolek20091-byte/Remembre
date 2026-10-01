@@ -1972,3 +1972,136 @@ body.is-booting { overflow: hidden; }
     to   { opacity: 0; visibility: hidden; }
   }
 }
+
+/* ---------- Choosing a half ---------- */
+
+.chooser {
+  min-height: 60vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.chooser-inner {
+  width: 100%;
+  max-width: 44rem;
+  text-align: center;
+}
+
+.chooser-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 4vw, 1.9rem);
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+.chooser-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+}
+
+.tile {
+  display: grid;
+  justify-items: start;
+  gap: .4rem;
+  padding: 1.5rem 1.35rem;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  /* The cherry edge is what says "press me" without the tile shouting. */
+  border-top: 4px solid var(--accent);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: border-color .12s ease, transform .12s ease;
+}
+
+.tile:hover { border-color: var(--line-strong); }
+.tile:active { transform: translateY(1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tile { transition: none; }
+  .tile:active { transform: none; }
+}
+
+.tile-icon {
+  width: 2rem;
+  height: 2rem;
+  color: var(--accent);
+  margin-bottom: .35rem;
+}
+
+.tile-name {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.tile-note {
+  font-size: .88rem;
+  color: var(--ink-2);
+}
+
+.btn-back { flex-shrink: 0; }
+
+/* ---------- Money ---------- */
+
+.area-money {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 2rem;
+}
+
+.money-inner { display: grid; gap: 1rem; }
+
+.tx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.tx {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: .5rem .75rem;
+  padding: .55rem .1rem;
+  border-top: 1px solid var(--line);
+}
+
+.tx:first-child { border-top: 0; }
+
+.tx-date {
+  font-size: .8rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.tx-what { min-width: 0; }
+
+.tx-title {
+  display: block;
+  font-size: .92rem;
+  overflow-wrap: anywhere;
+}
+
+.tx-note {
+  display: block;
+  font-size: .78rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* Money read in a hurry is read down the right-hand edge, so the figures line
+   up on their decimal point and money in is the one that stands out. */
+.tx-amount {
+  font-variant-numeric: tabular-nums;
+  font-size: .92rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tx.is-in .tx-amount { color: var(--s-ess); }

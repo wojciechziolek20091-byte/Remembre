@@ -3,7 +3,7 @@ import {
 } from "./_store.js";
 
 const MAX_BODY = 2 * 1024 * 1024;   // A year of tasks is a few tens of kilobytes.
-const COLLECTIONS = ["tasks", "coursework", "sessions"];
+const COLLECTIONS = ["tasks", "coursework", "sessions", "transactions"];
 
 /**
  * The meeting point for a reader's devices.
@@ -120,7 +120,7 @@ function mergeCollection(mine, theirs) {
 
 /* ---------- Odds and ends ---------- */
 
-const emptyVault = () => ({ tasks: [], coursework: [], sessions: [], updatedAt: "" });
+const emptyVault = () => ({ tasks: [], coursework: [], sessions: [], transactions: [], updatedAt: "" });
 
 function stripMeta(vault) {
   const out = {};

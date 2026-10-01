@@ -85,6 +85,13 @@ const problems = [];
 /** A device is its own browser context: its own storage, its own worker. */
 async function openDevice(name) {
   const context = await browser.newContext({ viewport: { width: 1360, height: 950 } });
+  // Syncing is tested from the schoolwork half; skip the welcome and the choice.
+  await context.addInitScript(() => {
+    try {
+      sessionStorage.setItem("getagrip.welcomed", "yes");
+      sessionStorage.setItem("getagrip.area", "school");
+    } catch (err) { /* nothing to skip if storage is refused */ }
+  });
   const page = await context.newPage();
   page.on("pageerror", (error) => problems.push(`${name} pageerror: ${error.message}`));
   page.on("console", (message) => {

@@ -20,12 +20,14 @@ const css = read("styles.css").replace(
   (_, file) => `url(data:font/woff2;base64,${readFileSync(join(root, "fonts", file)).toString("base64")})`
 );
 
-const js = read("app.js");
+const js = `${read("app.js")}
+
+${read("money.js")}`;
 const html = read("index.html");
 
 const body = html
   .slice(html.indexOf("<body>") + "<body>".length, html.lastIndexOf("</body>"))
-  .replace(/^\s*<script src="app\.js"><\/script>\s*$/m, "")
+  .replace(/^\s*<script src="(?:app|money)\.js"><\/script>\s*$/gm, "")
   .trim();
 
 const title = html.match(/<title>([^<]*)<\/title>/)[1];

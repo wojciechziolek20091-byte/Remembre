@@ -96,7 +96,8 @@ console.log("\nthe first launch");
   check("and it has gone by four seconds", await gone(page), true);
   check("leaving the page free to scroll",
     await page.evaluate(() => document.body.classList.contains("is-booting")), false);
-  check("and the app usable", await page.locator("#add-task-top").isVisible(), true);
+  check("and the choice of halves is what it hands over to",
+    await page.locator("#chooser").isVisible(), true);
 
   await context.close();
 }
@@ -109,6 +110,7 @@ console.log("\ncoming back to it");
   const { context, page } = await launch();
   await page.waitForFunction(() => !document.getElementById("welcome"), null, { timeout: 5000 });
 
+  await page.click('[data-area="school"]');
   await page.reload();
   await page.waitForSelector(".tt-lesson");
   check("a reload in the same session does not sit through it again",
@@ -167,7 +169,7 @@ console.log("\nwhen the browser refuses things");
   await page.waitForFunction(() => !document.getElementById("welcome"), null, { timeout: 6000 });
   check("with storage refused it still leaves", await gone(page), true);
   check("and the app still works",
-    await page.evaluate(() => document.querySelectorAll(".tt-lesson").length > 0), true);
+    await page.evaluate(() => document.querySelectorAll("[data-area]").length), 2);
   await context.close();
 }
 

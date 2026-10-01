@@ -22,7 +22,7 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "getagrip-v7";
+const CACHE = "getagrip-v8";
 
 /* How long to wait for the network before falling back to the cached shell.
    Long enough for a slow connection, short enough not to feel broken. */
@@ -36,6 +36,7 @@ const SHELL = [
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./money.js",
   "./favicon.svg",
   "./manifest.webmanifest",
   "./icons/icon-192.png",

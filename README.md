@@ -11,6 +11,35 @@ feeds your calendar app, and the rest works with no server at all.
 
 ![The calendar in its light theme](docs/screenshot-light.png)
 
+## Two halves
+
+The welcome hands over to a choice: **Schoolwork** or **Money**. The choice is
+remembered for the session, so a reload puts you back where you were, but a
+fresh launch asks again -- they are separate errands, and which one you are on
+is not a setting.
+
+Money is a work in progress. What exists today is the importer: you export a CSV
+from mBank (*Finanse &rarr; Historia &rarr; Lista operacji &rarr; eksportuj
+list&#281;*) and it reads it. Categories, budgets, the monthly report and the
+bank connection come next.
+
+Two things run through the money code and are worth knowing before changing it:
+
+- **Amounts are whole grosze, never decimals.** `0.1 + 0.2` is not `0.3` in
+  binary floating point, and a year of spending summed from such numbers drifts.
+  Everything is an integer until the moment it is printed.
+- **A transaction's id is the fingerprint of its content**, so importing the
+  same export twice cannot produce two rows, and overlapping exports add only
+  what is new. The fingerprint includes *which occurrence* of an identical row
+  this is, because two coffees of the same price at the same shop on the same
+  day are two transactions, and a plain content hash would quietly merge them
+  into one.
+
+Transactions ride the same sync as everything else, so the phone sees what the
+iPad imported. That means **your sync phrase now guards your bank history as
+well as your homework** -- worth a longer one than you might have picked for a
+calendar.
+
 ## The welcome
 
 Opening the app plays a three-second title: three arcs swing in and close around

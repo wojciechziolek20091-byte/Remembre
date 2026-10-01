@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.09.30-39";
+const APP_VERSION = "2026.10.01-41";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -626,6 +626,9 @@ function savePrefs() {
 
 const state = {
   tasks: [],
+  transactions: [],
+  /* "" is the chooser; otherwise "school" or "money". */
+  area: "",
   seenDay: "",
   lessonAlerts: true,
   view: "month",
@@ -1366,6 +1369,64 @@ function renderAll() {
   renderCloudPanel();
   renderAlertsExport();
   renderCoursework();
+}
+
+/* ---------- Which half of the app ---------- */
+
+/*
+  The welcome hands over to a choice rather than straight to the calendar. The
+  choice is remembered for the session, so a reload puts you back where you
+  were, but a fresh launch asks again -- the two halves are separate errands
+  and which one you are on is not a setting.
+*/
+
+const AREA_KEY = "getagrip.area";
+
+function setArea(area, { remember = true } = {}) {
+  state.area = ["school", "money"].includes(area) ? area : "";
+
+  $("chooser").hidden = state.area !== "";
+  $("school-area").hidden = state.area !== "school";
+  $("money-area").hidden = state.area !== "money";
+  $("area-back").hidden = state.area === "";
+  document.querySelectorAll(".school-only").forEach((node) => {
+    node.hidden = state.area !== "school";
+  });
+
+  if (remember) {
+    try {
+      if (state.area) window.sessionStorage.setItem(AREA_KEY, state.area);
+      else window.sessionStorage.removeItem(AREA_KEY);
+    } catch (err) {
+      // A browser refusing storage just means the choice is asked again.
+    }
+  }
+
+  if (state.area === "money" && typeof renderMoney === "function") renderMoney();
+}
+
+function restoreArea() {
+  let held = "";
+  try {
+    held = window.sessionStorage.getItem(AREA_KEY) || "";
+  } catch (err) {
+    held = "";
+  }
+  setArea(held, { remember: false });
+}
+
+function setupAreas() {
+  document.querySelectorAll("[data-area]").forEach((tile) => {
+    tile.addEventListener("click", () => {
+      setArea(tile.dataset.area);
+      announce(tile.dataset.area === "money" ? "Money opened." : "Schoolwork opened.");
+    });
+  });
+  $("area-back").addEventListener("click", () => {
+    setArea("");
+    const first = document.querySelector("[data-area]");
+    if (first) first.focus();
+  });
 }
 
 /* ---------- View switching ---------- */
@@ -3653,7 +3714,12 @@ async function cloudPush({ quiet = false } = {}) {
     body: JSON.stringify({
       code,
       ics: text,
-      vault: { tasks: state.tasks, coursework: state.coursework, sessions: state.sessions },
+      vault: {
+        tasks: state.tasks,
+        coursework: state.coursework,
+        sessions: state.sessions,
+        transactions: state.transactions,
+      },
     }),
   });
 
@@ -3675,6 +3741,9 @@ function applyCloudVault(vault) {
     mergeTasks((Array.isArray(vault.tasks) ? vault.tasks : []).map(normaliseTask).filter(Boolean));
     mergeCoursework((Array.isArray(vault.coursework) ? vault.coursework : []).map(normaliseCoursework).filter(Boolean));
     mergeSessions((Array.isArray(vault.sessions) ? vault.sessions : []).map(normaliseSession).filter(Boolean));
+    if (typeof mergeIncomingTransactions === "function") {
+      mergeIncomingTransactions(Array.isArray(vault.transactions) ? vault.transactions : []);
+    }
     saveTasks();
     saveCoursework();
     saveSessions();
@@ -4292,6 +4361,9 @@ function init() {
   renderAll();
   setupReminders();
   setupCloud();
+  setupAreas();
+  if (typeof setupMoney === "function") setupMoney();
+  restoreArea();
 }
 
 /*

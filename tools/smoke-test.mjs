@@ -57,6 +57,17 @@ const browser = await chromium.launch(
 );
 const page = await browser.newPage({ viewport: { width: 1360, height: 950 } });
 
+/*
+  These tests are about the schoolwork half, so they say so before the page
+  loads rather than clicking through the welcome and the chooser on every run.
+*/
+await page.addInitScript(() => {
+  try {
+    sessionStorage.setItem("getagrip.welcomed", "yes");
+    sessionStorage.setItem("getagrip.area", "school");
+  } catch (err) { /* a browser refusing storage just shows the welcome */ }
+});
+
 const problems = [];
 page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
 page.on("console", (message) => {
@@ -644,6 +655,12 @@ check("a name that already says what it is is not repeated",
 // The whole point: 17:00 local on the day before, on both sides of a clock change.
 const warsaw = await browser.newContext({ timezoneId: "Europe/Warsaw" });
 const warsawPage = await warsaw.newPage();
+await warsawPage.addInitScript(() => {
+  try {
+    sessionStorage.setItem("getagrip.welcomed", "yes");
+    sessionStorage.setItem("getagrip.area", "school");
+  } catch (err) { /* nothing to skip if storage is refused */ }
+});
 await warsawPage.goto(base);
 await warsawPage.waitForSelector(".tt-lesson");
 const shifted = await warsawPage.evaluate(() => {

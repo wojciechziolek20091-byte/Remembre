@@ -62,6 +62,13 @@ const browser = await chromium.launch(
 const context = await browser.newContext();
 const page = await context.newPage();
 
+await page.addInitScript(() => {
+  try {
+    sessionStorage.setItem("getagrip.welcomed", "yes");
+    sessionStorage.setItem("getagrip.area", "school");
+  } catch (err) { /* nothing to skip if storage is refused */ }
+});
+
 console.log("\nupdate bar");
 
 await page.goto(base);
@@ -122,6 +129,12 @@ console.log("\na release is visible on the next launch");
 await context.close();
 const fresh = await browser.newContext();
 const page2 = await fresh.newPage();
+await page2.addInitScript(() => {
+  try {
+    sessionStorage.setItem("getagrip.welcomed", "yes");
+    sessionStorage.setItem("getagrip.area", "school");
+  } catch (err) { /* nothing to skip if storage is refused */ }
+});
 await page2.goto(base);
 await page2.waitForSelector(".tt-lesson");
 await page2.evaluate(() => navigator.serviceWorker.ready);
