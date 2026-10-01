@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.01-54";
+const APP_VERSION = "2026.10.01-56";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1394,6 +1394,8 @@ function setArea(area, { remember = true } = {}) {
   document.querySelectorAll(".school-only").forEach((node) => {
     node.hidden = state.area !== "school";
   });
+  // The money half brings its own surface, and the bar and footer come with it.
+  document.body.classList.toggle("on-money", state.area === "money");
 
   if (remember) {
     try {

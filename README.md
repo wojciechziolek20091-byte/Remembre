@@ -20,7 +20,15 @@ is not a setting.
 
 ![The money dashboard](docs/screenshot-money-light.png)
 
-Money opens on a dashboard, in the order the questions actually get asked:
+Money runs on a surface of its own, dark in both themes, and the bar and the
+footer come with it: a ledger is read at a glance at the top of the hour, the
+figures want to glow rather than sit on paper, and a page that is dark in the
+middle and warm at both ends reads as two apps stacked. Every contrast pair is
+measured by `tools/check-contrast.mjs` and the ramp by the dataviz validator;
+nothing in here was chosen by eye.
+
+It opens with the time of day and your name, and then the dashboard, in the
+order the questions actually get asked:
 **what have I got**, **where did it go**, **how fast is it going**. The
 statement, the setup and the month in detail are folded away underneath,
 because nobody opens a money app to re-read last Tuesday.
@@ -64,6 +72,20 @@ Money moved to your own account is not spending and is left out of both;
 cash withdrawals are not, because the money has left the account and where it
 went afterwards is not something a statement knows.
 
+### Where the plan goes
+
+The budget map is the plan as a picture: 2 500 on the left, a ribbon to every
+budget, and each budget partly filled by what has gone. One hue at two
+intensities, so "how much is left" needs no second colour; red where a limit
+is past or was never set at all. It is laid out in real pixels from the
+measured width rather than drawn once and scaled, because scaled text at phone
+width is unreadable, and every row keeps a floor of 34px however small its
+budget -- strict proportionality drew a 30 zl subscription as a two-pixel
+sliver with four lines of type piled on it.
+
+What has not been given a job is a node of its own, and so is spending with no
+budget behind it. Both are the things a plan most needs to say out loud.
+
 ### Analytics
 
 The second page reads the numbers back to you, and it does it without being
@@ -77,7 +99,18 @@ the top payees, the recurring charges and the shape of the last four weeks. The
 arithmetic has already been done here, and that summary is the only part a
 model can use.
 
-The plan underneath it *is* on a button, deliberately. An analysis of what
+The budgets move on their own. A limit that is wrong every month is not a
+budget, it is a reproach: if the coffee is 200 and the limit says 80, the
+limit is the thing that is wrong, and a budget nobody can keep gets ignored
+and takes the rest of the plan with it. So after each reading the analysis
+proposes limits that match where the money actually goes, keeps the total at
+the income plan, and -- if the switch under the map is on, which it is by
+default -- puts them in. Every move is shown with the habit it is really about
+("14 visits a month; 80 was never going to hold"), the previous set is kept,
+and Undo is one tap. Automatic, because that was asked for; reversible,
+because automatic without reversible is just something happening to you.
+
+The plan in the analytics sector *is* on a button, deliberately. An analysis of what
 already happened costs nothing to be wrong about; a budget is a decision, and a
 decision nobody asked for is noise. It comes back as limits against what you
 actually spent, what each tightening costs in practice, and what a year of

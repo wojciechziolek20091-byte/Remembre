@@ -26,6 +26,8 @@ function tokens(selectorPattern) {
 
 const light = tokens(/:root \{\s*color-scheme: light;([\s\S]*?)\n\}/);
 const dark = tokens(/:root\[data-theme="dark"\] \{([\s\S]*?)\n\}/);
+/* The money half runs on a surface of its own, dark in both themes. */
+const money = tokens(/body\.on-money \{([\s\S]*?)\n\}/);
 
 function toRgb(hex) {
   const clean = hex.replace("#", "").trim();
@@ -101,11 +103,33 @@ const PAIRS = [
   ["--today-line", "--surface", 3, "today outline on paper"],
 ];
 
+/*
+  The money half's own pairs. Its ramp is checked by the dataviz validator for
+  the things contrast cannot say -- monotone lightness, one hue, separation
+  under colour blindness -- and here for the thing it can.
+*/
+const MONEY_PAIRS = [
+  ["--ink", "--surface", 4.5, "figures on a card"],
+  ["--ink", "--ground", 4.5, "figures on the ground"],
+  ["--ink", "--surface-2", 4.5, "figures on the deeper card"],
+  ["--ink-2", "--surface", 4.5, "secondary text on a card"],
+  ["--ink-2", "--surface-2", 4.5, "secondary text on the deeper card"],
+  ["--accent", "--surface", 4.5, "lime on a card"],
+  ["--accent-ink", "--accent", 4.5, "label on a lime button"],
+  ["--accent-ink", "--accent-hover", 4.5, "label on a lime button, hovered"],
+  ["--danger", "--surface", 4.5, "an overspend"],
+  ["--now", "--surface", 4.5, "close to a limit"],
+  ["--s-ess", "--surface", 4.5, "sustainable"],
+  ["--line-strong", "--surface", 3, "the baseline a chart is read against"],
+  ["--seq-5", "--surface", 3, "the brightest step of the ramp"],
+  ["--seq-1", "--surface", 1.9, "the dimmest step, which only has to be seen"],
+];
+
 let failures = 0;
 
-for (const [themeName, theme] of [["light", light], ["dark", dark]]) {
+for (const [themeName, theme] of [["light", light], ["dark", dark], ["money", money]]) {
   console.log(`\n${themeName} theme`);
-  for (const [fg, bg, min, label] of PAIRS) {
+  for (const [fg, bg, min, label] of (themeName === "money" ? MONEY_PAIRS : PAIRS)) {
     const fgValue = theme[fg];
     const bgValue = theme[bg];
     if (!fgValue || !bgValue) {

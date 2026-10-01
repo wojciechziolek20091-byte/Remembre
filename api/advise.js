@@ -136,7 +136,7 @@ const SHAPES = {
             category: { type: "string", description: "Exactly as spelled in the summary. Never a category that is not in it." },
             limit: { type: "number", description: "The monthly limit in whole zloty." },
             was: { type: "number", description: "What they actually spent on it in the month given, in whole zloty." },
-            why: { type: "string", description: "One short sentence." },
+            why: { type: "string", description: "One short sentence saying why this limit, naming the habit or the shop behind it rather than the category." },
           },
           required: ["category", "limit", "was", "why"],
         },

@@ -435,6 +435,8 @@ console.log("\nthe two halves");
     await page.locator("#school-area").isVisible(), false);
 
   check("money is open", await page.locator("#money-area").isVisible(), true);
+  check("and the whole page takes its surface, bar and footer included",
+    await page.evaluate(() => document.body.classList.contains("on-money")), true);
   check("and the calendar's controls step aside",
     await page.locator("#add-task-top").isVisible(), false);
   check("the transactions are listed",
@@ -454,6 +456,8 @@ console.log("\nthe two halves");
 
   await page.click('[data-area="school"]');
   check("and schoolwork still opens", await page.locator("#school-area").isVisible(), true);
+  check("with the paper surface back",
+    await page.evaluate(() => document.body.classList.contains("on-money")), false);
   check("with its controls back", await page.locator("#add-task-top").isVisible(), true);
   check("and the timetable drawn", await page.locator(".tt-lesson").count() > 0, true);
 }
@@ -632,7 +636,7 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
       why: document.querySelector(".verdict-why").textContent,
       line: Boolean(document.querySelector(".rate-line")),
       lineLabel: (document.querySelector(".rate-key") || {}).textContent,
-      table: document.querySelectorAll(".as-table .plain-table tbody tr").length,
+      table: document.querySelectorAll("#money-rate .as-table .plain-table tbody tr").length,
     };
   });
 
@@ -1009,6 +1013,9 @@ const CANNED = {
   await page.evaluate((csv) => { window.__statement = csv; }, statement({ perDay: 20, income: 1000 }));
   await page.evaluate(async (canned) => {
     window.__calls = [];
+    // The automatic rebalance has a section of its own below; here the plan
+    // card is being tested, which is the manual half.
+    writeStore("remembre.autobudget.v1", false);
     window.fetch = async (url, options) => {
       window.__calls.push(String(url));
       const action = String(url).includes("action=plan") ? "plan" : "analyse";
@@ -1028,9 +1035,12 @@ const CANNED = {
   check("and the dashboard steps aside", await page.locator("#money-dash").isVisible(), false);
 
   await page.waitForSelector(".insight-headline");
-  check("it ran without being asked", await page.evaluate(() => window.__calls.length), 1);
-  check("against the analyse action",
+  check("it ran without being asked",
     await page.evaluate(() => window.__calls[0].includes("action=analyse")), true);
+  // And having read the month, it goes straight on to the budgets.
+  await page.waitForFunction(() => window.__calls.length === 2);
+  check("and goes on to look at the budgets", 
+    await page.evaluate(() => window.__calls[1].includes("action=plan")), true);
   check("the headline is what leads", (await page.locator(".insight-headline").innerText()).trim(),
     "Zabka is 70% of your month.");
   check("the verdict carries a word", (await page.locator("#money-insight .verdict-label").innerText()).trim(),
@@ -1050,10 +1060,10 @@ const CANNED = {
   // Nothing is paid twice for the same numbers.
   await page.click('[data-money-page="dash"]');
   await page.click('[data-money-page="insight"]');
-  check("looking again does not ask again", await page.evaluate(() => window.__calls.length), 1);
+  check("looking again does not ask again", await page.evaluate(() => window.__calls.length), 2);
   await page.click("#insight-again");
-  await page.waitForFunction(() => window.__calls.length === 2);
-  check("but asking for it again does", await page.evaluate(() => window.__calls.length), 2);
+  await page.waitForFunction(() => window.__calls.length === 4);
+  check("but asking for it again does", await page.evaluate(() => window.__calls.length), 4);
 }
 
 {
@@ -1078,6 +1088,166 @@ const CANNED = {
   check("and then the budgets are the plan's", /food = 350/.test(budgets), true);
   check("with a line saying where they came from", /# Written from the plan/.test(budgets), true);
   check("and the editor shows them", (await page.inputValue("#money-budgets")).includes("food = 350"), true);
+}
+
+/* ---------- The interface ---------- */
+
+console.log("\nthe greeting");
+
+{
+  const said = await page.evaluate(() => {
+    const at = (h) => greetingFor(h);
+    renderGreeting(new Date("2026-10-01T09:00:00"));
+    return {
+      bands: [at(0), at(5), at(11), at(12), at(17), at(18), at(23)],
+      shown: document.querySelector(".greeting-hello").textContent,
+      name: document.querySelector(".greeting-name").textContent,
+      when: document.querySelector(".greeting-when").textContent,
+    };
+  });
+  check("morning, afternoon and evening, by the clock", said.bands,
+    ["Good evening", "Good morning", "Good morning", "Good afternoon", "Good afternoon", "Good evening", "Good evening"]);
+  check("and it greets you by name", said.shown, "Good morning, Wojciech");
+  check("with the name picked out", said.name, "Wojciech");
+  check("and today's date beside it",
+    /Thursday/.test(said.when) && /1 October/.test(said.when), true, said.when);
+}
+
+console.log("\nthe budget map");
+
+{
+  const map = await page.evaluate(async (csv) => {
+    state.transactions = [];
+    writeStore("remembre.moneybudgets.v1", "food = 600\ntransport = 120\nfun = 150");
+    writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
+    writeStore("remembre.budgetmoves.v1", null);
+    await importCsvText(csv, { label: "for the map" });
+    state.moneyMonth = latestMonth();
+    renderBudgetMap();
+
+    const svg = document.querySelector(".budget-map");
+    return {
+      drawn: Boolean(svg),
+      labels: [...svg.querySelectorAll(".map-label")].map((t) => t.textContent),
+      figures: [...svg.querySelectorAll(".map-sub")].map((t) => t.textContent),
+      flows: svg.querySelectorAll(".map-flow").length,
+      nodes: svg.querySelectorAll("rect.map-node:not(.map-source)").length,
+      described: svg.getAttribute("aria-label"),
+      rows: document.querySelectorAll(".card-map .plain-table tbody tr").length,
+      steps: [...svg.querySelectorAll("rect.map-node:not(.map-source)")]
+        .filter((r) => r.getAttribute("fill-opacity"))
+        .map((r) => r.getAttribute("fill")),
+    };
+  }, statement({ perDay: 20, income: 700 }));
+
+  check("the plan is drawn as a map", map.drawn, true);
+  check("one flow per budget, plus what is left unallocated", map.flows, map.labels.length);
+  check("every node is named", map.labels.includes("food") && map.labels.includes("unallocated"), true,
+    map.labels.join(","));
+  check("and carries both figures", /of 600,00 zł · .* left/.test(map.figures[0]), true, map.figures[0]);
+  // Each budget draws two rectangles: the budget, and the part of it gone.
+  check("what has been spent is drawn inside the node", map.nodes > map.labels.length, true,
+    `${map.nodes} rects for ${map.labels.length} rows`);
+  check("the biggest budget gets the brightest step", map.steps[0], "var(--seq-5)");
+  check("a screen reader is told what it says", /How 2500 zloty of plan is divided/.test(map.described), true);
+  check("and the same map is available as a table", map.rows, map.labels.length);
+}
+
+{
+  // Spending with no budget is the thing a plan most needs to know about.
+  const loose = await page.evaluate(() => {
+    writeStore("remembre.moneybudgets.v1", "transport = 120");
+    renderBudgetMap();
+    const names = [...document.querySelectorAll(".map-label")].map((t) => t.textContent);
+    const note = [...document.querySelectorAll(".map-sub")]
+      .find((t) => /no budget/.test(t.textContent));
+    return { names, note: note ? note.textContent : "", tone: note ? note.getAttribute("class") : "" };
+  });
+  check("spending with no budget is a node of its own", loose.names.includes("not budgeted"), true,
+    loose.names.join(","));
+  check("and says so in words", /spent, no budget/.test(loose.note), true, loose.note);
+  check("marked the way an overspend is", /is-over/.test(loose.tone), true);
+}
+
+console.log("\nthe analysis moving the budgets");
+
+{
+  const moved = await page.evaluate(async () => {
+    writeStore("remembre.moneybudgets.v1", "food = 600\ncoffee = 80\nfun = 150");
+    writeStore("remembre.autobudget.v1", true);
+    writeStore("remembre.budgetmoves.v1", null);
+    writeStore("remembre.budgetsbefore.v1", null);
+
+    // What the analysis came back with: the coffee limit was always wrong.
+    window.fetch = async (url) => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        result: {
+          approach: "Moved to where the money goes.",
+          monthly: [
+            { category: "coffee", limit: 200, was: 210, why: "14 visits a month; 80 was never going to hold." },
+            { category: "fun", limit: 70, was: 40, why: "Room to take it from." },
+            { category: "food", limit: 600, was: 480, why: "Unchanged." },
+          ],
+          save: { amount: 200, why: "First." },
+          tradeoffs: [], year: "",
+        },
+      }),
+    });
+
+    await rebalanceBudgets({ byHand: true });
+    return {
+      budgets: readStore("remembre.moneybudgets.v1", ""),
+      moves: readStore("remembre.budgetmoves.v1", null),
+      notice: (document.querySelector(".notice-text") || {}).textContent || "",
+      undo: (document.querySelector(".notice-acts .btn") || {}).textContent || "",
+      shown: [...document.querySelectorAll(".move-cat")].map((n) => n.textContent),
+      why: (document.querySelector(".move-why") || {}).textContent || "",
+    };
+  });
+
+  check("a limit that is always wrong is raised", /coffee = 200/.test(moved.budgets), true, moved.budgets);
+  check("and the room is taken from one with slack", /fun = 70/.test(moved.budgets), true);
+  check("a limit that was right is left alone", /food = 600/.test(moved.budgets), true);
+  check("only what changed counts as a move", moved.shown.sort(), ["coffee", "fun"]);
+  check("each move says what it is really about", /14 visits a month/.test(moved.why), true, moved.why);
+  check("it is applied without being asked", moved.moves.applied, true);
+  check("and said out loud where it can be seen", /Budgets adjusted/.test(moved.notice), true, moved.notice);
+  check("with one tap to put it back", moved.undo, "Undo");
+
+  const back = await page.evaluate(() => {
+    undoMoves();
+    return {
+      budgets: readStore("remembre.moneybudgets.v1", ""),
+      applied: readStore("remembre.budgetmoves.v1", null).applied,
+    };
+  });
+  check("undo puts the old limits back", /coffee = 80/.test(back.budgets), true, back.budgets);
+  check("and the map stops claiming they were applied", back.applied, false);
+}
+
+{
+  // Turned off, it proposes and waits.
+  const waited = await page.evaluate(async () => {
+    writeStore("remembre.autobudget.v1", false);
+    writeStore("remembre.budgetmoves.v1", null);
+    await rebalanceBudgets({ byHand: true });
+    return {
+      budgets: readStore("remembre.moneybudgets.v1", ""),
+      moves: readStore("remembre.budgetmoves.v1", null),
+      button: (document.querySelector(".card-map .panel-actions .btn") || {}).textContent || "",
+    };
+  });
+  check("with the switch off, nothing moves on its own", /coffee = 80/.test(waited.budgets), true, waited.budgets);
+  check("but the proposal is kept", waited.moves.moves.length, 2);
+  check("and offered on the map", waited.button, "Use these");
+
+  const taken = await page.evaluate(() => {
+    document.querySelector(".card-map .panel-actions .btn").click();
+    return readStore("remembre.moneybudgets.v1", "");
+  });
+  check("tapping it applies them", /coffee = 200/.test(taken), true, taken);
 }
 
 check("no console or page errors", problems, []);

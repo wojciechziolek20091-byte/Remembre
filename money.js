@@ -1725,6 +1725,253 @@ function renderReview() {
   ]);
 }
 
+/* ---------- Hello ---------- */
+
+/*
+  Three bands rather than four. "Good night" on a page somebody has just
+  opened reads as a dismissal, and the small hours belong to the evening as
+  far as anyone awake in them is concerned.
+*/
+const MONEY_NAME_KEY = "remembre.name.v1";
+
+function greetingFor(hour) {
+  if (hour >= 5 && hour < 12) return "Good morning";
+  if (hour >= 12 && hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function renderGreeting(now = new Date()) {
+  const wrap = $("money-greeting");
+  if (!wrap) return;
+
+  const name = String(readStore(MONEY_NAME_KEY, "") || "Wojciech").slice(0, 40);
+  const when = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+  show(wrap, [
+    el("h2", { class: "greeting-hello" },
+      el("span", { text: `${greetingFor(now.getHours())}, ` }),
+      el("span", { class: "greeting-name", text: name })),
+    el("p", { class: "greeting-when", text: when }),
+  ]);
+}
+
+/* ---------- The budget map ---------- */
+
+/*
+  One picture of where 2 500 is meant to go, drawn the way the reader asked
+  for it: the plan on the left, the budgets fanning out of it, each one
+  partly filled by what has actually been spent.
+
+  It is laid out in real pixels from the measured width rather than drawn once
+  into a viewBox and scaled, because scaled text at phone width is unreadable
+  -- the labels have to stay 12px whatever the screen is doing.
+
+  The ramp is the same one hue the category bars use: bigger budget, brighter
+  node. Every node carries its name and its two figures, so the colour is
+  decoration and the number is the data.
+*/
+
+const MAP_NODE_W = 11;
+const MAP_GAP = 7;
+const MAP_PAD = 6;
+
+function budgetRows(monthKey) {
+  const budgets = parseBudgets(budgetsText());
+  const month = monthReport(monthKey);
+
+  const rows = [...budgets.entries()].map(([name, limit]) => ({
+    name,
+    limit,
+    spent: Math.abs(month.byCategory.get(name) || 0),
+  }));
+
+  // Spending with no budget at all is not invisible: it is the thing a plan
+  // most needs to know about, so it arrives as one node of its own.
+  const loose = [...month.byCategory.entries()]
+    .filter(([name, sum]) => sum < 0 && name !== "transfers" && !budgets.has(name))
+    .reduce((sum, [, value]) => sum + Math.abs(value), 0);
+  if (loose > 0) rows.push({ name: "not budgeted", limit: 0, spent: loose, loose: true });
+
+  rows.sort((a, b) => (b.limit || b.spent) - (a.limit || a.spent));
+  return rows;
+}
+
+function renderBudgetMap() {
+  const wrap = $("money-map");
+  if (!wrap) return;
+
+  const monthKey = state.moneyMonth || latestMonth();
+  const rows = budgetRows(monthKey);
+  const planned = plannedMonthly();
+
+  if (rows.length === 0) {
+    show(wrap, [el("p", {
+      class: "empty",
+      text: "No budgets yet, so there is nothing to map. Set them in the fold below, or let the analysis propose a set.",
+    })]);
+    return;
+  }
+
+  const allocated = rows.reduce((sum, row) => sum + row.limit, 0);
+  const spare = planned - allocated;
+  if (spare > 0) rows.push({ name: "unallocated", limit: spare, spent: 0, spare: true });
+
+  const width = Math.max(300, wrap.clientWidth || 640);
+  const labelW = width < 520 ? Math.round(width * 0.54) : Math.round(width * 0.42);
+  const flowW = Math.max(40, width - labelW - MAP_NODE_W * 2 - MAP_PAD * 2);
+
+  /*
+    Every row has two lines of text in it, so no row may be shorter than they
+    are however small its budget. The floor is given out first and what is
+    left over is shared by value -- strict proportionality would draw a 30 zl
+    subscription as a two-pixel sliver with four lines of type piled on top of
+    it, which is what it did.
+  */
+  const value = (row) => Math.max(row.limit, row.spent);
+  const total = rows.reduce((sum, row) => sum + value(row), 0) || 1;
+  const floor = width < 520 ? 34 : 36;
+  const slack = Math.max(0, 420 - rows.length * floor);
+  const heights = rows.map((row) => Math.round(floor + (value(row) / total) * slack));
+
+  const height = heights.reduce((sum, h) => sum + h, 0) + MAG_GAPS(rows.length) + MAP_PAD * 2;
+
+  /*
+    The ramp is scaled over the real budgets only. What is left unallocated is
+    usually the largest block of all, and letting it set the top of the scale
+    pushed every actual budget into the two dimmest steps -- a chart whose
+    brightest colour is reserved for the absence of a decision.
+  */
+  const biggest = Math.max(...rows.filter((row) => !row.spare).map(value));
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "budget-map");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", mapDescription(rows, planned, monthKey));
+
+  const node = (name, attrs) => {
+    const made = document.createElementNS("http://www.w3.org/2000/svg", name);
+    Object.entries(attrs).forEach(([key, value]) => made.setAttribute(key, String(value)));
+    return made;
+  };
+
+  /*
+    The source is as tall as everything leaving it, and each ribbon is the
+    same height at both ends. A flow that narrows on the way across is a
+    picture of money going missing.
+  */
+  const sourceH = heights.reduce((sum, h) => sum + h, 0);
+  svg.append(node("rect", {
+    class: "map-node map-source", x: 0, y: MAP_PAD,
+    width: MAP_NODE_W, height: sourceH, rx: 4,
+  }));
+
+  let y = MAP_PAD;
+  let sourceAt = MAP_PAD;
+
+  rows.forEach((row, index) => {
+    const h = heights[index];
+    const x = MAP_NODE_W + flowW + MAP_PAD;
+    const step = row.spare ? 0 : seqStep(value(row), biggest);
+    const hue = row.spare ? "var(--surface-3)" : `var(--seq-${step})`;
+
+    const c = MAP_NODE_W + flowW * 0.5;
+    svg.append(node("path", {
+      class: "map-flow",
+      d: `M${MAP_NODE_W},${sourceAt} C${c},${sourceAt} ${c},${y} ${x - MAP_PAD},${y}`
+        + ` L${x - MAP_PAD},${y + h} C${c},${y + h} ${c},${sourceAt + h} ${MAP_NODE_W},${sourceAt + h} Z`,
+      fill: hue,
+    }));
+
+    // The node is the budget; the part of it that is filled is what has gone.
+    // One hue at two intensities, so "how much is left" is read at a glance
+    // without a second colour meaning a second thing.
+    svg.append(node("rect", {
+      class: "map-node", x, y, width: MAP_NODE_W, height: h, rx: 4,
+      fill: hue, "fill-opacity": row.spare ? 1 : 0.3,
+    }));
+
+    if (row.spent > 0 && !row.spare) {
+      const eaten = Math.max(3, Math.round(Math.min(1, row.spent / value(row)) * h));
+      svg.append(node("rect", {
+        class: "map-node", x, y: y + h - eaten, width: MAP_NODE_W, height: eaten, rx: 4,
+        // Over its limit, or never given one: both are the same news.
+        fill: row.loose || (row.limit && row.spent > row.limit) ? "var(--danger)" : hue,
+      }));
+    }
+
+    // append() hands back nothing, so the text goes on before it goes in.
+    const textX = x + MAP_NODE_W + 10;
+    const middle = y + h / 2;
+    const name = node("text", { class: "map-label", x: textX, y: middle - 3 });
+    name.textContent = row.name;
+
+    const line = node("text", { class: `map-sub${noteTone(row)}`, x: textX, y: middle + 12 });
+    line.textContent = mapFigures(row, width < 520);
+    svg.append(name, line);
+
+    y += h + MAP_GAP;
+    sourceAt += h;
+  });
+
+  show(wrap, [
+    svg,
+    el("div", { class: "map-legend" },
+      el("span", { class: "map-key" }, el("span", { class: "map-key-mark is-budget" }), el("span", { text: "budget" })),
+      el("span", { class: "map-key" }, el("span", { class: "map-key-mark is-spent" }), el("span", { text: "spent so far" })),
+      el("span", { class: "map-key" }, el("span", { text: `plan ${zloty(planned)}` }))),
+    renderMoves(),
+    el(
+      "details",
+      { class: "as-table" },
+      el("summary", { text: "The same map as a table" }),
+      el("table", { class: "plain-table" },
+        el("thead", {}, el("tr", {},
+          el("th", { scope: "col", text: "Category" }),
+          el("th", { scope: "col", text: "Budget" }),
+          el("th", { scope: "col", text: "Spent" }),
+          el("th", { scope: "col", text: "Left" }))),
+        el("tbody", {}, rows.map((row) => el("tr", {},
+          el("th", { scope: "row", text: row.name }),
+          el("td", { text: row.limit ? zloty(row.limit) : "—" }),
+          el("td", { text: row.spent ? zloty(-row.spent) : "—" }),
+          el("td", { text: row.limit ? zloty(row.limit - row.spent) : "—" })))))
+    ),
+  ]);
+}
+
+/** The gaps between the nodes, which do not get to be part of the data. */
+const MAG_GAPS = (count) => Math.max(0, count - 1) * MAP_GAP;
+
+function noteTone(row) {
+  if (row.loose) return " is-over";
+  if (!row.limit) return "";
+  if (row.spent >= row.limit) return " is-over";
+  if (row.spent >= row.limit * 0.8) return " is-close";
+  return "";
+}
+
+/*
+  On a phone the grosze are what runs off the edge of the card, and they are
+  also the least of what the line is saying. Whole zloty on a narrow screen,
+  to the grosz on a wide one.
+*/
+function mapFigures(row, compact = false) {
+  const money = (grosze) => (compact ? `${Math.round(grosze / 100)} zł` : zloty(grosze));
+  if (row.spare) return `${money(row.limit)} not given a job`;
+  if (row.loose) return `${money(row.spent)} spent, no budget`;
+  const over = row.spent >= row.limit;
+  const rest = Math.abs(row.limit - row.spent);
+  return `${money(row.spent)} of ${money(row.limit)} · ${money(rest)} ${over ? "over" : "left"}`;
+}
+
+function mapDescription(rows, planned, monthKey) {
+  const parts = rows.slice(0, 6).map((row) => `${row.name} ${zl(row.limit)} zloty, ${zl(row.spent)} spent`);
+  return `How ${zl(planned)} zloty of plan is divided in ${monthName(monthKey)}: ${parts.join("; ")}.`;
+}
+
 /* ---------- The dashboard ---------- */
 
 /*
@@ -2119,8 +2366,10 @@ function renderDashboard() {
   // What matched the schedule is settled before anything is totalled, so the
   // figures and the queue can never disagree.
   classifyIncome();
+  renderGreeting();
   renderReview();
   renderBalanceCard();
+  renderBudgetMap();
   renderCategoryBars();
   renderRateCard();
 }
@@ -2360,6 +2609,9 @@ async function runInsight({ force = false } = {}) {
     writeStore(MONEY_INSIGHT_KEY, record);
     renderInsight(record);
     announce("The analysis is ready.");
+    // Having just read the month, it is the right moment to put the budgets
+    // where the money is actually going.
+    rebalanceBudgets();
   } catch (err) {
     setInsightStatus(err.message, false);
   } finally {
@@ -2533,6 +2785,171 @@ function applyPlanBudgets(lines) {
   setPlanStatus("Budgets updated. They are in the Categories panel if you want to change them.", false);
 }
 
+/* ---------- Letting the analysis move the budgets ---------- */
+
+/*
+  A budget that is wrong every month is not a budget, it is a reproach. If the
+  coffee is 200 a month and the limit says 80, the limit is the thing that is
+  wrong -- the money is being spent either way, and a plan that pretends
+  otherwise gets ignored and takes the rest of the plan down with it.
+
+  So the analysis moves them: it keeps the total at the income plan, raises
+  the ones that are always overspent, and takes it from the ones with room.
+  Every move is shown with its reason and a sentence of what it costs, the
+  previous set is kept, and Undo puts it back in one tap. Automatic, because
+  the reader asked for automatic; reversible, because automatic without
+  reversible is just something happening to you.
+*/
+
+const MONEY_MOVES_KEY = "remembre.budgetmoves.v1";
+const MONEY_AUTO_KEY = "remembre.autobudget.v1";
+const MONEY_UNDO_KEY = "remembre.budgetsbefore.v1";
+
+const autoBudget = () => readStore(MONEY_AUTO_KEY, null) !== false;
+
+/** What the analysis last proposed, and whether it has been taken up. */
+const budgetMoves = () => readStore(MONEY_MOVES_KEY, null);
+
+/**
+ * Turns a plan's limits into moves against what is set today. Only what
+ * actually changes is a move: a limit the analysis left alone is not news.
+ */
+function movesFrom(lines) {
+  const held = parseBudgets(budgetsText());
+  return lines
+    .map((line) => ({
+      category: line.category,
+      from: held.get(line.category) || 0,
+      to: Math.round(line.limit) * 100,
+      why: line.why || "",
+    }))
+    .filter((move) => move.to !== move.from);
+}
+
+function applyMoves(moves, { quiet = false } = {}) {
+  if (!moves || moves.length === 0) return;
+
+  const before = budgetsText();
+  const held = parseBudgets(before);
+  moves.forEach((move) => held.set(move.category, move.to));
+
+  const text = [`# Adjusted by the analysis on ${todayISO()}. Edit freely.`,
+    ...[...held.entries()].map(([name, grosze]) => `${name} = ${Math.round(grosze / 100)}`)].join("\n") + "\n";
+
+  writeStore(MONEY_UNDO_KEY, before);
+  writeStore(MONEY_BUDGETS_KEY, text);
+  const box = $("money-budgets");
+  if (box) box.value = text;
+
+  writeStore(MONEY_MOVES_KEY, { at: new Date().toISOString(), moves, applied: true });
+  moneyChanged();
+
+  if (quiet) return;
+  const said = moves.slice(0, 3)
+    .map((move) => `${move.category} ${move.from ? zloty(move.from) : "—"} → ${zloty(move.to)}`)
+    .join(", ");
+  showMoneyNotice(`Budgets adjusted to how you actually spend: ${said}${moves.length > 3 ? ", and more" : ""}.`, {
+    tone: "good",
+    act: { label: "Undo", go: undoMoves },
+  });
+  announce("Budgets adjusted.");
+}
+
+function undoMoves() {
+  const before = readStore(MONEY_UNDO_KEY, null);
+  if (typeof before !== "string") return;
+  writeStore(MONEY_BUDGETS_KEY, before);
+  const box = $("money-budgets");
+  if (box) box.value = before;
+  writeStore(MONEY_UNDO_KEY, null);
+  const held = budgetMoves();
+  if (held) writeStore(MONEY_MOVES_KEY, { ...held, applied: false, undone: true });
+  moneyChanged();
+  showMoneyNotice("");
+  announce("Budgets put back.");
+}
+
+/** The moves, under the map, so the picture and the reason sit together. */
+function renderMoves() {
+  const held = budgetMoves();
+  if (!held || !Array.isArray(held.moves) || held.moves.length === 0) return autoRow();
+
+  return el(
+    "div",
+    {},
+    el("p", { class: "chart-caption", text: held.applied
+      ? `Adjusted ${ageInWords(held.at)} to how you actually spend.`
+      : `Proposed ${ageInWords(held.at)}, not applied.` }),
+    el("ul", { class: "moves" }, held.moves.slice(0, 6).map((move) => el(
+      "li",
+      { class: "move" },
+      el("span", { class: "move-cat", text: move.category }),
+      el("span", { class: "move-from", text: move.from ? zloty(move.from) : "none" }),
+      el("span", { text: "→" }),
+      el("span", { class: "move-to", text: zloty(move.to) }),
+      el("span", { class: "move-why", text: move.why })
+    ))),
+    el(
+      "div",
+      { class: "panel-actions" },
+      held.applied
+        ? el("button", { type: "button", class: "btn btn-quiet btn-tiny", text: "Put them back", onclick: undoMoves })
+        : el("button", {
+            type: "button", class: "btn btn-primary btn-tiny", text: "Use these",
+            onclick: () => applyMoves(held.moves),
+          })
+    ),
+    autoRow()
+  );
+}
+
+function autoRow() {
+  const box = el("input", { type: "checkbox", id: "auto-budget", checked: autoBudget() });
+  box.addEventListener("change", () => {
+    writeStore(MONEY_AUTO_KEY, box.checked);
+    announce(box.checked ? "The analysis will keep the budgets in step." : "Budgets will only change when you say so.");
+  });
+  return el("label", { class: "auto-row", for: "auto-budget" }, box,
+    el("span", { text: "Let the analysis keep these in step with how I actually spend" }));
+}
+
+/**
+ * Asks for a set of limits and, if the reader has left it on, puts them in.
+ * Runs off the back of the analysis rather than off a button, which is the
+ * point: budgets that need a button never get adjusted.
+ */
+async function rebalanceBudgets({ byHand = false } = {}) {
+  const digest = buildDigest();
+  if (digest.days < 7) {
+    if (byHand) showMoneyNotice("There is not enough spending here yet to rebalance anything.", { tone: "plain" });
+    return;
+  }
+
+  try {
+    const answer = await askClaude("plan", digest);
+    const lines = (answer.result && Array.isArray(answer.result.monthly) ? answer.result.monthly : [])
+      .filter((row) => row && row.category && Number.isFinite(Number(row.limit)))
+      .map((row) => ({ category: String(row.category).toLowerCase().slice(0, 40), limit: Number(row.limit), why: String(row.why || "") }));
+
+    const moves = movesFrom(lines);
+    if (moves.length === 0) {
+      writeStore(MONEY_MOVES_KEY, null);
+      moneyChanged();
+      if (byHand) showMoneyNotice("Your budgets already match how you spend. Nothing worth moving.", { tone: "good" });
+      return;
+    }
+
+    writeStore(MONEY_MOVES_KEY, { at: new Date().toISOString(), moves, applied: false });
+    if (autoBudget()) applyMoves(moves);
+    else {
+      moneyChanged();
+      showMoneyNotice(`The analysis would move ${moves.length} ${moves.length === 1 ? "budget" : "budgets"}. It is on the map.`, { tone: "plain" });
+    }
+  } catch (err) {
+    if (byHand) showMoneyNotice(`The analysis could not be reached: ${err.message}`, { tone: "warn" });
+  }
+}
+
 /* ---------- Which page of the money half ---------- */
 
 function setMoneyPage(page) {
@@ -2551,6 +2968,18 @@ function setMoneyPage(page) {
   }
 }
 
+/* The map is laid out from the measured width, so it is redrawn when that
+   changes. Debounced: a drag of the window edge is one redraw, not forty. */
+let mapTimer = 0;
+function watchWidth() {
+  window.addEventListener("resize", () => {
+    window.clearTimeout(mapTimer);
+    mapTimer = window.setTimeout(() => {
+      if (state.area === "money") renderBudgetMap();
+    }, 120);
+  });
+}
+
 function setupInsight() {
   if (!$("money-insight")) return;
 
@@ -2559,6 +2988,13 @@ function setupInsight() {
   });
 
   $("insight-again").addEventListener("click", () => runInsight({ force: true }));
+  if ($("map-rebalance")) {
+    $("map-rebalance").addEventListener("click", () => {
+      showMoneyNotice("Working out where the money actually goes…", { tone: "plain", keep: false });
+      rebalanceBudgets({ byHand: true });
+    });
+  }
   $("insight-plan").addEventListener("click", () => runPlan());
   setMoneyPage("dash");
+  watchWidth();
 }

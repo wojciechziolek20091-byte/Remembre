@@ -169,6 +169,12 @@ What a good plan does here:
   external branch out of the arithmetic entirely.
 - Starts from what they actually spend, not from a ratio. A limit 10% under
   last month's real figure gets kept; one 60% under does not.
+- Moves a limit to where the money actually goes. A category that is over its
+  limit every month does not have a spending problem, it has a wrong limit:
+  raise it to about what is really being spent and take the room from one that
+  never uses what it has. A budget nobody can keep gets ignored, and it takes
+  the rest of the plan down with it. Say which habit or shop each move is
+  really about -- "coffee, 14 visits" rather than "food".
 - Leaves the comfortable things alone. The point is maximising what is saved
   over a year while the month still feels liveable, not winning a month.
 - Names the trade: every limit you tighten says what it costs in practice
