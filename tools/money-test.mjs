@@ -1150,6 +1150,135 @@ console.log("\nmoney from outside the plan");
   check("the card lists it", /BABCIA/.test(told.listed), true, told.listed);
 }
 
+/* ---------- The week, and the weekend ---------- */
+
+console.log("\nweekdays and the weekend");
+
+{
+  const split = await page.evaluate(() => {
+    writeStore("remembre.moneybudgets.v1", "food = 600\ntransport = 120\nfun = 180");
+    const plan = weekPlan("2026-09");
+    const days = daysOfMonth("2026-09");
+    return {
+      plan,
+      days,
+      // The split must not change the month. This is the whole promise.
+      closes: Math.abs((plan.weekday * days.week + plan.weekend * days.weekend) - plan.spendable) <= days.total,
+      ratio: plan.weekend / plan.weekday,
+      mondayOf: [weekStart("2026-09-30"), weekStart("2026-09-28"), weekStart("2026-10-04")],
+      weekend: [isWeekend("2026-09-25"), isWeekend("2026-09-26"), isWeekend("2026-09-28")],
+    };
+  });
+
+  check("the month is counted into its two kinds of day",
+    split.days.week + split.days.weekend === split.days.total && split.days.total === 30, true);
+  // Friday to Sunday: the weekend starts when the money starts being spent.
+  check("and three days in seven are the weekend",
+    split.days.weekend >= 12 && split.days.weekend <= 14, true);
+  check("a weekday costs less than a weekend day", split.plan.weekday < split.plan.weekend, true);
+  check("by about four fifths more", Math.abs(split.ratio - 1.8) < 0.02, true);
+  // Nothing is saved or lost by the split; it only moves when it may be spent.
+  check("and the two rates still come to the month", split.closes, true);
+  check("the week starts on Monday", split.mondayOf, ["2026-09-28", "2026-09-28", "2026-09-28"]);
+  check("Friday and Saturday are the weekend, Monday is not", split.weekend, [true, true, false]);
+}
+
+{
+  // A quiet week, read on the Friday morning it was saved for.
+  const friday = await page.evaluate(() => {
+    const FRIDAY = new Date("2026-10-02T08:00:00");
+    const monday = "2026-09-28";
+    state.transactions = [];
+    writeStore("remembre.moneybudgets.v1", "food = 600\ntransport = 120\nfun = 180");
+    const rate = weekPlan("2026-09").weekday;
+
+    for (let i = 0; i < 4; i += 1) {
+      state.transactions.push(normaliseTransaction({
+        id: `quiet-${i}`, date: shiftISO(monday, i), amount: -Math.round(rate / 2),
+        counterparty: "ZABKA", category: "food",
+      }));
+    }
+    saveTransactions();
+    return { purse: weekendPurse(FRIDAY), brief: briefNow(FRIDAY) };
+  });
+
+  check("only the days that are over are counted", friday.purse.counted, 4);
+  check("what was kept back is the difference", friday.purse.saved,
+    friday.purse.allowed - friday.purse.spent);
+  check("and it is added to the weekend", friday.purse.purse, friday.purse.base + friday.purse.saved);
+  check("Friday morning says what the week put by",
+    /kept .* back this week, so the weekend has/.test(friday.brief), true, friday.brief);
+  check("with both figures in it", (friday.brief.match(/zł/g) || []).length, 2);
+}
+
+{
+  // A week that went the other way says so, rather than quietly shrinking.
+  const spent = await page.evaluate(() => {
+    const FRIDAY = new Date("2026-10-02T08:00:00");
+    state.transactions = [];
+    const rate = weekPlan("2026-09").weekday;
+    for (let i = 0; i < 4; i += 1) {
+      state.transactions.push(normaliseTransaction({
+        id: `loud-${i}`, date: shiftISO("2026-09-28", i), amount: -(rate * 2),
+        counterparty: "ZABKA", category: "food",
+      }));
+    }
+    saveTransactions();
+    return { brief: briefNow(FRIDAY), purse: weekendPurse(FRIDAY) };
+  });
+  check("a week that ran over is said plainly", /ran .* over, so the weekend has/.test(spent.brief), true);
+  check("and the weekend is smaller for it", spent.purse.purse < spent.purse.base, true);
+}
+
+{
+  // Saturday and Sunday ask a different question: what is left.
+  const saturday = await page.evaluate(() => {
+    const SATURDAY = new Date("2026-10-03T11:00:00");
+    state.transactions = [];
+    state.transactions.push(normaliseTransaction({
+      id: "friday-night", date: "2026-10-02", amount: -8000, counterparty: "KINO", category: "fun",
+    }));
+    saveTransactions();
+    return { brief: briefNow(SATURDAY), purse: weekendPurse(SATURDAY) };
+  });
+  check("the weekend says what is left of it", /left of the weekend's/.test(saturday.brief), true);
+  check("and Friday night came out of it", saturday.purse.weekendSoFar, 8000);
+
+  const tuesday = await page.evaluate(() => briefNow(new Date("2026-09-29T09:00:00")));
+  check("a Tuesday gets the ordinary brief", /left of the weekend|kept .* back/.test(tuesday), false);
+}
+
+{
+  const shown = await page.evaluate(() => {
+    renderRateCard();
+    return (document.querySelector(".week-line") || {}).textContent || "";
+  });
+  check("the two rates are on the card the daily figures live on",
+    /a weekday · .* a weekend day/.test(shown), true);
+  check("with what is riding on them", /for the weekend/.test(shown), true);
+}
+
+console.log("\nthe one quotation");
+
+{
+  const quote = await page.evaluate(() => {
+    renderBalanceCard();
+    const note = document.querySelector(".kpi-quote");
+    return {
+      where: note ? note.closest("section").id : "",
+      text: note ? note.textContent : "",
+      who: (document.querySelector(".kpi-quote-who") || {}).textContent || "",
+      only: document.querySelectorAll(".kpi-quote").length,
+    };
+  });
+  // It belongs on the card about having money, not on the one about spending.
+  check("it sits on the balance card", quote.where, "money-balance");
+  check("and says what it says",
+    /No matter what happens, never lose liquidity/.test(quote.text), true);
+  check("with its attribution", quote.who, "Warren Buffett");
+  check("once, in one place", quote.only, 1);
+}
+
 /* ---------- The interface ---------- */
 
 console.log("\nthe greeting");

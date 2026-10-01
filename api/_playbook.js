@@ -102,6 +102,21 @@ What the money looks like:
   something only if the amounts are large or keep repeating, and never count
   them as overspending.
 
+How the week is shaped:
+- The month's spending money is split two ways: a lower weekday rate and a
+  weekend rate worth about 1.8 times as much, solved so that the two together
+  come to exactly the same monthly total. The summary gives both under "week".
+- The week is Monday to Thursday. The weekend is Friday to Sunday, because
+  that is when the money is spent.
+- The point of the weekday rate is the weekend, not thrift for its own sake.
+  Whatever is not spent between Monday and Thursday is carried onto Friday
+  night. Advice that takes the weekend away to save money has missed the
+  arrangement: say where the weekday money goes instead.
+- So when you propose a cut, prefer the small repeated weekday thing -- the
+  third coffee, the fourth shop run -- over the one evening out a week. A plan
+  that leaves nothing to look forward to gets abandoned by the second week,
+  and an abandoned plan saves nothing at all.
+
 The month you are reading:
 - The current month is the subject. Be specific about it: the shops, the
   counts, the days, the categories, the figures.
@@ -185,6 +200,8 @@ What a good plan does here:
   never uses what it has. A budget nobody can keep gets ignored, and it takes
   the rest of the plan down with it. Say which habit or shop each move is
   really about -- "coffee, 14 visits" rather than "food".
+- Leaves the weekend intact. Weekday limits may tighten; the one night out a
+  week is what the tightening is for.
 - Leaves the comfortable things alone. The point is maximising what is saved
   over a year while the month still feels liveable, not winning a month.
 - Names the trade: every limit you tighten says what it costs in practice

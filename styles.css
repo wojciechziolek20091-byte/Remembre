@@ -3086,3 +3086,41 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .outside-what { display: grid; gap: .1rem; min-width: 0; }
 .outside-paid { font-size: .78rem; color: var(--ink-2); }
 .outside-sum { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------- The week, and the one quotation ---------- */
+
+.week-line {
+  margin: 0 0 .9rem;
+  font-size: .88rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.week-line strong { color: var(--ink); font-weight: 650; }
+.week-line.is-over strong { color: var(--now); }
+
+/*
+  Quiet, and at the foot of the card about having money. A quotation that
+  shouts is a poster; this one is a note to self.
+*/
+.kpi-quote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .3rem .6rem;
+  margin: .9rem 0 0;
+  padding: .1rem 0 .1rem .7rem;
+  border-left: 2px solid var(--accent);
+  font-size: .82rem;
+  font-style: italic;
+  color: var(--ink-2);
+}
+
+.kpi-quote-who {
+  font-style: normal;
+  font-size: .76rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--line-strong);
+}

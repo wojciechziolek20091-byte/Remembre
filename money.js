@@ -1870,7 +1870,7 @@ function renderGreeting(now = new Date()) {
       el("span", { text: `${greetingFor(now.getHours())}, ` }),
       el("span", { class: "greeting-name", text: name })),
     el("p", { class: "greeting-when", text: when }),
-    el("p", { class: "greeting-brief", text: briefNow() }),
+    el("p", { class: "greeting-brief", text: briefNow(now) }),
   ]);
 }
 
@@ -1881,10 +1881,41 @@ function renderGreeting(now = new Date()) {
   and the analysis replaces it with something better when it has read the
   month. A brief that is sometimes absent is not a brief.
 */
-function briefNow() {
+function briefNow(now = new Date()) {
+  /*
+    Friday is a different question from the rest of the week, and it is the
+    one that was asked for: what did the week put by. It is worked out here
+    rather than by the analysis, because it has to be right to the grosz and
+    it has to be there whether or not anything has been read.
+  */
+  const day = now.getDay();
+  if (day === 5 || day === 6 || day === 0) return weekendBrief(now);
+
   const held = insightCache();
   if (held && held.result && held.result.brief) return String(held.result.brief);
   return localBrief();
+}
+
+/** Friday: what you saved. Saturday and Sunday: what is left of it. */
+function weekendBrief(now = new Date()) {
+  if (liveTransactions().length === 0) return localBrief();
+
+  const purse = weekendPurse(now);
+  const day = now.getDay();
+
+  if (day === 5) {
+    if (purse.counted === 0) return localBrief();
+    if (purse.saved > 0) {
+      return `You kept ${zloty(purse.saved)} back this week, so the weekend has ${zloty(purse.purse)}.`;
+    }
+    if (purse.saved < 0) {
+      return `The week ran ${zloty(Math.abs(purse.saved))} over, so the weekend has ${zloty(purse.purse)} rather than ${zloty(purse.base)}.`;
+    }
+    return `The week came out even, so the weekend has its usual ${zloty(purse.base)}.`;
+  }
+
+  if (purse.left >= 0) return `${zloty(purse.left)} left of the weekend's ${zloty(purse.purse)}.`;
+  return `The weekend is ${zloty(Math.abs(purse.left))} past its ${zloty(purse.purse)}.`;
 }
 
 function localBrief() {
@@ -2128,6 +2159,124 @@ function mapDescription(rows, planned, monthKey) {
   return `How ${zl(planned)} zloty of plan is divided in ${monthName(monthKey)}: ${parts.join("; ")}.`;
 }
 
+/* ---------- Weekdays, and what they leave for the weekend ---------- */
+
+/*
+  A month's spending money divided evenly over thirty days is a plan nobody
+  lives: the week is cheap and Friday night is not, and a budget that pretends
+  otherwise is broken by the first ordinary Saturday.
+
+  So the same monthly total is split two ways -- a lower weekday rate and a
+  weekend rate worth more -- and the arithmetic closes exactly, because the
+  rates are solved against the real count of weekdays and weekend days in the
+  month. Nothing is saved or lost by the split; it only moves when the money
+  is allowed to be spent. The long-term saving is untouched by construction.
+
+  Then the week's own underspend is carried: every zloty not spent between
+  Monday and Thursday is a zloty on top of the weekend, which is the whole
+  point of spending less on a Tuesday.
+*/
+
+/* What a weekend day may cost against a weekday. Not a round 2: the weekend
+   should be worth looking forward to, not a different budget entirely. */
+const WEEKEND_RATIO = 1.8;
+
+/*
+  The weekend begins on Friday, because that is when the money is spent. A
+  model where Friday is a weekday and Friday night comes out of the weekend
+  is a model that charges the same evening to two different budgets; a model
+  where the night out comes out of a Tuesday's allowance is one nobody would
+  keep. So: Monday to Thursday is the week, Friday to Sunday is the weekend,
+  and the Friday-morning question is asked exactly as the weekend opens.
+*/
+const isWeekend = (iso) => {
+  const day = new Date(`${iso}T12:00:00Z`).getUTCDay();
+  return day === 0 || day === 5 || day === 6;
+};
+
+/** Monday, as a plain date. The week starts where the spending does. */
+function weekStart(iso) {
+  const day = new Date(`${iso}T12:00:00Z`).getUTCDay();
+  return shiftISO(iso, -((day + 6) % 7));
+}
+
+function daysOfMonth(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  let weekend = 0;
+  for (let day = 1; day <= last; day += 1) {
+    if (isWeekend(`${monthKey}-${String(day).padStart(2, "0")}`)) weekend += 1;
+  }
+  return { total: last, weekend, week: last - weekend };
+}
+
+/**
+ * The two rates. Spendable is what the budgets add up to -- what you have
+ * actually decided may be spent -- falling back to the income plan when no
+ * budget has been set yet.
+ */
+function weekPlan(monthKey = state.moneyMonth || latestMonth()) {
+  const budgets = parseBudgets(budgetsText());
+  const allocated = [...budgets.values()].reduce((sum, limit) => sum + limit, 0);
+  const spendable = allocated > 0 ? allocated : plannedMonthly();
+  const days = daysOfMonth(monthKey);
+
+  const weekdayRate = spendable / (days.week + WEEKEND_RATIO * days.weekend);
+  return {
+    spendable,
+    days,
+    weekday: Math.round(weekdayRate),
+    weekend: Math.round(weekdayRate * WEEKEND_RATIO),
+  };
+}
+
+/**
+ * What this week has put by for the weekend.
+ *
+ * Only completed weekdays count: today is still being spent, so counting it
+ * would promise money that has not been saved yet. On a Friday morning that
+ * means Monday to Thursday, which is exactly the question being asked.
+ */
+function weekendPurse(now = new Date()) {
+  const today = toISO(now);
+  const monday = weekStart(today);
+  const plan = weekPlan(monthOf(today));
+
+  let allowed = 0;
+  let spent = 0;
+  let counted = 0;
+
+  // Monday to Thursday: the four days whose underspend is the weekend's.
+  for (let i = 0; i < 4; i += 1) {
+    const date = shiftISO(monday, i);
+    if (date >= today) break;              // today is not finished with
+    allowed += plan.weekday;
+    counted += 1;
+    spent += liveTransactions()
+      .filter((entry) => SPENT_OUT(entry) && entry.date === date)
+      .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  }
+
+  const saved = allowed - spent;
+  const base = plan.weekend * 3;
+
+  // What has already gone on the weekend itself, so Saturday knows where it
+  // stands rather than only Friday.
+  const weekendSoFar = [4, 5, 6]
+    .map((i) => shiftISO(monday, i))
+    .filter((date) => date <= today)
+    .reduce((sum, date) => sum + liveTransactions()
+      .filter((entry) => SPENT_OUT(entry) && entry.date === date)
+      .reduce((run, entry) => run + Math.abs(entry.amount), 0), 0);
+
+  return {
+    plan, monday, counted, allowed, spent, saved, base,
+    purse: base + saved,
+    left: base + saved - weekendSoFar,
+    weekendSoFar,
+  };
+}
+
 /* ---------- The dashboard ---------- */
 
 /*
@@ -2206,6 +2355,7 @@ function renderBalanceCard() {
     el("p", { class: "kpi-note", text: provenance }),
     planLine(monthKey),
     bankLine(),
+    liquidityNote(),
     el(
       "ul",
       { class: "kpi-strip" },
@@ -2225,6 +2375,18 @@ function renderBalanceCard() {
 /* replaceChildren prints the word "null" where el() would drop it. */
 function show(node, children) {
   node.replaceChildren(...children.filter(Boolean));
+}
+
+/*
+  The one quotation in the app, and it belongs here or nowhere: this is the
+  card about having money rather than about having spent it, and the balance
+  is the only figure on the page that is literally liquidity. Anywhere else it
+  would be a poster.
+*/
+function liquidityNote() {
+  return el("p", { class: "kpi-quote" },
+    el("span", { class: "kpi-quote-said", text: "“No matter what happens, never lose liquidity.”" }),
+    el("cite", { class: "kpi-quote-who", text: "Warren Buffett" }));
 }
 
 /**
@@ -2469,6 +2631,7 @@ function renderRateCard() {
         el("strong", { class: "verdict-label", text: verdict.label }),
         el("span", { class: "verdict-why", text: read.why }))
     ),
+    weekLine(),
     el(
       "ul",
       { class: "rate-strip" },
@@ -2516,6 +2679,28 @@ function renderRateCard() {
           el("td", { text: zloty(Math.round(week.spent / week.length)) })))))
     ),
   ]);
+}
+
+/**
+ * The week's two rates and what is riding on them, on the card where the
+ * daily figures already live.
+ */
+function weekLine() {
+  const purse = weekendPurse();
+  const { plan } = purse;
+  if (!plan.spendable) return null;
+
+  const saved = purse.counted === 0 ? null
+    : purse.saved >= 0
+      ? `${zloty(purse.saved)} kept back so far`
+      : `${zloty(Math.abs(purse.saved))} over so far`;
+
+  return el(
+    "p",
+    { class: `week-line${purse.saved < 0 ? " is-over" : ""}` },
+    el("strong", { text: `${zloty(plan.weekday)} a weekday · ${zloty(plan.weekend)} a weekend day` }),
+    el("span", { text: saved ? ` — ${saved}, ${zloty(purse.purse)} for the weekend` : ` — ${zloty(purse.base)} for the weekend` })
+  );
 }
 
 function renderDashboard() {
@@ -2637,6 +2822,13 @@ function buildDigest() {
       note: "Money from outside the schedule and the spending it paid for. Counted apart from the plan: mention it only if it is large or frequent, and never as overspending.",
       inThisMonth: zl(standing.external),
       outThisMonth: zl(externalOut),
+    },
+    week: {
+      note: "The month's spending money, split so weekdays are cheaper and the weekend is worth looking forward to. Both rates come to the same monthly total. What is not spent Monday to Thursday is carried onto the weekend.",
+      weekdayRate: zl(weekPlan(thisMonth).weekday),
+      weekendRate: zl(weekPlan(thisMonth).weekend),
+      keptBackThisWeek: zl(weekendPurse().saved),
+      weekendPurse: zl(weekendPurse().purse),
     },
     spending: {
       thisMonth: zl(Math.abs(now.spent)),

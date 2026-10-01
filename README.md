@@ -72,6 +72,30 @@ Money moved to your own account is not spending and is left out of both;
 cash withdrawals are not, because the money has left the account and where it
 went afterwards is not something a statement knows.
 
+### The week, and the weekend
+
+A month's spending money divided evenly over thirty days is a plan nobody
+lives: the week is cheap and Friday night is not, and a budget that pretends
+otherwise is broken by the first ordinary Saturday. So the same monthly total
+is split two ways -- a lower weekday rate and a weekend rate worth about 1.8
+times as much -- with the two solved against the real count of each kind of
+day in the month, so the arithmetic closes exactly. **Nothing is saved or lost
+by the split**; it only moves when the money is allowed to be spent, which is
+why the long-term saving is untouched by construction.
+
+The weekend begins on Friday, because that is when the money is spent. A model
+where Friday is a weekday and Friday night comes out of the weekend charges
+one evening to two budgets; a model where the night out comes out of a
+Tuesday's allowance is one nobody would keep.
+
+Then the week carries: every z&#322;oty not spent between Monday and Thursday
+is a z&#322;oty on top of the weekend, which is the entire point of spending
+less on a Tuesday. **Every Friday morning the line under the greeting says what
+the week put by** -- "You kept 86,40 z&#322; back this week, so the weekend has
+314,16 z&#322;" -- and on Saturday and Sunday it says what is left of it. A week
+that ran over says so, rather than quietly shrinking the weekend and hoping
+nobody notices.
+
 ### Where the plan goes
 
 The budget map is the plan as a picture: 2 500 on the left, a ribbon to every
