@@ -968,7 +968,8 @@ function renderBank(connection) {
   const fetchNow = $("bank-fetch");
 
   if (!bankPhrase()) {
-    status.textContent = "Turn on automatic syncing first — the server needs to know whose account this is.";
+    status.textContent = "Turn on automatic syncing first — the server needs to know whose account this is. "
+      + "It is in Schoolwork, in the sidebar, under Automatic sync.";
     status.classList.add("is-stale");
     connect.disabled = true;
     fetchNow.hidden = true;
@@ -1538,7 +1539,8 @@ function bankLine() {
   if (!bankPhrase()) {
     return el("p", { class: "kpi-bank" },
       el("span", { class: "kpi-dot is-off", "aria-hidden": "true" }),
-      el("span", { text: "mBank can only be connected once syncing is on — the server has to know whose account it is." }));
+      el("span", { text: "mBank can only be connected once syncing is on — the phrase is what tells the server whose account it is." }),
+      el("button", { type: "button", class: "link-btn", text: "Turn syncing on", onclick: openSyncing }));
   }
 
   if (!bankConnection || !bankConnection.connected) {
@@ -1570,6 +1572,21 @@ function bankLine() {
   return el("p", { class: "kpi-bank" },
     el("span", { class: "kpi-dot is-on", "aria-hidden": "true" }),
     el("span", { text: `mBank connected — ${where}${checked}.` }));
+}
+
+/*
+  Syncing is set up on the schoolwork side, because that is where it started.
+  Being told from here that it is the thing in the way, without being told
+  where, is only half an answer -- so this takes you there and puts the cursor
+  in the box.
+*/
+function openSyncing() {
+  setArea("school");
+  const panel = $("cloud-panel");
+  if (!panel) return;
+  panel.scrollIntoView({ behavior: "smooth", block: "center" });
+  const box = $("cloud-code");
+  if (box) box.focus({ preventScroll: true });
 }
 
 /** The top handful of payees inside one category, for when a bar is opened. */

@@ -707,7 +707,10 @@ console.log("\nwhat the bank's answer looks like");
     renderBalanceCard();
     out.noPhrase = read();
 
-    // From here on, as it looks once syncing is on.
+    // From here on, as it looks once syncing is on. Put back at the end of
+    // the section: left in place it would make every later setArea("money")
+    // call the server, which is not running here.
+    window.__realBankPhrase = bankPhrase;
     bankPhrase = () => "a phrase";
     renderBalanceCard();
     out.notConnected = read();
@@ -736,6 +739,8 @@ console.log("\nwhat the bank's answer looks like");
   // told apart when nothing is arriving.
   check("with syncing off, it says that is what is in the way",
     /once syncing is on/.test(states.noPhrase.line), true, states.noPhrase.line);
+  // Being told what is in the way without being told where is half an answer.
+  check("and offers to take you to it", /Turn syncing on/.test(states.noPhrase.line), true);
   check("the dashboard says when the bank is not connected",
     /not connected/.test(states.notConnected.line), true, states.notConnected.line);
   check("and offers to connect it there", /Connect it/.test(states.notConnected.line), true);
@@ -754,6 +759,24 @@ console.log("\nwhat the bank's answer looks like");
   check("and says what to do about it",
     /ticked before you confirm/.test(states.noAccounts.text), true, states.noAccounts.text);
   check("the notice can be put away", states.dismissed.hidden, true);
+}
+
+{
+  // The route from "syncing is what is in the way" to the box you type it in.
+  await page.evaluate(() => { bankPhrase = window.__realBankPhrase; });
+  const went = await page.evaluate(() => {
+    setArea("money");
+    openSyncing();
+    return {
+      area: state.area,
+      panel: Boolean(document.querySelector("#cloud-panel")),
+      focused: document.activeElement.id,
+    };
+  });
+  check("tapping it opens the half syncing lives in", went.area, "school");
+  check("where the panel is", went.panel, true);
+  check("with the cursor already in the phrase box", went.focused, "cloud-code");
+  await page.evaluate(() => setArea("money"));
 }
 
 {
