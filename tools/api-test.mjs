@@ -137,6 +137,68 @@ const post = (body) => fetch(`${base}/api/sync`, {
   check("a rediss:// URL alone is not mistaken for a REST endpoint", storeReport().configured === false);
   delete process.env.STORAGE_URL;
 
+  /*
+    Emptying a key.
+
+    This is the bug that killed every bank connection: the one-time handover
+    was spent by writing "" over it, an empty body is a SET with no value at
+    all, Upstash answered 400, and the whole round trip failed *after* the
+    consent had been given at the bank. So: nothing is ever stored empty, and
+    a store asked to empty something deletes it.
+  */
+  process.env.KV_REST_API_URL = "https://example.upstash.io";
+  process.env.KV_REST_API_TOKEN = "not-a-real-token";
+
+  const { store } = await import("../api/_store.js");
+  const live = store();
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), method: options.method || "GET", body: options.body });
+    // What Upstash actually answers a SET with no value in it.
+    const malformed = String(url).includes("/set/") && !options.body;
+    return { ok: !malformed, status: malformed ? 400 : 200, json: async () => ({ result: "OK" }) };
+  };
+
+  try {
+    await live.put("spent_nonce", "");
+    check("emptying a key sends a delete, not a set",
+      calls.length === 1 && calls[0].url.includes("/del/spent_nonce"), JSON.stringify(calls));
+    check("and never a write with nothing in it",
+      calls.every((call) => !call.url.includes("/set/")), JSON.stringify(calls));
+
+    calls.length = 0;
+    await live.put("real_key", "{}");
+    check("a real value is still written", calls[0].url.includes("/set/real_key"), JSON.stringify(calls));
+
+    calls.length = 0;
+    await live.del("never_existed");
+    check("deleting something that was never there is fine", calls.length === 1);
+
+    // null and undefined are the same mistake wearing a different hat.
+    for (const nothing of [null, undefined]) {
+      calls.length = 0;
+      await live.put("spent_nonce", nothing);
+      check(`${nothing} is treated as emptying it too`, calls[0].url.includes("/del/"), JSON.stringify(calls));
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
+  }
+
+  // Every driver has to be able to do it, or the bug comes back on whichever
+  // store the next deployment happens to attach.
+  const sources = await import("node:fs").then((fs) => fs.readFileSync(
+    new URL("../api/_store.js", import.meta.url), "utf8"));
+  check("all four drivers can delete",
+    (sources.match(/del[,(:]/g) || []).length >= 4,
+    String((sources.match(/del[,(:]/g) || []).length));
+  check("and nothing writes emptiness any more",
+    !/put\([^)]*, *""\)/.test(await import("node:fs").then((fs) =>
+      ["bank-callback.js", "_push.js", "sync.js", "subscribe.js", "notify.js"]
+        .map((name) => fs.readFileSync(new URL(`../api/${name}`, import.meta.url), "utf8")).join(""))));
+
   // A URL with no matching token is not half a store.
   process.env.STORAGE_REST_API_URL = "https://example.upstash.io";
   check("a URL with no token is not enough", storeReport().configured === false);

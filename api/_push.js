@@ -259,7 +259,7 @@ export async function saveSubscription(store, id, record) {
 }
 
 export async function forgetSubscription(store, id) {
-  await store.put(subscriptionKey(id), "");
+  await store.del(subscriptionKey(id));
   const index = await readJson(store, PUSH_INDEX, []);
   const ids = Array.isArray(index) ? index : [];
   await store.put(PUSH_INDEX, JSON.stringify(ids.filter((held) => held !== id)));

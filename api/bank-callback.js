@@ -48,8 +48,9 @@ export default async function handler(req, res) {
   try {
     const handover = await readJson(live, handoverKey(state), null);
     // The nonce is good once. A replayed return should not attach somebody
-    // else's bank session to a vault.
-    await live.put(handoverKey(state), "");
+    // else's bank session to a vault. Deleted rather than blanked: a store
+    // asked to write nothing is a store asked to write a malformed command.
+    await live.del(handoverKey(state));
     if (!handover || !handover.vault) {
       return home("expired", handover ? "the handover had no vault on it" : "no handover was stored under that state");
     }

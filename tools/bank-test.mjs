@@ -257,6 +257,31 @@ console.log("\nwhen a CSV and the bank describe the same day");
 
 /* ---------- Nothing here can move money ---------- */
 
+console.log("\nthe one-time handover");
+
+{
+  const { readFileSync } = await import("node:fs");
+  const callback = readFileSync(new URL("../api/bank-callback.js", import.meta.url), "utf8");
+
+  /*
+    The nonce has to be spendable, and spending it by writing "" over it is
+    what broke every connection: Upstash reads an empty body as a SET with no
+    value and answers 400, so the callback threw *after* the consent had been
+    given at the bank and the reader came back to an unchanged page.
+  */
+  check("the nonce is spent by deleting it", /live\.del\(handoverKey\(state\)\)/.test(callback));
+  check("never by writing nothing over it", !/put\(handoverKey\(state\), *""\)/.test(callback));
+  check("and it is spent before the session is traded for",
+    callback.indexOf("del(handoverKey(state))") < callback.indexOf("bankSession(code)"));
+  // Six ways out, and the seventh (no store at all) redirects by hand
+  // because there is nowhere to write the note.
+  const ways = (callback.match(/home\("/g) || []).length;
+  check("every way out of the callback is written down", ways === 6, String(ways));
+  check("and each one carries a reason, not just an outcome",
+    (callback.match(/home\("[a-z-]+", `/g) || []).length >= 4,
+    String((callback.match(/home\("[a-z-]+", `/g) || []).length));
+}
+
 console.log("\nread-only by construction");
 
 {

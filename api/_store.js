@@ -10,7 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const GITHUB_API = "https://api.github.com";
@@ -137,6 +137,15 @@ function redisDriver({ url, token }) {
   const base = String(url).replace(/\/+$/, "");
   const auth = { Authorization: `Bearer ${token}` };
 
+  /* Deleting something that is not there is not a failure. */
+  const del = async (key) => {
+    const res = await fetch(`${base}/del/${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: auth,
+    });
+    if (!res.ok && res.status !== 404) throw new Error(`Redis delete failed (${res.status})`);
+  };
+
   return {
     async get(key) {
       const res = await fetch(`${base}/get/${encodeURIComponent(key)}`, { headers: auth });
@@ -145,6 +154,16 @@ function redisDriver({ url, token }) {
       return body && typeof body.result === "string" ? body.result : null;
     },
     async put(key, value) {
+      /*
+        An empty body is not a SET with an empty value -- it is a SET with no
+        value at all, and Upstash answers 400. That is not a hypothetical: the
+        bank's one-time handover was spent by writing "" over it, so every
+        single connection died on the way back from mBank, after the consent
+        had been given and with nothing on the page to say why. Nothing is
+        ever stored empty; emptying something is a delete.
+      */
+      if (value === "" || value === null || value === undefined) return del(key);
+
       const res = await fetch(`${base}/set/${encodeURIComponent(key)}`, {
         method: "POST",
         headers: { ...auth, "Content-Type": "text/plain" },
@@ -152,6 +171,7 @@ function redisDriver({ url, token }) {
       });
       if (!res.ok) throw new Error(`Redis write failed (${res.status})`);
     },
+    del,
   };
 }
 
@@ -193,6 +213,25 @@ function blobDriver() {
         body: value,
       });
       if (!res.ok) throw new Error(`Blob write failed (${res.status})`);
+    },
+    /*
+      Blob deletes by URL rather than by key, and the URL carries a store id we
+      do not know, so this is the same listing the read does followed by the
+      delete it hands back.
+    */
+    async del(key) {
+      const listed = await fetch(`${BLOB_API}/?prefix=${encodeURIComponent(path(key))}&limit=1`, { headers: auth });
+      if (!listed.ok) throw new Error(`Blob listing failed (${listed.status})`);
+      const body = await listed.json();
+      const first = body && Array.isArray(body.blobs) ? body.blobs[0] : null;
+      if (!first || first.pathname !== path(key)) return;
+
+      const res = await fetch(`${BLOB_API}/delete`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json", "x-api-version": "7" },
+        body: JSON.stringify({ urls: [first.url] }),
+      });
+      if (!res.ok && res.status !== 404) throw new Error(`Blob delete failed (${res.status})`);
     },
   };
 }
@@ -247,6 +286,16 @@ function githubDriver() {
       });
       if (!res.ok) throw new Error(`GitHub write failed (${res.status})`);
     },
+    async del(key) {
+      const existing = await head(key);
+      if (!existing || !existing.sha) return;
+      const res = await fetch(url(key), {
+        method: "DELETE",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: `Get a grip: remove ${key}`, sha: existing.sha, branch }),
+      });
+      if (!res.ok) throw new Error(`GitHub delete failed (${res.status})`);
+    },
   };
 }
 
@@ -273,6 +322,13 @@ function fileDriver() {
     async put(key, value) {
       await mkdir(dir, { recursive: true });
       await writeFile(file(key), value, "utf8");
+    },
+    async del(key) {
+      try {
+        await rm(file(key));
+      } catch (err) {
+        if (!err || err.code !== "ENOENT") throw err;
+      }
     },
   };
 }
