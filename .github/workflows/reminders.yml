@@ -37,12 +37,28 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -uo pipefail
-          # Only worth doing a few times a day; the bank books card payments
-          # slowly and nothing here is urgent. Reminders stay quarter-hourly.
+          # Four a day, and not one more: PSD2 allows an account information
+          # service four unattended fetches in twenty-four hours (Commission
+          # Delegated Regulation (EU) 2018/389, article 36(5)(b)). A fifth is
+          # refused by the bank, so the four are spent where they are worth
+          # something rather than evenly.
+          #
+          # In UTC, which is Warsaw minus one or two depending on the season:
+          #   05:00  before the 08:15 morning text is written
+          #   10:00  after the morning's spending
+          #   15:00  mid-afternoon, while the day can still be saved
+          #   19:00  the evening, in time to say where the day ended up
+          #
+          # Opening the app fetches again with the reader present, and that one
+          # is not unattended and does not count against the four.
           minute=$(date -u +%M)
           hour=$(date -u +%H)
-          if [ "$minute" != "00" ] || [ $((10#$hour % 6)) -ne 0 ]; then
-            echo "not a bank hour; skipping"
+          case "$hour" in
+            05|10|15|19) ;;
+            *) echo "not a bank hour; skipping"; exit 0 ;;
+          esac
+          if [ "$minute" != "00" ]; then
+            echo "not the top of the hour; skipping"
             exit 0
           fi
           status=$(curl -sS --max-time 120 -o bank.json -w '%{http_code}' \

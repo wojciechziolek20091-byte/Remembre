@@ -216,6 +216,35 @@ const post = (body) => fetch(`${base}/api/sync`, {
     delete process.env.REMEMBRE_DATA_DIR;
   }
 
+  // The three boxes of text the server needs to judge a day by.
+  {
+    process.env.REMEMBRE_DATA_DIR = await import("node:fs/promises")
+      .then((fs) => fs.mkdtemp("/tmp/remembre-settings-"));
+
+    const send = (settings) => fetch(`${base}/api/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: CODE, vault: { moneySettings: settings } }),
+    }).then((r) => r.json());
+
+    const first = await send({ budgets: "food = 600", income: "1 = 700", updatedAt: "2026-10-01T10:00:00.000Z" });
+    check("the money settings travel with the vault",
+      first.vault.moneySettings.budgets === "food = 600", JSON.stringify(first.vault.moneySettings));
+
+    const older = await send({ budgets: "food = 1", updatedAt: "2026-09-01T10:00:00.000Z" });
+    check("an older copy does not overwrite a newer one",
+      older.vault.moneySettings.budgets === "food = 600", older.vault.moneySettings.budgets);
+
+    const newer = await send({ budgets: "food = 900", income: "1 = 700", updatedAt: "2026-10-02T10:00:00.000Z" });
+    check("a newer one does", newer.vault.moneySettings.budgets === "food = 900", newer.vault.moneySettings.budgets);
+
+    const none = await send(null);
+    check("and a push that carries none leaves them alone",
+      none.vault.moneySettings.budgets === "food = 900", JSON.stringify(none.vault.moneySettings));
+
+    delete process.env.REMEMBRE_DATA_DIR;
+  }
+
   // A URL with no matching token is not half a store.
   process.env.STORAGE_REST_API_URL = "https://example.upstash.io";
   check("a URL with no token is not enough", storeReport().configured === false);

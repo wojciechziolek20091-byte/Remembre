@@ -192,6 +192,12 @@ ${BENCHMARKS}
 What a good plan does here:
 - Adds up to the income plan, not to what happened to arrive, and leaves the
   external branch out of the arithmetic entirely.
+- Leaves a floor under the saving. The limits together must not come to more
+  than 80% of the income plan: the remaining fifth is what the month is for. A
+  set of limits that spends everything that arrives is not a budget, it is a
+  description. If the real spending will not fit inside that ceiling, say
+  which habit has to change rather than raising the limits to meet it -- the
+  app holds you to it either way and will scale a set that goes over.
 - Starts from what they actually spend, not from a ratio. A limit 10% under
   last month's real figure gets kept; one 60% under does not.
 - Moves a limit to where the money actually goes. A category that is over its

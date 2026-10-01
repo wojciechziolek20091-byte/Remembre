@@ -149,9 +149,23 @@ function bankToken({ appId, key }) {
  * One call to Enable Banking. Errors carry the status and whatever the API
  * said, trimmed -- never the token, never the key.
  */
-export async function bankFetch(path, { method = "GET", body = null } = {}) {
+export async function bankFetch(path, { method = "GET", body = null, psu = null } = {}) {
   const credentials = bankCredentials();
   if (!credentials) throw new Error("Enable Banking is not configured.");
+
+  /*
+    A fetch the reader asked for is a different thing from one the schedule
+    asked for, and the regulation says so: an account information service may
+    read an account four times a day unattended, and as often as it likes
+    while the reader is actually there (Commission Delegated Regulation (EU)
+    2018/389, article 36(5)(b)). The PSU headers are what say which this is.
+    Without them, opening the app would quietly spend one of the four and the
+    evening alert would find the bank refusing to answer.
+  */
+  const present = psu && psu.ip ? {
+    "PSU-IP-Address": String(psu.ip).slice(0, 45),
+    "PSU-User-Agent": String(psu.agent || "Get a grip").slice(0, 200),
+  } : {};
 
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -159,6 +173,7 @@ export async function bankFetch(path, { method = "GET", body = null } = {}) {
       Authorization: `Bearer ${bankToken(credentials)}`,
       "Content-Type": "application/json",
       ...(method === "POST" ? { "X-Request-Id": randomUUID() } : {}),
+      ...present,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -239,7 +254,7 @@ export async function bankSession(code) {
  * to the end rather than stopping at the first page, which would quietly lose
  * the oldest part of a busy month.
  */
-export async function bankTransactions(accountUid, dateFrom) {
+export async function bankTransactions(accountUid, dateFrom, psu = null) {
   const rows = [];
   let continuation = "";
 
@@ -247,7 +262,7 @@ export async function bankTransactions(accountUid, dateFrom) {
     const query = new URLSearchParams({ date_from: dateFrom });
     if (continuation) query.set("continuation_key", continuation);
 
-    const answer = await bankFetch(`/accounts/${encodeURIComponent(accountUid)}/transactions?${query}`);
+    const answer = await bankFetch(`/accounts/${encodeURIComponent(accountUid)}/transactions?${query}`, { psu });
     const batch = Array.isArray(answer && answer.transactions) ? answer.transactions : [];
     rows.push(...batch);
 
@@ -313,8 +328,8 @@ export function asTransaction(transaction) {
 */
 const BALANCE_ORDER = ["ITAV", "CLAV", "XPCD", "CLBD", "PRCD", "OTHR"];
 
-export async function bankBalances(accountUid) {
-  const answer = await bankFetch(`/accounts/${encodeURIComponent(accountUid)}/balances`);
+export async function bankBalances(accountUid, psu = null) {
+  const answer = await bankFetch(`/accounts/${encodeURIComponent(accountUid)}/balances`, { psu });
   const rows = Array.isArray(answer && answer.balances) ? answer.balances : [];
 
   const read = rows.map((row) => {

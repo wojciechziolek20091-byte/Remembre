@@ -636,6 +636,7 @@ function renderRules() {
 function setupRules() {
   $("money-rules-save").addEventListener("click", () => {
     writeStore(MONEY_RULES_KEY, $("money-rules").value);
+    touchMoneySettings();
     const changed = recategorise();
     moneyChanged();
     announce(changed === 0
@@ -646,6 +647,7 @@ function setupRules() {
   $("money-rules-reset").addEventListener("click", () => {
     if (!window.confirm("Put the default rules back? Anything you have written here will be lost.")) return;
     writeStore(MONEY_RULES_KEY, DEFAULT_RULES);
+    touchMoneySettings();
     recategorise();
     moneyChanged();
     announce("Default rules restored.");
@@ -917,6 +919,7 @@ function setupReport() {
   $("money-income").value = incomePlanText();
   $("money-income-save").addEventListener("click", () => {
     writeStore(MONEY_INCOME_KEY, $("money-income").value);
+    touchMoneySettings();
     // A changed schedule re-opens every question it used to answer.
     state.transactions.forEach((entry) => {
       if (entry.amount > 0 && entry.branch === "plan") entry.branch = "";
@@ -929,6 +932,7 @@ function setupReport() {
   $("money-budgets").value = budgetsText();
   $("money-budgets-save").addEventListener("click", () => {
     writeStore(MONEY_BUDGETS_KEY, $("money-budgets").value);
+    touchMoneySettings();
     renderReport();
     renderDashboard();
     announce("Budgets saved.");
@@ -2335,6 +2339,27 @@ function setupTransactionDialog() {
 const WEEKEND_RATIO = 1.8;
 
 /*
+  What a quiet day leaves behind. Half of it goes to the weekend, a quarter to
+  tomorrow, and the last quarter is kept -- that quarter is the cap. Without
+  it every underspent day comes straight back as a bigger day later and the
+  month saves nothing; with it, being careful on a Tuesday is the only thing
+  in the app that actually moves the savings.
+
+  The same split runs in reverse: a loud Tuesday is paid for on Wednesday
+  rather than quietly at the end of the month.
+
+  These three numbers are also in api/_budget.js, where the server works out
+  whether to interrupt your afternoon. tools/budget-test.mjs runs both over
+  the same fixtures and fails if they ever disagree.
+*/
+const CARRY_WEEKEND = 0.5;
+const CARRY_TOMORROW = 0.25;
+const CARRY_KEPT = 0.25;
+
+/* How close to a day's limit is close enough to say so. */
+const NEARLY = 0.8;
+
+/*
   The weekend begins on Friday, because that is when the money is spent. A
   model where Friday is a weekday and Friday night comes out of the weekend
   is a model that charges the same evening to two different budgets; a model
@@ -2411,6 +2436,8 @@ function weekendPurse(now = new Date()) {
   }
 
   const saved = allowed - spent;
+  // Half of it. A quarter went into the days themselves and a quarter is kept.
+  const carried = Math.round(saved * CARRY_WEEKEND);
   const base = plan.weekend * 3;
 
   // What has already gone on the weekend itself, so Saturday knows where it
@@ -2423,11 +2450,166 @@ function weekendPurse(now = new Date()) {
       .reduce((run, entry) => run + Math.abs(entry.amount), 0), 0);
 
   return {
-    plan, monday, counted, allowed, spent, saved, base,
-    purse: base + saved,
-    left: base + saved - weekendSoFar,
+    plan, monday, counted, allowed, spent, saved, carried, base,
+    purse: base + carried,
+    left: base + carried - weekendSoFar,
     weekendSoFar,
   };
+}
+
+/**
+ * What today is allowed, which is its own rate plus a quarter of what
+ * yesterday did not spend.
+ */
+function dayBudget(date = todayISO()) {
+  const plan = weekPlan(monthOf(date));
+  const base = isWeekend(date) ? plan.weekend : plan.weekday;
+
+  const yesterday = shiftISO(date, -1);
+  const yesterdayBase = isWeekend(yesterday) ? plan.weekend : plan.weekday;
+  const left = yesterdayBase - spentOnDay(yesterday);
+  const carried = Math.round(left * CARRY_TOMORROW);
+
+  const limit = Math.max(0, base + carried);
+  const spent = spentOnDay(date);
+
+  return { date, plan, base, carried, limit, spent, left: limit - spent, share: limit > 0 ? spent / limit : 0, yesterdayLeft: left };
+}
+
+const spentOnDay = (date) => liveTransactions()
+  .filter((entry) => SPENT_OUT(entry) && entry.date === date)
+  .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+
+/* ---------- The settings, where the server can read them ---------- */
+
+/*
+  Three boxes of text the reader owns. They live on the device, and they are
+  also pushed with everything else, because the run that decides whether to
+  interrupt an afternoon happens on a server that has never seen this
+  browser's storage.
+
+  Newer wins, as a whole: these are three text boxes edited one at a time on
+  one device, and a field-by-field merge would be machinery standing guard
+  over a case that does not arise.
+*/
+
+const MONEY_SETTINGS_AT = "remembre.moneysettings.at";
+
+function moneySettings() {
+  return {
+    budgets: budgetsText(),
+    rules: rulesText(),
+    income: incomePlanText(),
+    updatedAt: readStore(MONEY_SETTINGS_AT, "") || "1970-01-01T00:00:00.000Z",
+  };
+}
+
+/** Called whenever one of the three is saved, so the push carries the change. */
+function touchMoneySettings() {
+  writeStore(MONEY_SETTINGS_AT, new Date().toISOString());
+  cloudSchedulePush();
+}
+
+/** Takes the other device's, when the other device's is newer. */
+function adoptMoneySettings(held) {
+  if (!held || typeof held !== "object" || !held.updatedAt) return false;
+  if (held.updatedAt <= (readStore(MONEY_SETTINGS_AT, "") || "")) return false;
+
+  if (typeof held.budgets === "string") writeStore(MONEY_BUDGETS_KEY, held.budgets);
+  if (typeof held.rules === "string") writeStore(MONEY_RULES_KEY, held.rules);
+  if (typeof held.income === "string") writeStore(MONEY_INCOME_KEY, held.income);
+  writeStore(MONEY_SETTINGS_AT, held.updatedAt);
+
+  const budgets = $("money-budgets");
+  if (budgets) budgets.value = budgetsText();
+  const rules = $("money-rules");
+  if (rules) rules.value = rulesText();
+  const income = $("money-income");
+  if (income) income.value = incomePlanText();
+  return true;
+}
+
+/* ---------- What the months have kept ---------- */
+
+/*
+  Saved, here, means money that came in and did not go out again. It is not a
+  separate account and the app will not pretend it is one: the proof is the
+  balance, which is why the two sit on the same page. What this box adds is
+  the shape of it -- which months kept something, which did not, and what the
+  whole run comes to.
+
+  External money is on neither side of it, as everywhere else: a wire for a
+  ticket and the ticket cancel out and belong to neither the income nor the
+  saving.
+*/
+
+function savingsByMonth() {
+  const months = [...new Set(liveTransactions().map((entry) => monthOf(entry.date)))].sort();
+  return months.map((key) => {
+    const month = monthReport(key);
+    return {
+      key,
+      in: month.received,
+      out: Math.abs(month.spent),
+      saved: month.received + month.spent,
+    };
+  });
+}
+
+function savingsStanding() {
+  const months = savingsByMonth();
+  const thisMonth = monthOf(todayISO());
+  const done = months.filter((row) => row.key !== thisMonth);
+  const now = months.find((row) => row.key === thisMonth) || null;
+
+  return {
+    months,
+    done,
+    now,
+    total: months.reduce((sum, row) => sum + row.saved, 0),
+    best: done.slice().sort((a, b) => b.saved - a.saved)[0] || null,
+    kept: done.filter((row) => row.saved > 0).length,
+  };
+}
+
+function renderSaved() {
+  const wrap = $("money-saved");
+  if (!wrap) return;
+
+  const standing = savingsStanding();
+  if (standing.months.length === 0) {
+    show(wrap, [
+      el("p", { class: "card-title", text: "Money saved" }),
+      el("p", { class: "empty", text: "Nothing imported yet." }),
+    ]);
+    return;
+  }
+
+  const biggest = Math.max(1, ...standing.months.map((row) => Math.abs(row.saved)));
+
+  show(wrap, [
+    el("p", { class: "card-title", text: "Money saved" }),
+    el("p", { class: `saved-figure${standing.total < 0 ? " is-negative" : ""}`, text: zloty(standing.total) }),
+    el("p", { class: "kpi-note", text: standing.done.length === 0
+      ? "This month so far. A month that ends with money left is a month saved."
+      : `Across ${standing.months.length} months — ${standing.kept} of ${standing.done.length} finished months kept something.` }),
+
+    el("ul", { class: "saved-months" }, standing.months.slice(-6).map((row) => {
+      const share = Math.round((Math.abs(row.saved) / biggest) * 100);
+      return el(
+        "li",
+        { class: `saved-month${row.saved < 0 ? " is-negative" : ""}${row.key === monthOf(todayISO()) ? " is-now" : ""}` },
+        el("span", { class: "saved-when", text: monthName(row.key).split(" ")[0].slice(0, 3) }),
+        el("span", { class: "saved-track" },
+          el("span", { class: "saved-fill", style: `width:${Math.max(2, share)}%` })),
+        el("span", { class: "saved-sum", text: zloty(row.saved) })
+      );
+    })),
+
+    standing.best && standing.best.saved > 0
+      ? el("p", { class: "chart-caption", text: `Best so far: ${monthName(standing.best.key)}, ${zloty(standing.best.saved)}.` })
+      : null,
+  ]);
 }
 
 /* ---------- The dashboard ---------- */
@@ -2783,6 +2965,7 @@ function renderRateCard() {
         el("strong", { class: "verdict-label", text: verdict.label }),
         el("span", { class: "verdict-why", text: read.why }))
     ),
+    todayLine(),
     weekLine(),
     el(
       "ul",
@@ -2837,6 +3020,27 @@ function renderRateCard() {
  * The week's two rates and what is riding on them, on the card where the
  * daily figures already live.
  */
+function todayLine() {
+  const today = dayBudget();
+  if (!today.plan.spendable) return null;
+
+  const tone = today.share >= 1 ? " is-over" : today.share >= NEARLY ? " is-close" : "";
+  const carried = today.carried === 0 ? ""
+    : today.carried > 0
+      ? ` — ${zloty(today.base)} for a ${isWeekend(today.date) ? "weekend day" : "weekday"}, plus ${zloty(today.carried)} carried from yesterday`
+      : ` — ${zloty(today.base)} for the day, less ${zloty(Math.abs(today.carried))} carried from yesterday`;
+
+  return el(
+    "p",
+    { class: `today-line${tone}` },
+    el("span", { class: "today-label", text: "Today" }),
+    el("strong", { class: "today-figure", text: `${zloty(Math.max(0, today.left))} left of ${zloty(today.limit)}` }),
+    el("span", { class: "today-note", text: today.left < 0
+      ? ` — ${zloty(Math.abs(today.left))} over${carried}`
+      : carried })
+  );
+}
+
 function weekLine() {
   const purse = weekendPurse();
   const { plan } = purse;
@@ -2844,7 +3048,7 @@ function weekLine() {
 
   const saved = purse.counted === 0 ? null
     : purse.saved >= 0
-      ? `${zloty(purse.saved)} kept back so far`
+      ? `${zloty(purse.carried)} of this week's ${zloty(purse.saved)} carried on`
       : `${zloty(Math.abs(purse.saved))} over so far`;
 
   return el(
@@ -2861,6 +3065,7 @@ function renderDashboard() {
   classifyIncome();
   renderGreeting();
   renderBalanceCard();
+  renderSaved();
   renderOutside();
   renderBudgetMap();
   renderCategoryBars();
@@ -3209,8 +3414,37 @@ function movesFrom(lines) {
     .filter((move) => move.to !== move.from);
 }
 
-function applyMoves(moves, { quiet = false } = {}) {
-  if (!moves || moves.length === 0) return;
+/*
+  The cap. However good the reasoning, a set of limits that adds up to
+  everything that comes in leaves nothing to save -- and the analysis, asked
+  to make the budgets fit the spending, will drift there if nothing stops it.
+  So four fifths of the income plan is the ceiling, and moves that would go
+  past it are scaled back to it rather than refused: the shape of the advice
+  is kept, its size is not.
+*/
+const SPEND_CEILING = 0.8;
+
+function capMoves(moves) {
+  const planned = plannedMonthly();
+  if (!planned) return moves;
+
+  const held = parseBudgets(budgetsText());
+  moves.forEach((move) => held.set(move.category, move.to));
+  const total = [...held.values()].reduce((sum, limit) => sum + limit, 0);
+  const ceiling = Math.round(planned * SPEND_CEILING);
+  if (total <= ceiling) return moves;
+
+  const scale = ceiling / total;
+  return moves.map((move) => ({
+    ...move,
+    to: Math.round((move.to * scale) / 100) * 100,
+    capped: true,
+  }));
+}
+
+function applyMoves(rawMoves, { quiet = false } = {}) {
+  const moves = capMoves(rawMoves || []);
+  if (moves.length === 0) return;
 
   const before = budgetsText();
   const held = parseBudgets(before);
@@ -3221,6 +3455,7 @@ function applyMoves(moves, { quiet = false } = {}) {
 
   writeStore(MONEY_UNDO_KEY, before);
   writeStore(MONEY_BUDGETS_KEY, text);
+  touchMoneySettings();
   const box = $("money-budgets");
   if (box) box.value = text;
 
@@ -3231,7 +3466,10 @@ function applyMoves(moves, { quiet = false } = {}) {
   const said = moves.slice(0, 3)
     .map((move) => `${move.category} ${move.from ? zloty(move.from) : "—"} → ${zloty(move.to)}`)
     .join(", ");
-  showMoneyNotice(`Budgets adjusted to how you actually spend: ${said}${moves.length > 3 ? ", and more" : ""}.`, {
+  const capped = moves.some((move) => move.capped)
+    ? ` Held to ${Math.round(SPEND_CEILING * 100)}% of the plan, so a fifth is still saved.`
+    : "";
+  showMoneyNotice(`Budgets adjusted to how you actually spend: ${said}${moves.length > 3 ? ", and more" : ""}.${capped}`, {
     tone: "good",
     act: { label: "Undo", go: undoMoves },
   });

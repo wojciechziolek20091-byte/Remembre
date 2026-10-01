@@ -5,6 +5,19 @@ import {
 const MAX_BODY = 2 * 1024 * 1024;   // A year of tasks is a few tens of kilobytes.
 const COLLECTIONS = ["tasks", "coursework", "sessions", "transactions"];
 
+/*
+  Not a collection: one small object of text the reader owns -- the budgets,
+  the category rules, the income plan. It has to be here rather than only on
+  the device, because the nightly run is what decides whether a day is over
+  its limit, and a limit it cannot see is a limit it cannot enforce.
+
+  Merged by its own updatedAt, as a whole. These are three text boxes edited
+  one at a time on one device; a field-by-field merge would be machinery
+  standing guard over a case that does not arise.
+*/
+const SETTINGS = "moneySettings";
+const SETTINGS_FIELDS = ["budgets", "rules", "income"];
+
 /**
  * The meeting point for a reader's devices.
  *
@@ -73,6 +86,7 @@ async function write(req, res, live) {
     merged[name] = result.records;
     counts[name] = result.changed;
   });
+  merged[SETTINGS] = mergeSettings(existing[SETTINGS], incoming[SETTINGS]);
   merged.updatedAt = new Date().toISOString();
 
   await live.put(key, JSON.stringify(merged));
@@ -91,6 +105,24 @@ async function write(req, res, live) {
     changed: counts,
     vault: stripMeta(merged),
   });
+}
+
+/** The newer of the two, whole. Neither side is partially adopted. */
+function mergeSettings(mine, theirs) {
+  const clean = (value) => {
+    if (!value || typeof value !== "object") return null;
+    const out = { updatedAt: String(value.updatedAt || "") };
+    SETTINGS_FIELDS.forEach((name) => {
+      if (typeof value[name] === "string") out[name] = value[name].slice(0, 8000);
+    });
+    return out.updatedAt ? out : null;
+  };
+
+  const held = clean(mine);
+  const sent = clean(theirs);
+  if (!sent) return held || {};
+  if (!held) return sent;
+  return sent.updatedAt > held.updatedAt ? sent : held;
 }
 
 /* ---------- Merging ---------- */
@@ -120,13 +152,16 @@ function mergeCollection(mine, theirs) {
 
 /* ---------- Odds and ends ---------- */
 
-const emptyVault = () => ({ tasks: [], coursework: [], sessions: [], transactions: [], updatedAt: "" });
+const emptyVault = () => ({
+  tasks: [], coursework: [], sessions: [], transactions: [], moneySettings: {}, updatedAt: "",
+});
 
 function stripMeta(vault) {
   const out = {};
   COLLECTIONS.forEach((name) => {
     out[name] = Array.isArray(vault[name]) ? vault[name] : [];
   });
+  out[SETTINGS] = vault[SETTINGS] && typeof vault[SETTINGS] === "object" ? vault[SETTINGS] : {};
   return out;
 }
 

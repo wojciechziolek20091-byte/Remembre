@@ -3184,3 +3184,83 @@ body.on-money .dialog-tx .dialog-title { font-family: var(--font-body); font-wei
 
 .dialog-tx .field-hint { margin: .3rem 0 .8rem; }
 .dialog-tx select.input { width: 100%; }
+
+/* ---------- What the months have kept ---------- */
+
+.card-saved { border-left: 3px solid var(--s-ess); }
+
+.saved-figure {
+  margin: .15rem 0 .1rem;
+  font-size: clamp(1.9rem, 6vw, 2.4rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--s-ess);
+}
+
+.saved-figure.is-negative { color: var(--danger); }
+
+.saved-months {
+  list-style: none;
+  margin: .9rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .4rem;
+}
+
+.saved-month {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr auto;
+  gap: .6rem;
+  align-items: center;
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.saved-when { color: var(--ink-2); }
+.saved-sum { font-weight: 600; }
+.saved-month.is-now .saved-when { color: var(--accent); font-weight: 650; }
+.saved-month.is-negative .saved-sum { color: var(--danger); }
+
+.saved-track {
+  height: 8px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.saved-fill {
+  display: block;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--s-ess);
+}
+
+.saved-month.is-negative .saved-fill { background: var(--danger); }
+
+/* ---------- Today ---------- */
+
+.today-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .2rem .6rem;
+  margin: 0 0 .5rem;
+  font-size: .88rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-label {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.today-figure { color: var(--ink); font-size: 1rem; font-weight: 650; }
+.today-line.is-close .today-figure { color: var(--now); }
+.today-line.is-over .today-figure { color: var(--danger); }
+.today-note { flex-basis: 100%; font-size: .8rem; }

@@ -538,7 +538,7 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
       balance: balanceNow(),
       stored: readStore("remembre.balance.v1", null),
       figure: document.querySelector(".kpi-figure").textContent,
-      note: document.querySelector(".kpi-note").textContent,
+      note: document.querySelector("#money-balance .kpi-note").textContent,
     };
   }, statement({ closing: 1000 }));
 
@@ -560,7 +560,7 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
       id: "later-one", date, amount: -5000, counterparty: "ZABKA", category: "food",
     }));
     renderBalanceCard();
-    return { balance: balanceNow(), note: document.querySelector(".kpi-note").textContent };
+    return { balance: balanceNow(), note: document.querySelector("#money-balance .kpi-note").textContent };
   });
 
   check("a transaction newer than the statement is rolled forward", rolled.balance.amount, 95000);
@@ -584,7 +584,7 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
     renderBank({ connected: true, accounts: [{ name: "eKonto", iban: "…8067" }],
       balance: { amount: 123456, at: "2026-10-01", readAt: new Date().toISOString(), type: "ITAV" } });
     renderBalanceCard();
-    return { balance: balanceNow(), note: document.querySelector(".kpi-note").textContent };
+    return { balance: balanceNow(), note: document.querySelector("#money-balance .kpi-note").textContent };
   });
   check("the bank's own figure wins over a statement's", fromBank.balance.amount, 123456);
   check("and says so", /Straight from mBank/.test(fromBank.note), true);
@@ -1271,6 +1271,129 @@ console.log("\nopening a transaction");
   check("and so does the biggest-of-the-month list", everywhere.biggest > 0, true);
 }
 
+/* ---------- The cap, and what the months kept ---------- */
+
+console.log("\nthe ceiling under the saving");
+
+{
+  // The analysis, asked to make the budgets fit the spending, will drift
+  // towards spending everything if nothing stops it.
+  const capped = await page.evaluate(async () => {
+    state.transactions = [];
+    writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
+    writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 150");
+    writeStore("remembre.budgetmoves.v1", null);
+
+    // Limits that would come to the whole 2 500.
+    applyMoves([
+      { category: "food", from: 60000, to: 150000, why: "" },
+      { category: "fun", from: 15000, to: 100000, why: "" },
+    ]);
+
+    const after = parseBudgets(budgetsText());
+    return {
+      total: [...after.values()].reduce((sum, limit) => sum + limit, 0),
+      planned: plannedMonthly(),
+      notice: (document.querySelector(".notice-text") || {}).textContent || "",
+    };
+  });
+
+  check("limits are held under the ceiling", capped.total <= Math.round(capped.planned * 0.8), true,
+    `${capped.total} of ${capped.planned}`);
+  check("so a fifth of the plan survives as saving", capped.total < capped.planned, true);
+  check("and it says it did that", /a fifth is still saved/.test(capped.notice), true, capped.notice);
+
+  // Under the ceiling, nothing is touched.
+  const untouched = await page.evaluate(() => {
+    writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 150");
+    applyMoves([{ category: "food", from: 60000, to: 70000, why: "" }]);
+    return parseBudgets(budgetsText()).get("food");
+  });
+  check("a sensible move is left exactly as it was", untouched, 70000);
+}
+
+console.log("\nmoney saved");
+
+{
+  const saved = await page.evaluate(async () => {
+    state.transactions = [];
+    writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
+    const add = (date, amount, category) => state.transactions.push(normaliseTransaction({
+      id: `${date}-${amount}`, date, amount, category, counterparty: amount > 0 ? "MAMA" : "ZABKA",
+    }));
+
+    // Two finished months: one kept something, one did not.
+    ["2026-08", "2026-09"].forEach((month, i) => {
+      [1, 8, 15, 22].forEach((day, slot) => {
+        add(`${month}-${String(day).padStart(2, "0")}`, slot === 0 ? 70000 : 60000, "income");
+      });
+      add(`${month}-05`, i === 0 ? -100000 : -260000, "food");
+    });
+    saveTransactions();
+    classifyIncome();
+    renderSaved();
+
+    const standing = savingsStanding();
+    return {
+      total: standing.total,
+      months: standing.months.map((row) => [row.key, row.saved]),
+      best: standing.best ? standing.best.key : "",
+      figure: document.querySelector(".saved-figure").textContent,
+      rows: document.querySelectorAll(".saved-month").length,
+      note: document.querySelector("#money-saved .kpi-note").textContent,
+    };
+  });
+
+  check("each month's saving is what came in less what went out",
+    saved.months, [["2026-08", 150000], ["2026-09", -10000]]);
+  check("the box leads with the run of them", saved.total, 140000);
+  check("and prints it", /1 400,00 zł/.test(saved.figure), true, saved.figure);
+  check("with a row per month", saved.rows, 2);
+  check("the best month is named", saved.best, "2026-08");
+  check("and it says how many months kept anything", /1 of 2 finished months/.test(saved.note), true, saved.note);
+}
+
+{
+  // A month that went backwards is not dressed up as a saving.
+  const negative = await page.evaluate(() => {
+    const row = [...document.querySelectorAll(".saved-month")]
+      .find((n) => /Sep/.test(n.textContent));
+    return { marked: row.className, sum: row.querySelector(".saved-sum").textContent };
+  });
+  check("a month that lost money is marked as one", /is-negative/.test(negative.marked), true);
+  check("and shows the loss", /−100,00 zł/.test(negative.sum), true, negative.sum);
+}
+
+console.log("\ntoday's budget on the page");
+
+{
+  const today = await page.evaluate(() => {
+    state.transactions = [];
+    writeStore("remembre.moneybudgets.v1", "food = 600\ntransport = 120\nfun = 180");
+    const yesterday = shiftISO(todayISO(), -1);
+    const rate = dayBudget(yesterday).base;
+    // A quiet yesterday, half spent.
+    state.transactions.push(normaliseTransaction({
+      id: "quiet", date: yesterday, amount: -Math.round(rate / 2), counterparty: "ZABKA", category: "food",
+    }));
+    saveTransactions();
+    renderRateCard();
+
+    const budget = dayBudget();
+    return {
+      budget,
+      line: (document.querySelector(".today-line") || {}).textContent || "",
+      rate,
+    };
+  });
+
+  check("a quarter of yesterday's underspend lands on today",
+    today.budget.carried, Math.round(today.budget.yesterdayLeft / 4));
+  check("so today is worth more than its own rate", today.budget.limit > today.budget.base, true);
+  check("the page says what is left of it", /left of/.test(today.line), true, today.line);
+  check("and where the extra came from", /carried from yesterday/.test(today.line), true, today.line);
+}
+
 /* ---------- The week, and the weekend ---------- */
 
 console.log("\nweekdays and the weekend");
@@ -1326,7 +1449,10 @@ console.log("\nweekdays and the weekend");
   check("only the days that are over are counted", friday.purse.counted, 4);
   check("what was kept back is the difference", friday.purse.saved,
     friday.purse.allowed - friday.purse.spent);
-  check("and it is added to the weekend", friday.purse.purse, friday.purse.base + friday.purse.saved);
+  // Half of the week's underspend, not all of it: a quarter went into the days
+  // themselves and a quarter is kept, which is what makes the month save.
+  check("half of it is added to the weekend", friday.purse.purse, friday.purse.base + friday.purse.carried);
+  check("and the carry is half the saving", friday.purse.carried, Math.round(friday.purse.saved / 2));
   check("Friday morning says what the week put by",
     /kept .* back this week, so the weekend has/.test(friday.brief), true, friday.brief);
   check("with both figures in it", (friday.brief.match(/zł/g) || []).length, 2);

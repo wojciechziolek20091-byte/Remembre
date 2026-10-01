@@ -92,6 +92,65 @@ budget and out of the daily rate without deleting anything, and the
 **category**, which from then on is ignored by the rules rather than
 overwritten by them on the next import.
 
+### Money saved
+
+Saved, here, means money that came in and did not go out again. It is not a
+separate account and the app will not pretend it is one -- the proof is the
+balance, which is why the two sit on the same page. The box adds the shape of
+it: a figure for the whole run, a row per month, and which months kept
+something. External money is on neither side of it.
+
+### Today, and the carry
+
+A day gets its own rate, plus **a quarter of whatever yesterday did not
+spend**. The other three quarters of a quiet day are not lost: **half goes to
+the weekend** and **a quarter is kept**. That last quarter is the cap -- the
+part of being careful on a Tuesday that turns into savings rather than into a
+bigger Wednesday. An overspend carries the same way, so a loud Tuesday is paid
+for on Wednesday rather than quietly at the end of the month.
+
+The three shares add to one, and `tools/budget-test.mjs` fails if they ever
+stop doing so.
+
+There is also a ceiling the analysis cannot talk its way past: the category
+limits together may not come to more than **80% of the income plan**. A set of
+limits that spends everything that arrives is not a budget, it is a
+description. A proposal that goes over is scaled back to the ceiling rather
+than refused -- the shape of the advice is kept, its size is not.
+
+### Notifications
+
+Four things reach the phone, and no more, because a phone that buzzes at every
+coffee gets silenced and then none of it works:
+
+- **08:15 on weekdays**: what today is allowed, where the carry came from, and
+  what the weekend is sitting on.
+- **Nearly there**: the day is 80% spent, with what is left and what keeping it
+  is worth.
+- **Past it**: by how much, and what it costs tomorrow.
+- **A payment with no budget behind it**, over 20 z&#322;: what it was and what
+  to do about it.
+
+Each is keyed by the local date, so a scheduler that fires five times in a
+minute sends one of each, and one that is an hour late still sends it.
+
+**How fresh any of this is depends on the bank, and the bank is polled rather
+than listening.** PSD2 allows an account information service four unattended
+fetches in twenty-four hours (Commission Delegated Regulation (EU) 2018/389,
+article 36(5)(b)), so the schedule spends them where they are worth something
+-- 05:00, 10:00, 15:00 and 19:00 UTC -- rather than evenly. Opening the app
+fetches again with the reader present, which is not unattended and does not
+count against the four; that is what the PSU headers on `bankFetch` are for.
+Without them, opening the app would quietly spend one of the four and the
+evening alert would find the bank refusing to answer.
+
+The server needs the budgets to judge a day by, and they live on the device,
+so **the three boxes of text travel with the vault** -- newer wins, as a whole.
+The budget arithmetic therefore exists twice, in `api/_budget.js` and in
+`money.js`; `tools/budget-test.mjs` runs both over the same fixtures and fails
+if they disagree by a grosz. Two runtimes telling you different numbers is
+worse than either of them being wrong.
+
 ### The week, and the weekend
 
 A month's spending money divided evenly over thirty days is a plan nobody

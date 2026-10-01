@@ -188,14 +188,22 @@ const OVERLAP_DAYS = 5;         // Re-read a few days: a late booking is common.
  * where the last one stopped would miss them permanently -- and the rule in
  * onlyNewRows means re-reading them costs nothing.
  */
-async function pullInto(live, vault, connection) {
+/** Who is asking, when it is the reader rather than the schedule. */
+function psuOf(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const ip = forwarded || req.headers["x-real-ip"] || "";
+  if (!ip) return null;
+  return { ip, agent: req.headers["user-agent"] || "Get a grip" };
+}
+
+async function pullInto(live, vault, connection, psu = null) {
   const from = connection.fetchedTo
     ? shiftDate(connection.fetchedTo, -OVERLAP_DAYS)
     : shiftDate(today(), -HISTORY_DAYS);
 
   const incoming = [];
   for (const account of connection.accounts) {
-    const rows = await bankTransactions(account.uid, from);
+    const rows = await bankTransactions(account.uid, from, psu);
     rows.map(asTransaction).filter(Boolean).forEach((row) => incoming.push(row));
   }
 
@@ -234,7 +242,7 @@ async function pullInto(live, vault, connection) {
   try {
     const read = [];
     for (const account of connection.accounts) {
-      const figure = await bankBalances(account.uid);
+      const figure = await bankBalances(account.uid, psu);
       if (figure) read.push({ account: account.name, iban: account.iban, ...figure });
     }
     if (read.length > 0) {
@@ -270,7 +278,9 @@ async function fetchForOne(req, res) {
   if (!connection) return json(res, 409, { ok: false, message: "This vault has no bank connected yet." });
 
   try {
-    const result = await pullInto(live, vault, connection);
+    // The reader is on the page waiting for this, so it is attended and does
+    // not come out of the four the schedule has to live within.
+    const result = await pullInto(live, vault, connection, psuOf(req));
     return json(res, 200, { ok: true, ...result });
   } catch (err) {
     console.error("bank fetch failed:", err.status || "", err.message);

@@ -29,7 +29,7 @@ process.env.VAPID_PUBLIC_KEY = fresh.publicKey;
 process.env.VAPID_PRIVATE_KEY = fresh.privateKey;
 process.env.VAPID_SUBJECT = "mailto:tests@example.com";
 
-const { default: notify, digest, dueReminders, localClock } = await import("../api/notify.js");
+const { default: notify, digest, dueReminders, localClock, moneyAlerts } = await import("../api/notify.js");
 const { default: subscribeRoute } = await import("../api/subscribe.js");
 const { store, vaultKey } = await import("../api/_store.js");
 
@@ -323,6 +323,136 @@ console.log("\nregistering a device");
 }
 
 /* ---------- The run itself ---------- */
+
+console.log("\nthe money alerts");
+
+/*
+  The alerts exist to catch a day while it can still be saved, so each one is
+  checked at the moment it would actually fire rather than only for its words.
+  Everything here is worked out in the device's own zone from the vault's own
+  rows: nothing reaches for the server's clock.
+*/
+const MONEY_SETTINGS = {
+  budgets: "food = 620\ncoffee = 200\ntransport = 140",
+  income: "1 = 700\n8 = 600\n15 = 600\n22 = 600",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+};
+
+const spend = (date, amount, category = "food") => ({
+  id: `${date}-${amount}-${category}`, date, amount, category,
+  counterparty: "ZABKA", branch: "", deleted: false,
+});
+
+const clockAt = (date, minutes) => ({
+  today: date,
+  tomorrow: new Date(Date.parse(`${date}T12:00:00Z`) + 86400000).toISOString().slice(0, 10),
+  hour: Math.floor(minutes / 60),
+  minutes,
+  time: `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`,
+});
+
+const vaultOf = (rows, settings = MONEY_SETTINGS) => ({
+  tasks: [], coursework: [], sessions: [], transactions: rows, moneySettings: settings,
+});
+
+const keysOf = (alerts) => alerts.map((one) => one.key.split(":")[0]).sort().join(",");
+
+/*
+  The fixtures spend a share of the day's own limit rather than a round
+  number: the limit moves with the month's shape and with what yesterday did,
+  and a hardcoded 18 zl was quietly landing at 79% of it -- just under the
+  line, so the test passed by not firing.
+*/
+const { dayBudget: serverDayBudget } = await import("../api/_budget.js");
+const shareOf = (rows, date, share) => {
+  const limit = serverDayBudget(rows, MONEY_SETTINGS, date).limit;
+  return -Math.round(limit * share);
+};
+
+{
+  // A Thursday, 08:20, nothing spent yet: the morning text and nothing else.
+  const morning = moneyAlerts(vaultOf([spend("2026-10-07", -1000)]), clockAt("2026-10-08", 8 * 60 + 20));
+  check("the morning text goes out on a weekday morning", keysOf(morning) === "morning", keysOf(morning));
+  check("it leads with what today is allowed", /^Today: /.test(morning[0].message.title),
+    morning[0].message.title);
+  check("and says what the weekend is on", /weekend is on/.test(morning[0].message.body),
+    morning[0].message.body);
+
+  // Late enough and it is not a morning text any more.
+  const noon = moneyAlerts(vaultOf([spend("2026-10-07", -1000)]), clockAt("2026-10-08", 12 * 60));
+  check("by noon it has missed its moment", keysOf(noon) === "", keysOf(noon));
+
+  // And a Saturday is not a weekday.
+  const saturday = moneyAlerts(vaultOf([spend("2026-10-09", -1000)]), clockAt("2026-10-10", 8 * 60 + 20));
+  check("weekends get no morning text", keysOf(saturday) === "", keysOf(saturday));
+}
+
+{
+  // The day is nearly gone. One alert, saying how much is left.
+  const rows = [spend("2026-10-08", shareOf([], "2026-10-08", 0.85))];
+  const nearly = moneyAlerts(vaultOf(rows), clockAt("2026-10-08", 15 * 60));
+  check("a day nearly spent is said once", keysOf(nearly) === "nearly", keysOf(nearly));
+  check("with what is left in the title", /left today/.test(nearly[0].message.title),
+    nearly[0].message.title);
+  check("and why keeping it matters", /lands on the weekend/.test(nearly[0].message.body));
+
+  // And past it.
+  const overRows = [spend("2026-10-08", shareOf([], "2026-10-08", 1.3))];
+  const over = moneyAlerts(vaultOf(overRows), clockAt("2026-10-08", 15 * 60));
+  check("a day gone over is said instead, not as well", keysOf(over) === "over", keysOf(over));
+  check("with the overspend in the title", /over today/.test(over[0].message.title),
+    over[0].message.title);
+  check("and what it costs tomorrow", /carries a quarter/.test(over[0].message.body));
+
+  // A quiet day says nothing at all, which is the whole discipline.
+  const quiet = moneyAlerts(vaultOf([spend("2026-10-08", shareOf([], "2026-10-08", 0.3))]),
+    clockAt("2026-10-08", 15 * 60));
+  check("a quiet day is left in peace", keysOf(quiet) === "", keysOf(quiet));
+}
+
+{
+  // Something nothing was budgeted for.
+  const loose = moneyAlerts(
+    vaultOf([spend("2026-10-08", -9000, "clothes")]),
+    clockAt("2026-10-08", 15 * 60),
+  );
+  check("a payment with no budget behind it is called out",
+    loose.some((one) => one.key.startsWith("loose")), keysOf(loose));
+  const note = loose.find((one) => one.key.startsWith("loose"));
+  check("naming what it was", /ZABKA/.test(note.message.body), note.message.body);
+  check("and what to do about it", /move it outside the plan/i.test(note.message.body));
+
+  // Small change is not worth a buzz.
+  const small = moneyAlerts(vaultOf([spend("2026-10-08", -800, "clothes")]), clockAt("2026-10-08", 15 * 60));
+  check("but a few zloty is not worth interrupting anybody for",
+    !small.some((one) => one.key.startsWith("loose")));
+}
+
+{
+  // Keys carry the date, so a run that fires five times sends one of each and
+  // a day that rolls over starts again.
+  const loud = [spend("2026-10-08", shareOf([], "2026-10-08", 1.3))];
+  const twice = moneyAlerts(vaultOf(loud), clockAt("2026-10-08", 15 * 60));
+  const later = moneyAlerts(vaultOf(loud), clockAt("2026-10-08", 16 * 60));
+  check("the same day produces the same key", twice[0].key === later[0].key, twice[0].key);
+  check("and the key carries the date", /2026-10-08$/.test(twice[0].key), twice[0].key);
+}
+
+{
+  // Nothing to measure against: silence rather than a guess.
+  check("with no settings, nothing is sent",
+    moneyAlerts({ transactions: [spend("2026-10-08", -9000)] }, clockAt("2026-10-08", 15 * 60)).length === 0);
+  check("and with no transactions either",
+    moneyAlerts(vaultOf([]), clockAt("2026-10-08", 8 * 60 + 20)).length === 0);
+}
+
+{
+  // The alerts ride in with everything else the run sends.
+  const vault = vaultOf([spend("2026-10-08", shareOf([], "2026-10-08", 1.3))]);
+  const all = dueReminders(vault, clockAt("2026-10-08", 15 * 60));
+  check("they come out of dueReminders with the rest",
+    all.some((one) => one.key.startsWith("over")));
+}
 
 console.log("\nthe nightly run");
 

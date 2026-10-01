@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.01-59";
+const APP_VERSION = "2026.10.01-60";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -3732,6 +3732,10 @@ async function cloudPush({ quiet = false } = {}) {
         coursework: state.coursework,
         sessions: state.sessions,
         transactions: state.transactions,
+        // The budgets, the rules and the income plan travel too: the nightly
+        // run is what decides whether a day is over its limit, and a limit it
+        // cannot see is a limit it cannot enforce.
+        moneySettings: typeof moneySettings === "function" ? moneySettings() : {},
       },
     }),
   });
@@ -3757,6 +3761,7 @@ function applyCloudVault(vault) {
     if (typeof mergeIncomingTransactions === "function") {
       mergeIncomingTransactions(Array.isArray(vault.transactions) ? vault.transactions : []);
     }
+    if (typeof adoptMoneySettings === "function") adoptMoneySettings(vault.moneySettings);
     saveTasks();
     saveCoursework();
     saveSessions();

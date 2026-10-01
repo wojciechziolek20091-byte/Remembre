@@ -1,5 +1,6 @@
 import { cors, json, notConfigured, store } from "./_store.js";
 import { forgetSubscription, listSubscriptions, saveSubscription, sendPush, vapidKeys } from "./_push.js";
+import { dayBudget, NEARLY, unbudgeted, weekendPurse } from "./_budget.js";
 
 /**
  * The run that sends notifications to devices that are not running the app.
@@ -20,6 +21,23 @@ const REMINDER_HOUR = 17;        // "Remember this" the evening before.
 const SESSION_LEAD_MINUTES = 60; // "In an hour" before a study session.
 const WINDOW_MINUTES = 90;       // How late a reminder may be and still be worth sending.
 const KEEP_DAYS = 3;             // How long to remember what was already sent.
+
+/*
+  The morning text, on weekdays. 08:15 is when it was asked for; the window is
+  wide because the scheduler behind this is a cron that is often minutes late
+  and occasionally an hour, and a budget for the day is still worth having at
+  nine. Sent once, whenever within the window the run happens to land.
+*/
+const MORNING_AT = 8 * 60 + 15;
+const MORNING_WINDOW = 90;
+
+/*
+  How much of a day may be gone before it is worth saying so. The money alerts
+  are deliberately few: one when the day is nearly spent, one when it is, and
+  one for a payment nothing was budgeted for. A phone that buzzes at every
+  coffee gets silenced, and then none of this works at all.
+*/
+const UNBUDGETED_FLOOR = 2000;   // 20 zl: smaller than that is not worth a buzz.
 
 export default async function handler(req, res) {
   if (cors(req, res)) return;
@@ -141,7 +159,7 @@ function addDays(date, days) {
 /* ---------- What is there to say? ---------- */
 
 async function readVault(live, key) {
-  const empty = { tasks: [], coursework: [], sessions: [] };
+  const empty = { tasks: [], coursework: [], sessions: [], transactions: [], moneySettings: {} };
   const raw = await live.get(key);
   if (!raw) return empty;
   try {
@@ -160,7 +178,7 @@ const alive = (list) => (Array.isArray(list) ? list : []).filter((r) => r && !r.
  * a session that started this morning is worse than no reminder at all.
  */
 export function dueReminders(vault, clock) {
-  const due = [];
+  const due = [...moneyAlerts(vault, clock)];
 
   const digestMessage = digest(vault, clock.tomorrow);
   if (clock.hour >= REMINDER_HOUR && digestMessage) {
@@ -209,6 +227,88 @@ export function dueReminders(vault, clock) {
     });
 
   return due;
+}
+
+/* ---------- The money alerts ---------- */
+
+/*
+  What the day looks like from here, and whether any of it is worth a buzz.
+
+  Everything is worked out in the device's own zone from the vault's own
+  transactions, and everything is keyed by the local date, so a run that fires
+  five times in a minute sends one of each and a run that is late still sends
+  it. The settings come from the vault too -- they are pushed there by the app
+  precisely so this function can read them.
+
+  How fresh any of it is depends on the bank, and the bank is polled rather
+  than listening: PSD2 allows four unattended fetches a day, which is why the
+  schedule pulls at the four moments that make these alerts useful rather than
+  every quarter of an hour. Opening the app fetches again, with the reader
+  present, and that one does not count against the four.
+*/
+export function moneyAlerts(vault, clock) {
+  const settings = vault && typeof vault.moneySettings === "object" ? vault.moneySettings : null;
+  if (!settings || !(settings.budgets || settings.income)) return [];
+
+  const rows = alive(vault.transactions);
+  if (rows.length === 0) return [];
+
+  const today = dayBudget(rows, settings, clock.today);
+  if (!today.plan.spendable) return [];
+
+  const due = [];
+  const weekday = ![0, 6].includes(new Date(`${clock.today}T12:00:00Z`).getUTCDay());
+
+  /* The morning text: what today is allowed, and what rides on it. */
+  const sinceMorning = clock.minutes - MORNING_AT;
+  if (weekday && sinceMorning >= 0 && sinceMorning <= MORNING_WINDOW) {
+    const purse = weekendPurse(rows, settings, clock.today);
+    const carried = today.carried > 0
+      ? ` ${money(today.carried)} of it carried from yesterday.`
+      : today.carried < 0
+        ? ` ${money(-today.carried)} less, carried from yesterday.`
+        : "";
+
+    due.push(alert(`morning:${clock.today}`, `Today: ${money(today.limit)}`,
+      `${carried.trim()} ${purse.counted > 0
+        ? `The weekend is on ${money(purse.purse)} so far.`
+        : `A quiet day puts half of what is left on the weekend.`}`.trim(), clock));
+  }
+
+  /* Nearly there, and past it. One each, whichever way the day goes. */
+  if (today.share >= 1) {
+    due.push(alert(`over:${clock.today}`, `${money(today.spent - today.limit)} over today`,
+      `${money(today.spent)} spent against ${money(today.limit)}. Tomorrow carries a quarter of it.`, clock));
+  } else if (today.share >= NEARLY) {
+    due.push(alert(`nearly:${clock.today}`, `${money(today.left)} left today`,
+      `${money(today.spent)} of ${money(today.limit)} gone. Half of anything left lands on the weekend.`, clock));
+  }
+
+  /* And a payment nothing was budgeted for, which is the one that would
+     otherwise quietly become a category of its own. */
+  const loose = unbudgeted(rows, settings, clock.today).filter((entry) => Math.abs(entry.amount) >= UNBUDGETED_FLOOR);
+  if (loose.length > 0) {
+    const worst = loose[0];
+    const what = worst.counterparty || worst.title || worst.description || "something";
+    due.push(alert(`loose:${clock.today}:${worst.id}`,
+      `${money(Math.abs(worst.amount))} with no budget behind it`,
+      `${what}, filed under ${worst.category || "other"}. Give it a limit, or move it outside the plan.`, clock));
+  }
+
+  return due;
+}
+
+const alert = (key, title, body, clock) => ({
+  key,
+  body: `${title}: ${body}`,
+  message: { title, body, date: clock.today, tag: key },
+});
+
+/** Grosze, written the Polish way, without leaning on the server's locale. */
+function money(grosze) {
+  const sign = grosze < 0 ? "−" : "";
+  const whole = String(Math.floor(Math.abs(grosze) / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
+  return `${sign}${whole},${String(Math.abs(grosze) % 100).padStart(2, "0")} zł`;
 }
 
 const minutesOf = (time) => {

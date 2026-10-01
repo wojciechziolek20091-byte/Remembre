@@ -207,6 +207,9 @@ console.log("\nwhat the model is told before it sees a number");
   check("and it is told not to invent transactions",
     /[Dd]o not invent/.test(playbook));
   // The reader is seventeen and lives at home. Pension advice is noise.
+  // A set of limits that spends everything that arrives is not a budget.
+  check("the saving has a floor the limits may not eat",
+    /must not come to more\s+than 80% of the income plan/.test(playbook.replace(/\s+/g, " ")));
   check("and who it is writing for",
     /secondary-school student/.test(playbook) && /pension/.test(playbook));
 }
