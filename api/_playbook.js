@@ -148,7 +148,17 @@ The numbers you may compare against:
 ${BENCHMARKS}
 
 Answer by calling the "report" tool, which is the only way to answer. Its
-fields are "headline", "verdict", "reading", "notes" and "watch".
+fields are "brief", "headline", "verdict", "working", "slipping", "cut",
+"change" and "watch".
+
+The four middle fields are the shape of the whole answer, and they are read in
+that order on the page: where they do well, where they do not, what to cut,
+what to change. Keep each to one or two sentences with the figures in them.
+There is no room for an essay and nobody reads one twice.
+
+"brief" is different from the rest: it is the line that greets them when the
+app opens, before they have asked anything. Under fifteen words, warm, with
+the number in it, and never a scold -- it is the first thing they see.
 
 The verdict is about the rate of spending against money coming in, not about
 whether the person is good or bad with money. "unclear" is the honest answer

@@ -257,6 +257,9 @@ function normaliseTransaction(raw) {
     */
     branch: ["plan", "external"].includes(raw.branch) ? raw.branch : "",
     linkedTo: String(raw.linkedTo || "").slice(0, 40),
+    // Set when a payment was put back into the month by hand, so the linker
+    // does not quietly take it out again on the next pass.
+    counted: raw.counted === true,
     source: raw.source === "api" ? "api" : "csv",
     deleted: raw.deleted === true,
     createdAt,
@@ -746,8 +749,17 @@ const monthName = (key) => {
  * frugal living.
  */
 function monthReport(key) {
+  /*
+    The month, with the external branch left out of both sides.
+
+    This used to count external spending in the categories and in the month's
+    total while the rate and the verdict left it out, so a 300 ticket paid for
+    by a 300 wire turned up as a transport overspend on one card and nowhere
+    on another. Money from outside the plan is not the month's money, and that
+    has to mean the same thing everywhere.
+  */
   const entries = liveTransactions().filter((entry) => monthOf(entry.date) === key);
-  const out = entries.filter((entry) => entry.amount < 0);
+  const out = entries.filter(SPENT_OUT);
 
   const byCategory = new Map();
   out.forEach((entry) => {
@@ -759,7 +771,9 @@ function monthReport(key) {
     key,
     count: entries.length,
     spent: out.reduce((sum, entry) => sum + entry.amount, 0),
-    received: entries.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0),
+    received: entries
+      .filter((entry) => entry.amount > 0 && entry.branch !== "external")
+      .reduce((sum, entry) => sum + entry.amount, 0),
     byCategory,
     biggest: out.slice().sort((a, b) => a.amount - b.amount).slice(0, 5),
   };
@@ -1421,8 +1435,12 @@ const near = (entry, slot) =>
   && Math.abs(entry.amount - slot.amount) <= Math.max(100, slot.amount * SLOT_SLACK);
 
 /**
- * Marks what matched. Everything that did not is left alone and becomes a
- * question on the page rather than an assumption in the figures.
+ * Files every payment in, and asks nothing.
+ *
+ * What matches the schedule is the plan. What does not is external -- noted
+ * against what you said was coming, when you said anything. Then whatever
+ * each external payment paid for is linked to it, by the same rule and with
+ * the same silence.
  */
 function classifyIncome() {
   const months = new Set(liveTransactions().filter((entry) => entry.amount > 0).map((entry) => monthOf(entry.date)));
@@ -1438,14 +1456,38 @@ function classifyIncome() {
     });
   });
 
+  /*
+    Everything else came from outside the cycle, which is all that needs
+    deciding about it -- but only where there is a cycle. With no schedule set
+    there is nothing to be outside of, and calling every payment external
+    would empty the month of its income and then wonder where it went.
+  */
+  if (incomePlan().length === 0) {
+    if (changed > 0) saveTransactions();
+    return changed;
+  }
+
+  const held = expectations();
+  let noted = false;
+  liveTransactions()
+    .filter((entry) => entry.amount > 0 && !entry.branch && !entry.counted)
+    .forEach((entry) => {
+      entry.branch = "external";
+      entry.updatedAt = now;
+      changed += 1;
+
+      const expected = expectationFor(entry);
+      if (expected) {
+        const row = held.find((one) => one.id === expected.id);
+        if (row) { row.metBy = entry.id; noted = true; }
+      }
+    });
+  if (noted) saveExpectations(held);
+
+  changed += linkExternalSpending();
   if (changed > 0) saveTransactions();
   return changed;
 }
-
-/** Money in that nobody has ruled on yet: the queue of questions. */
-const undecidedIncome = () => liveTransactions()
-  .filter((entry) => entry.amount > 0 && !entry.branch)
-  .sort((a, b) => b.date.localeCompare(a.date));
 
 /** Where this month stands against the plan. */
 function incomeStanding(monthKey) {
@@ -1615,28 +1657,65 @@ const VERDICTS = {
   unclear: { label: "Not enough to tell yet", mark: "?" },
 };
 
-/* ---------- Asking about money from outside the plan ---------- */
+/* ---------- Money from outside the plan ---------- */
 
 /*
-  A payment that is not on the schedule is not something to guess about. It
-  goes in a queue at the top of the page with two buttons, and until it is
-  answered it counts as neither -- which is honest, and is also the only way
-  the question gets answered rather than quietly decided wrong.
+  Nothing here asks about what already happened. A payment that did not land
+  on the schedule is external, that is all -- the app files it and moves on,
+  because a queue of questions about last Tuesday is work, and work is the
+  thing a money app is supposed to be saving you.
 
-  Saying "external" then asks the second question: a wire for a thing is
-  followed by the thing. The best single match is proposed; the amounts of
-  the two are usually identical, so this is nearly always right, and when it
-  is not it is one tap to leave it alone.
+  The one thing worth being told in advance is what is *coming*: a wire for a
+  trip, a present, a refund. Say so and the money is kept out of the month the
+  moment it lands, along with what it pays for.
 */
+
+const MONEY_EXPECTED_KEY = "remembre.expected.v1";
 
 const LINK_DAYS = 21;       // how long after a wire its spending may turn up
 const LINK_SLACK = 0.05;    // and how far the amounts may differ
+const EXPECT_DAYS = 7;      // how far off its day an expected payment may be
+
+function expectations() {
+  const held = readStore(MONEY_EXPECTED_KEY, []);
+  return (Array.isArray(held) ? held : []).filter((row) => row && row.id && row.amount > 0);
+}
+
+const saveExpectations = (rows) => writeStore(MONEY_EXPECTED_KEY, rows);
+
+function addExpectation({ amount, date, what }) {
+  const rows = expectations();
+  rows.push({
+    id: `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    amount: Math.round(amount),
+    date: String(date || todayISO()).slice(0, 10),
+    what: String(what || "").slice(0, 60),
+    metBy: "",
+  });
+  saveExpectations(rows);
+  // It may already have arrived, in which case it is placed at once.
+  classifyIncome();
+  moneyChanged();
+}
+
+function dropExpectation(id) {
+  saveExpectations(expectations().filter((row) => row.id !== id));
+  moneyChanged();
+}
+
+/** The expectation an arrival answers, if any. */
+function expectationFor(entry) {
+  return expectations().find((row) =>
+    !row.metBy
+    && Math.abs(dayGap(entry.date, row.date)) <= EXPECT_DAYS
+    && Math.abs(entry.amount - row.amount) <= Math.max(100, row.amount * LINK_SLACK)) || null;
+}
 
 /** The one payment out that most looks like what this money came in for. */
 function spendingFor(income) {
   const until = shiftISO(income.date, LINK_DAYS);
   return liveTransactions()
-    .filter((entry) => entry.amount < 0 && !entry.branch
+    .filter((entry) => entry.amount < 0 && !entry.branch && !entry.counted
       && entry.date >= income.date && entry.date <= until
       && Math.abs(Math.abs(entry.amount) - income.amount) <= Math.max(100, income.amount * LINK_SLACK))
     .sort((a, b) =>
@@ -1644,85 +1723,124 @@ function spendingFor(income) {
       || a.date.localeCompare(b.date))[0] || null;
 }
 
-function decideIncome(id, branch) {
+/**
+ * Puts the external money and its spending together, without asking. One
+ * payment out per payment in, the closest in amount: a wire for a thing is
+ * followed by the thing, and two things are a coincidence rather than a rule.
+ */
+function linkExternalSpending() {
+  const linked = new Set(liveTransactions().map((entry) => entry.linkedTo).filter(Boolean));
+  const now = new Date().toISOString();
+  let changed = 0;
+
+  liveTransactions()
+    .filter((entry) => entry.amount > 0 && entry.branch === "external" && !linked.has(entry.id))
+    .forEach((income) => {
+      const paidFor = spendingFor(income);
+      if (!paidFor) return;
+      paidFor.branch = "external";
+      paidFor.linkedTo = income.id;
+      paidFor.updatedAt = now;
+      linked.add(income.id);
+      changed += 1;
+    });
+
+  return changed;
+}
+
+/** Puts a payment back into the month, when the link was the wrong guess. */
+function countItAgain(id) {
   const entry = state.transactions.find((held) => held.id === id);
   if (!entry) return;
-  entry.branch = branch;
-  entry.updatedAt = new Date().toISOString();
-  saveTransactions();
-
-  if (branch !== "external") {
-    moneyChanged();
-    announce("Counted as part of the plan.");
-    return;
-  }
-
-  const paidFor = spendingFor(entry);
-  moneyChanged();
-  if (paidFor) askAboutLink(entry, paidFor);
-  else announce("Kept outside the plan.");
-}
-
-function linkSpending(spendId, incomeId) {
-  const entry = state.transactions.find((held) => held.id === spendId);
-  if (!entry) return;
-  entry.branch = "external";
-  entry.linkedTo = incomeId;
+  entry.branch = "";
+  entry.linkedTo = "";
+  entry.counted = true;     // and the linker does not take it back
   entry.updatedAt = new Date().toISOString();
   saveTransactions();
   moneyChanged();
-  announce("Left out of the month.");
+  announce("Counted as part of the month again.");
 }
 
-function askAboutLink(income, paidFor) {
-  const what = paidFor.counterparty || paidFor.title || paidFor.description || "a payment";
-  const when = dayGap(paidFor.date, income.date);
-  showMoneyNotice(
-    `${zloty(income.amount)} came in on ${income.date.slice(5)} from outside the plan, and ${zloty(paidFor.amount)} `
-    + `went out to ${what} ${when === 0 ? "the same day" : `${when} ${when === 1 ? "day" : "days"} later`}. `
-    + "Was that what the money was for?",
-    {
-      tone: "plain",
-      act: {
-        label: "Yes, leave both out",
-        go: () => { linkSpending(paidFor.id, income.id); showMoneyNotice(""); },
-      },
-    }
-  );
-}
+/* ---------- What is coming, and what came ---------- */
 
-/** The queue, drawn only when there is something in it. */
-function renderReview() {
-  const wrap = $("money-review");
+function renderOutside() {
+  const wrap = $("money-outside");
   if (!wrap) return;
 
-  const waiting = undecidedIncome();
-  wrap.hidden = waiting.length === 0;
-  if (waiting.length === 0) {
-    wrap.replaceChildren();
+  const monthKey = state.moneyMonth || latestMonth();
+  const waiting = expectations().filter((row) => !row.metBy);
+  const arrived = liveTransactions()
+    .filter((entry) => entry.amount > 0 && entry.branch === "external" && monthOf(entry.date) === monthKey)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  if (waiting.length === 0 && arrived.length === 0) {
+    show(wrap, [el("p", { class: "empty", text: "Nothing outside the plan this month." })]);
     return;
   }
 
+  const paidBy = new Map(liveTransactions()
+    .filter((entry) => entry.linkedTo)
+    .map((entry) => [entry.linkedTo, entry]));
+
   show(wrap, [
-    el("p", { class: "card-title", text: waiting.length === 1 ? "One payment to place" : `${waiting.length} payments to place` }),
-    el("p", { class: "chart-caption", text: "These did not land on your schedule. Money from outside the plan is counted apart from it, along with whatever it paid for." }),
-    el("ul", { class: "review-list" }, waiting.slice(0, 6).map((entry) => el(
-      "li",
-      { class: "review-row" },
-      el("span", { class: "review-what" },
-        el("strong", { text: zloty(entry.amount) }),
-        el("span", { text: ` on ${entry.date.slice(5)} · ${entry.counterparty || entry.title || entry.description || "—"}` })),
-      el("span", { class: "review-acts" },
-        el("button", {
-          type: "button", class: "btn btn-quiet btn-tiny", text: "Part of the plan",
-          onclick: () => decideIncome(entry.id, "plan"),
-        }),
-        el("button", {
-          type: "button", class: "btn btn-primary btn-tiny", text: "External",
-          onclick: () => decideIncome(entry.id, "external"),
+    waiting.length
+      ? el("ul", { class: "outside-list" }, waiting.map((row) => el(
+          "li",
+          { class: "outside-row is-waiting" },
+          el("span", { class: "outside-when", text: row.date.slice(5) }),
+          el("span", { class: "outside-what", text: row.what || "coming" }),
+          el("span", { class: "outside-sum", text: zloty(row.amount) }),
+          el("button", {
+            type: "button", class: "link-btn", text: "Remove",
+            onclick: () => dropExpectation(row.id),
+          })
+        )))
+      : null,
+    arrived.length
+      ? el("ul", { class: "outside-list" }, arrived.map((entry) => {
+          const spent = paidBy.get(entry.id);
+          return el(
+            "li",
+            { class: "outside-row" },
+            el("span", { class: "outside-when", text: entry.date.slice(5) }),
+            el("span", { class: "outside-what" },
+              el("span", { text: entry.counterparty || entry.title || "—" }),
+              spent
+                ? el("span", { class: "outside-paid", text: `paid for ${spent.counterparty || spent.title || "something"}, ${zloty(spent.amount)}` })
+                : el("span", { class: "outside-paid", text: "nothing matched to it yet" })),
+            el("span", { class: "outside-sum", text: zloty(entry.amount) }),
+            spent
+              ? el("button", {
+                  type: "button", class: "link-btn", text: "Not that one",
+                  onclick: () => countItAgain(spent.id),
+                })
+              : null
+          );
         }))
-    ))),
+      : null,
   ]);
+}
+
+function setupOutside() {
+  const form = $("expect-form");
+  if (!form) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const amount = parseAmount($("expect-amount").value);
+    if (amount === null || amount <= 0) {
+      announce("Put in how much is coming.");
+      $("expect-amount").focus();
+      return;
+    }
+    addExpectation({
+      amount,
+      date: $("expect-date").value || todayISO(),
+      what: $("expect-what").value,
+    });
+    form.reset();
+    announce("Noted. It will be kept out of the month when it arrives.");
+  });
 }
 
 /* ---------- Hello ---------- */
@@ -1752,7 +1870,45 @@ function renderGreeting(now = new Date()) {
       el("span", { text: `${greetingFor(now.getHours())}, ` }),
       el("span", { class: "greeting-name", text: name })),
     el("p", { class: "greeting-when", text: when }),
+    el("p", { class: "greeting-brief", text: briefNow() }),
   ]);
+}
+
+/*
+  The line under the greeting, which has to be there the instant the page
+  opens -- before any request, on a train with no signal, on the first ever
+  launch. So it is worked out here, from the numbers already on the device,
+  and the analysis replaces it with something better when it has read the
+  month. A brief that is sometimes absent is not a brief.
+*/
+function briefNow() {
+  const held = insightCache();
+  if (held && held.result && held.result.brief) return String(held.result.brief);
+  return localBrief();
+}
+
+function localBrief() {
+  if (liveTransactions().length === 0) return "Nothing imported yet, so there is nothing to say.";
+
+  const monthKey = state.moneyMonth || latestMonth();
+  const month = monthReport(monthKey);
+  const read = sustainability();
+  const standing = incomeStanding(monthKey);
+  const net = month.received + month.spent;
+
+  if (read.verdict === "overspending") {
+    return `At ${zloty(read.perDay)} a day this month is heading for ${zloty(read.projected)}, which is more than comes in.`;
+  }
+  if (net > 0 && standing.toCome <= 0) {
+    return `You have put aside ${zloty(net)} this month, with everything in.`;
+  }
+  if (read.verdict === "sustainable") {
+    return `${zloty(read.perDay)} a day so far, which leaves ${zloty(standing.planned - read.projected)} of the plan at this rate.`;
+  }
+  if (standing.toCome > 0) {
+    return `${zloty(standing.arrived)} of your ${zloty(standing.planned)} has arrived, ${zloty(Math.abs(month.spent))} spent.`;
+  }
+  return `${zloty(Math.abs(month.spent))} out and ${zloty(month.received)} in so far this month.`;
 }
 
 /* ---------- The budget map ---------- */
@@ -2367,8 +2523,8 @@ function renderDashboard() {
   // figures and the queue can never disagree.
   classifyIncome();
   renderGreeting();
-  renderReview();
   renderBalanceCard();
+  renderOutside();
   renderBudgetMap();
   renderCategoryBars();
   renderRateCard();
@@ -2380,27 +2536,27 @@ function moneyChanged() {
   renderRules();
   renderReport();
   renderDashboard();
-  noteInsightStale();
+  // The reading is part of the page, so it is redrawn with the rest of it --
+  // and it says for itself whether the numbers have moved under it.
+  renderReading(insightCache());
 }
 
-/* ---------- The analytics sector ---------- */
+/* ---------- What your spending says ---------- */
 
 /*
-  This half of the money app is the one that reads the numbers back to you, and
-  it does it without being asked: open the page and it has already run, or it
-  runs now. Being asked is the problem with every other tool like this -- you
-  only press the button on the day you already know the answer.
+  The analysis is not a place you go. It reads the month when the page opens,
+  it writes the line under the greeting, it moves the budgets on the map, and
+  it fills the card below -- four short pieces, in the order somebody actually
+  wants them: what is going well, what is not, what to cut, what to change.
 
-  What goes to the model is a summary, not a statement. The arithmetic has been
-  done here; what travels is a few dozen totals, the top payees and the
-  recurring charges. That is cheaper, faster, and the only part a model can
-  actually use. Nothing is sent until the page is opened, and nothing is sent
-  twice for the same numbers -- the last reading is kept and only replaced when
-  the data has moved.
+  What goes to the model is a summary, not a statement: a few dozen totals,
+  the top payees, the recurring charges and the shape of the last four weeks.
+  Nothing is sent until the page is opened, and nothing is sent twice for the
+  same numbers -- the last reading is kept and only replaced when the data has
+  moved.
 */
 
 const MONEY_INSIGHT_KEY = "remembre.insight.v1";
-const MONEY_PLAN_KEY = "remembre.plan.v1";
 
 /** Grosze to złoty as a plain number, which is what the model should see. */
 const zl = (grosze) => Math.round(grosze) / 100;
@@ -2525,18 +2681,7 @@ function worthReanalysing(cached, digest) {
   return !(age < 3 * 24 * 60 * 60 * 1000);
 }
 
-function insightCache() { return readStore(MONEY_INSIGHT_KEY, null); }
-function planCache() { return readStore(MONEY_PLAN_KEY, null); }
-
-/** Marks a stored reading as describing older numbers than the ones now held. */
-function noteInsightStale() {
-  const note = $("insight-stale");
-  if (!note) return;
-  // Only the numbers moving is worth saying out loud here. A reading that is
-  // merely three days old is still describing the right month.
-  const cached = insightCache();
-  note.hidden = !(cached && movedSince(cached, buildDigest()));
-}
+const insightCache = () => readStore(MONEY_INSIGHT_KEY, null);
 
 let insightRunning = false;
 
@@ -2554,49 +2699,41 @@ async function askClaude(action, digest) {
   return body;
 }
 
-/*
-  The two cards keep their own status line. One line shared between them meant
-  the plan's "working..." wiped out when the reading was written, which is the
-  one thing on the page that says whether it is current.
-*/
-function setStatus(id, text, busy) {
-  const status = $(id);
+function setReadingStatus(text, busy) {
+  const status = $("reading-status");
   if (!status) return;
   status.textContent = text;
   status.classList.toggle("is-busy", Boolean(busy));
 }
 
-const setInsightStatus = (text, busy) => setStatus("insight-status", text, busy);
-const setPlanStatus = (text, busy) => setStatus("plan-status", text, busy);
-
 /**
- * Runs the analysis. Called on opening the page, not on a button: the button
- * version only ever gets pressed on the day you already know the answer.
+ * Runs when the half is opened, not on a button: the button version only ever
+ * gets pressed on the day you already know the answer.
  */
 async function runInsight({ force = false } = {}) {
-  if (!$("insight-reading") || insightRunning) return;
+  if (!$("money-reading") || insightRunning) return;
 
   const digest = buildDigest();
   if (digest.days < 7 || digest.categories.length === 0) {
-    renderInsight(null);
-    setInsightStatus("There is less than a week of spending here. Import a bit more and this page will have something to say.", false);
+    renderReading(insightCache());
+    setReadingStatus("Less than a week of spending here. Import a bit more and this fills itself in.", false);
     return;
   }
 
   const cached = insightCache();
   if (!force && cached && !worthReanalysing(cached, digest)) {
-    renderInsight(cached);
+    renderReading(cached);
     return;
   }
 
   insightRunning = true;
-  if (cached) renderInsight(cached);
-  setInsightStatus("Reading your spending…", true);
+  renderReading(cached);
+  setReadingStatus(cached ? "Having another look…" : "Reading your spending…", true);
 
   try {
     const answer = await askClaude("analyse", digest);
     if (answer.thin) {
-      setInsightStatus(answer.message, false);
+      setReadingStatus(answer.message, false);
       return;
     }
     const record = {
@@ -2607,182 +2744,78 @@ async function runInsight({ force = false } = {}) {
       cost: answer.cost || null,
     };
     writeStore(MONEY_INSIGHT_KEY, record);
-    renderInsight(record);
-    announce("The analysis is ready.");
+    renderReading(record);
+    renderGreeting();
+    announce("The reading is ready.");
     // Having just read the month, it is the right moment to put the budgets
     // where the money is actually going.
     rebalanceBudgets();
   } catch (err) {
-    setInsightStatus(err.message, false);
+    setReadingStatus(err.message, false);
   } finally {
     insightRunning = false;
-    noteInsightStale();
   }
 }
 
-function renderInsight(record) {
-  const wrap = $("insight-reading");
+/*
+  Four pieces, in the order they are wanted: what is going well, what is not,
+  what to cut, what to change. Each one is a heading and a sentence or two --
+  an essay here would be read once and never again.
+*/
+const READING_PARTS = [
+  ["working", "Where you do well", "is-good"],
+  ["slipping", "Where you do not", "is-bad"],
+  ["cut", "What to cut", "is-cut"],
+  ["change", "What to change", "is-change"],
+];
+
+function renderReading(record) {
+  const wrap = $("money-reading");
   if (!wrap) return;
 
+  const head = [
+    el("div", { class: "card-head" },
+      el("h2", { class: "card-title", text: "What your spending says" }),
+      el("button", {
+        type: "button", class: "link-btn", text: "Read it again",
+        onclick: () => runInsight({ force: true }),
+      })),
+    el("p", { class: "sync-status", id: "reading-status", role: "status" }),
+  ];
+
   if (!record) {
-    wrap.replaceChildren();
+    show(wrap, [...head, el("p", { class: "empty", text: "Nothing read yet." })]);
     return;
   }
-
-  setInsightStatus(`Read ${ageInWords(record.at)}, from ${record.digest.days} days of data.`, false);
-  noteInsightStale();
 
   const result = record.result;
   if (!result) {
-    wrap.replaceChildren(el("p", { class: "insight-prose", text: record.prose || "Nothing came back." }));
+    show(wrap, [...head, el("p", { class: "insight-prose", text: record.prose || "Nothing came back." })]);
     return;
   }
 
-  const verdict = VERDICTS[result.verdict] || VERDICTS.unclear;
+  const stale = movedSince(record, buildDigest());
 
   show(wrap, [
-    el("p", { class: "insight-headline", text: String(result.headline || "") }),
-    el(
-      "div",
-      { class: `verdict is-${VERDICTS[result.verdict] ? result.verdict : "unclear"}` },
-      el("span", { class: "verdict-mark", "aria-hidden": "true", text: verdict.mark }),
-      el("span", { class: "verdict-words" }, el("strong", { class: "verdict-label", text: verdict.label }))
-    ),
-    ...String(result.reading || "").split(/\n{2,}/).filter(Boolean)
-      .map((para) => el("p", { class: "insight-prose", text: para.trim() })),
-    Array.isArray(result.notes) && result.notes.length
-      ? el("ul", { class: "insight-notes" }, result.notes.slice(0, 6).map((note) => el(
-          "li",
-          {},
-          el("strong", { text: String(note.label || "") }),
-          el("span", { text: ` ${String(note.detail || "")}` })
-        )))
-      : null,
+    ...head,
+    el("p", { class: "insight-headline", text: String(result.headline || result.brief || "") }),
+    el("div", { class: "reading-grid" }, READING_PARTS.map(([key, title, tone]) => {
+      const said = String(result[key] || "").trim();
+      if (!said) return null;
+      return el("div", { class: `reading-part ${tone}` },
+        el("h3", { class: "reading-title", text: title }),
+        el("p", { class: "reading-text", text: said }));
+    }).filter(Boolean)),
     Array.isArray(result.watch) && result.watch.length
       ? el("div", { class: "insight-watch" },
           el("h3", { class: "insight-sub", text: "Worth watching" }),
           el("ul", { class: "watch-list" }, result.watch.slice(0, 3)
             .map((item) => el("li", { text: String(item) }))))
       : null,
+    el("p", { class: "chart-caption", text: stale
+      ? `Read ${ageInWords(record.at)}; the numbers have moved since.`
+      : `Read ${ageInWords(record.at)}, from ${record.digest.days} days of data.` }),
   ]);
-}
-
-/* ---------- The plan ---------- */
-
-/*
-  The plan is on a button, and that is the one thing on this page that should
-  be: an analysis of what already happened costs nothing to be wrong about, but
-  a budget is a decision, and a decision nobody asked for is noise.
-*/
-async function runPlan() {
-  const button = $("insight-plan");
-  if (!button) return;
-
-  const digest = buildDigest();
-  if (digest.days < 7) {
-    setPlanStatus("Not enough data to build a plan from yet.", false);
-    return;
-  }
-
-  button.disabled = true;
-  setPlanStatus("Working out a plan…", true);
-  try {
-    const answer = await askClaude("plan", digest);
-    const record = { at: new Date().toISOString(), digest, result: answer.result || null, prose: answer.prose || "" };
-    writeStore(MONEY_PLAN_KEY, record);
-    renderPlan(record);
-    setPlanStatus(`Plan written ${ageInWords(record.at)}.`, false);
-    announce("A plan is ready.");
-  } catch (err) {
-    setPlanStatus(err.message, false);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-function renderPlan(record) {
-  const wrap = $("insight-plan-out");
-  if (!wrap) return;
-  if (!record) {
-    wrap.replaceChildren();
-    return;
-  }
-
-  setPlanStatus(`Plan written ${ageInWords(record.at)}.`, false);
-
-  const result = record.result;
-  if (!result || !Array.isArray(result.monthly)) {
-    wrap.replaceChildren(el("p", { class: "insight-prose", text: record.prose || "Nothing came back." }));
-    return;
-  }
-
-  const lines = result.monthly
-    .filter((row) => row && row.category && Number.isFinite(Number(row.limit)))
-    .map((row) => ({
-      category: String(row.category).toLowerCase().slice(0, 40),
-      limit: Math.round(Number(row.limit)),
-      was: Number.isFinite(Number(row.was)) ? Math.round(Number(row.was)) : null,
-      why: String(row.why || ""),
-    }));
-
-  show(wrap, [
-    el("p", { class: "insight-prose", text: String(result.approach || "") }),
-    result.save && Number.isFinite(Number(result.save.amount))
-      ? el("p", { class: "plan-save" },
-          el("strong", { text: `Put aside ${zloty(Math.round(Number(result.save.amount)) * 100)} a month. ` }),
-          el("span", { text: String(result.save.why || "") }))
-      : null,
-    el(
-      "table",
-      { class: "plain-table plan-table" },
-      el("thead", {}, el("tr", {},
-        el("th", { scope: "col", text: "Category" }),
-        el("th", { scope: "col", text: "Now" }),
-        el("th", { scope: "col", text: "Limit" }),
-        el("th", { scope: "col", text: "Why" }))),
-      el("tbody", {}, lines.map((line) => el(
-        "tr",
-        {},
-        el("th", { scope: "row", class: "plan-cat", text: line.category }),
-        el("td", { text: line.was === null ? "—" : zloty(line.was * 100) }),
-        el("td", { class: "plan-limit", text: zloty(line.limit * 100) }),
-        el("td", { class: "plan-why", text: line.why })
-      )))
-    ),
-    Array.isArray(result.tradeoffs) && result.tradeoffs.length
-      ? el("div", { class: "insight-watch" },
-          el("h3", { class: "insight-sub", text: "What it costs" }),
-          el("ul", { class: "watch-list" }, result.tradeoffs.slice(0, 3)
-            .map((item) => el("li", { text: String(item) }))))
-      : null,
-    result.year ? el("p", { class: "plan-year", text: String(result.year) }) : null,
-    lines.length
-      ? el("div", { class: "panel-actions" }, el("button", {
-          type: "button",
-          class: "btn btn-primary",
-          text: "Use these as my budgets",
-          onclick: () => applyPlanBudgets(lines),
-        }))
-      : null,
-  ]);
-}
-
-/**
- * Writes the plan into the budgets box, which is the thing the rest of the app
- * already watches. Nothing is applied silently: this is a button, the old text
- * is shown underneath it in the Categories panel, and the numbers are the ones
- * on screen.
- */
-function applyPlanBudgets(lines) {
-  const header = "# Written from the plan on " + todayISO() + ". Edit freely.";
-  const text = [header, ...lines.map((line) => `${line.category} = ${line.limit}`)].join("\n") + "\n";
-  writeStore(MONEY_BUDGETS_KEY, text);
-  const box = $("money-budgets");
-  if (box) box.value = text;
-  renderReport();
-  renderDashboard();
-  announce("Budgets updated from the plan.");
-  setPlanStatus("Budgets updated. They are in the Categories panel if you want to change them.", false);
 }
 
 /* ---------- Letting the analysis move the budgets ---------- */
@@ -2805,7 +2838,13 @@ const MONEY_MOVES_KEY = "remembre.budgetmoves.v1";
 const MONEY_AUTO_KEY = "remembre.autobudget.v1";
 const MONEY_UNDO_KEY = "remembre.budgetsbefore.v1";
 
-const autoBudget = () => readStore(MONEY_AUTO_KEY, null) !== false;
+/*
+  The budgets move on their own, and there is no switch about it. A switch is
+  a question in a hat: it asks you, every time you see it, whether you still
+  mean what you already said. What there is instead is Undo, which is an
+  answer to something that actually happened.
+*/
+const autoBudget = () => true;
 
 /** What the analysis last proposed, and whether it has been taken up. */
 const budgetMoves = () => readStore(MONEY_MOVES_KEY, null);
@@ -2872,7 +2911,7 @@ function undoMoves() {
 /** The moves, under the map, so the picture and the reason sit together. */
 function renderMoves() {
   const held = budgetMoves();
-  if (!held || !Array.isArray(held.moves) || held.moves.length === 0) return autoRow();
+  if (!held || !Array.isArray(held.moves) || held.moves.length === 0) return null;
 
   return el(
     "div",
@@ -2898,19 +2937,8 @@ function renderMoves() {
             type: "button", class: "btn btn-primary btn-tiny", text: "Use these",
             onclick: () => applyMoves(held.moves),
           })
-    ),
-    autoRow()
+    )
   );
-}
-
-function autoRow() {
-  const box = el("input", { type: "checkbox", id: "auto-budget", checked: autoBudget() });
-  box.addEventListener("change", () => {
-    writeStore(MONEY_AUTO_KEY, box.checked);
-    announce(box.checked ? "The analysis will keep the budgets in step." : "Budgets will only change when you say so.");
-  });
-  return el("label", { class: "auto-row", for: "auto-budget" }, box,
-    el("span", { text: "Let the analysis keep these in step with how I actually spend" }));
 }
 
 /**
@@ -2950,23 +2978,7 @@ async function rebalanceBudgets({ byHand = false } = {}) {
   }
 }
 
-/* ---------- Which page of the money half ---------- */
-
-function setMoneyPage(page) {
-  const insight = page === "insight";
-  if ($("money-dash")) $("money-dash").hidden = insight;
-  if ($("money-insight")) $("money-insight").hidden = !insight;
-  document.querySelectorAll("[data-money-page]").forEach((button) => {
-    const mine = button.dataset.moneyPage === (insight ? "insight" : "dash");
-    button.setAttribute("aria-selected", mine ? "true" : "false");
-    button.classList.toggle("is-on", mine);
-  });
-  if (insight) {
-    renderInsight(insightCache());
-    renderPlan(planCache());
-    runInsight();
-  }
-}
+/* ---------- Wiring what is left ---------- */
 
 /* The map is laid out from the measured width, so it is redrawn when that
    changes. Debounced: a drag of the window edge is one redraw, not forty. */
@@ -2981,20 +2993,13 @@ function watchWidth() {
 }
 
 function setupInsight() {
-  if (!$("money-insight")) return;
-
-  document.querySelectorAll("[data-money-page]").forEach((button) => {
-    button.addEventListener("click", () => setMoneyPage(button.dataset.moneyPage));
-  });
-
-  $("insight-again").addEventListener("click", () => runInsight({ force: true }));
+  if (!$("money-reading")) return;
+  setupOutside();
   if ($("map-rebalance")) {
     $("map-rebalance").addEventListener("click", () => {
       showMoneyNotice("Working out where the money actually goes…", { tone: "plain", keep: false });
       rebalanceBudgets({ byHand: true });
     });
   }
-  $("insight-plan").addEventListener("click", () => runPlan());
-  setMoneyPage("dash");
   watchWidth();
 }

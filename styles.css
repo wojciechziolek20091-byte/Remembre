@@ -2399,7 +2399,9 @@ body.on-money .wordmark-mark { color: var(--accent); }
 
 /* ---------- Cards ---------- */
 
-.money-page { display: grid; gap: .75rem; align-content: start; }
+/* align-items, not just align-content: a card should be as tall as what is in
+   it, rather than as tall as whatever sits beside it. */
+.money-page { display: grid; gap: .75rem; align-content: start; align-items: start; }
 
 .card {
   background: var(--surface);
@@ -2839,32 +2841,6 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .kpi-dot.is-off { background: var(--line-strong); }
 .kpi-dot.is-stale { background: var(--now); }
 
-/* ---------- Payments waiting to be placed ---------- */
-
-.card-review { border-left: 4px solid var(--accent); }
-
-.review-list {
-  list-style: none;
-  margin: .7rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: .55rem;
-}
-
-.review-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: .5rem .9rem;
-  padding-bottom: .55rem;
-  border-bottom: 1px solid var(--line);
-}
-
-.review-row:last-child { border-bottom: 0; padding-bottom: 0; }
-.review-what { font-size: .9rem; font-variant-numeric: tabular-nums; }
-.review-acts { display: flex; gap: .4rem; margin-left: auto; }
-
 /* The plan, on the card the month is measured on. */
 .kpi-plan {
   margin: .5rem 0 0;
@@ -3022,15 +2998,91 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .move-to { color: var(--accent); font-weight: 650; }
 .move-why { color: var(--ink-2); font-size: .8rem; }
 
-.auto-row {
-  display: flex;
-  align-items: center;
-  gap: .6rem;
-  margin: .9rem 0 0;
-  padding-top: .8rem;
-  border-top: 1px solid var(--line);
-  font-size: .85rem;
+/* ---------- The brief, and what the spending says ---------- */
+
+.greeting-brief {
+  margin: 0;
+  flex-basis: 100%;
+  font-size: .95rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.card-reading { border-left: 3px solid var(--accent); }
+
+/*
+  Four pieces, each with its own heading, because the four questions are the
+  reason anybody opened the app. On a wide screen they pair up; on a phone
+  they stack in the order they are wanted.
+*/
+.reading-grid {
+  display: grid;
+  gap: .9rem;
+  margin-top: .9rem;
+}
+
+@media (min-width: 48rem) {
+  .reading-grid { grid-template-columns: 1fr 1fr; gap: 1rem 1.6rem; }
+}
+
+.reading-part { display: grid; gap: .2rem; align-content: start; }
+
+.reading-title {
+  margin: 0;
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
   color: var(--ink-2);
 }
 
-.auto-row input { accent-color: var(--accent); width: 1.05rem; height: 1.05rem; }
+.reading-part.is-good .reading-title { color: var(--s-ess); }
+.reading-part.is-bad .reading-title { color: var(--danger); }
+.reading-part.is-cut .reading-title { color: var(--now); }
+.reading-part.is-change .reading-title { color: var(--accent); }
+
+.reading-text { margin: 0; font-size: .92rem; line-height: 1.55; }
+
+/* ---------- Money from outside the plan ---------- */
+
+.expect-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .45rem;
+  margin: .6rem 0 .2rem;
+}
+
+.expect-form .input { padding: .5rem .65rem; font-size: .9rem; }
+.expect-form #expect-what { grid-column: 1 / -1; }
+.expect-form .btn { grid-column: 1 / -1; justify-self: start; }
+
+@media (min-width: 34rem) {
+  .expect-form { grid-template-columns: 7rem 10rem 1fr auto; align-items: center; }
+  .expect-form #expect-what { grid-column: auto; }
+  .expect-form .btn { grid-column: auto; }
+}
+
+.outside-list {
+  list-style: none;
+  margin: .7rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .5rem;
+}
+
+.outside-row {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr auto auto;
+  gap: .3rem .7rem;
+  align-items: baseline;
+  padding-bottom: .5rem;
+  border-bottom: 1px solid var(--line);
+  font-size: .88rem;
+}
+
+.outside-list:last-child .outside-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.outside-row.is-waiting { opacity: .75; }
+.outside-when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.outside-what { display: grid; gap: .1rem; min-width: 0; }
+.outside-paid { font-size: .78rem; color: var(--ink-2); }
+.outside-sum { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -292,20 +292,11 @@
 
 <div class="area-money" id="money-area" hidden>
 
-  <div class="money-tabs" role="tablist" aria-label="Money">
-    <button type="button" class="money-tab is-on" id="money-tab-dash" data-money-page="dash"
-            role="tab" aria-selected="true" aria-controls="money-dash">Dashboard</button>
-    <button type="button" class="money-tab" id="money-tab-insight" data-money-page="insight"
-            role="tab" aria-selected="false" aria-controls="money-insight">Analytics</button>
-  </div>
-
   <div class="greeting" id="money-greeting"></div>
 
   <div class="notice" id="money-notice" role="status" hidden></div>
 
-  <div class="money-page" id="money-dash" role="tabpanel" aria-labelledby="money-tab-dash">
-
-    <section class="card card-review" id="money-review" aria-label="Payments to place" hidden></section>
+  <div class="money-page" id="money-dash">
 
     <section class="card card-kpi" id="money-balance" aria-label="Current balance"></section>
 
@@ -319,6 +310,29 @@
         </div>
       </div>
       <div id="money-cats"></div>
+    </section>
+
+    <section class="card card-reading" id="money-reading" aria-label="What your spending says"></section>
+
+    <section class="card card-outside" aria-labelledby="money-outside-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="money-outside-heading">Outside the plan</h2>
+      </div>
+      <p class="chart-caption">
+        Money that is not part of your 2&nbsp;500 and whatever it pays for. Tell the app
+        what is coming and it is kept out of the month by itself &ndash; nothing here is
+        counted as spending or as income.
+      </p>
+      <form class="expect-form" id="expect-form">
+        <label class="sr-only" for="expect-amount">How much</label>
+        <input type="number" id="expect-amount" class="input" inputmode="decimal" step="0.01" min="0" placeholder="500">
+        <label class="sr-only" for="expect-date">When</label>
+        <input type="date" id="expect-date" class="input">
+        <label class="sr-only" for="expect-what">What for</label>
+        <input type="text" id="expect-what" class="input" maxlength="60" placeholder="what it is for">
+        <button type="submit" class="btn btn-primary btn-tiny">Add</button>
+      </form>
+      <div id="money-outside"></div>
     </section>
 
     <section class="card card-map" aria-labelledby="money-map-heading">
@@ -443,41 +457,6 @@
 
       </div>
     </details>
-
-  </div>
-
-  <div class="money-page" id="money-insight" role="tabpanel" aria-labelledby="money-tab-insight" hidden>
-
-    <section class="card" aria-labelledby="insight-heading">
-      <div class="card-head">
-        <h2 class="card-title" id="insight-heading">What your spending says</h2>
-        <button type="button" class="link-btn" id="insight-again">Read it again</button>
-      </div>
-      <p class="panel-hint">
-        This runs on its own when you open this page, on the numbers already on your
-        device &ndash; totals, the payees behind them and what repeats, never the whole
-        statement. It is read again when the figures move, not every time you look.
-      </p>
-      <p class="sync-status" id="insight-status" role="status"></p>
-      <p class="sync-status is-stale" id="insight-stale" hidden>These numbers have moved since this was written.</p>
-      <div id="insight-reading"></div>
-    </section>
-
-    <section class="card" aria-labelledby="insight-plan-heading">
-      <div class="card-head">
-        <h2 class="card-title" id="insight-plan-heading">A plan you could keep</h2>
-      </div>
-      <p class="panel-hint">
-        Budgets worked out from what you actually spend, aimed at putting the most
-        aside over a year while the month still feels liveable &ndash; not at winning
-        one month. Nothing is applied until you say so.
-      </p>
-      <p class="sync-status" id="plan-status" role="status"></p>
-      <div class="panel-actions">
-        <button type="button" class="btn btn-primary" id="insight-plan">Suggest budget adjustments</button>
-      </div>
-      <div id="insight-plan-out"></div>
-    </section>
 
   </div>
 

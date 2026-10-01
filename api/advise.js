@@ -88,7 +88,7 @@ export default async function handler(req, res) {
 */
 /** Without these the answer is not one, however much of it arrived. */
 const REQUIRED = {
-  analyse: ["headline", "verdict", "reading"],
+  analyse: ["brief", "headline", "verdict", "working", "slipping"],
   plan: ["approach", "monthly", "save"],
 };
 
@@ -96,24 +96,31 @@ const SHAPES = {
   analyse: {
     type: "object",
     properties: {
+      brief: {
+        type: "string",
+        description: "The line that greets them when they open the app, under fifteen words, with the number in it. Where they stand this second: money put aside, a rate that is fine, a rate that is not. Plain and warm, never a scold. For example: \"You have put aside 340 zl this month, with everything in.\"",
+      },
       headline: { type: "string", description: "One sentence: the single most useful thing in the data." },
       verdict: {
         type: "string",
         enum: ["sustainable", "tight", "overspending", "unclear"],
         description: "The rate of spending against money coming in. 'unclear' when there is less than three weeks of data or no income in it.",
       },
-      reading: { type: "string", description: "Two or three short paragraphs of analysis, separated by blank lines. Plain text, at most 220 words." },
-      notes: {
-        type: "array",
-        maxItems: 5,
-        items: {
-          type: "object",
-          properties: {
-            label: { type: "string", description: "Short name of the finding." },
-            detail: { type: "string", description: "One sentence, with the number in it." },
-          },
-          required: ["label", "detail"],
-        },
+      working: {
+        type: "string",
+        description: "Where they do well, in one or two sentences with the figures. Say it plainly and do not hedge it with a 'but'. If nothing is going well, say what is closest.",
+      },
+      slipping: {
+        type: "string",
+        description: "Where they do not, in one or two sentences, naming the shop or the habit and the number. No moralising.",
+      },
+      cut: {
+        type: "string",
+        description: "The one thing worth cutting and what it would save a month, in one or two sentences. Name the thing, not the category. If nothing needs cutting, say so.",
+      },
+      change: {
+        type: "string",
+        description: "The one change that is not a cut: a limit that is wrong, a subscription nobody uses, a habit that costs more for being done in small pieces. One or two sentences.",
       },
       watch: {
         type: "array",
@@ -121,7 +128,7 @@ const SHAPES = {
         items: { type: "string", description: "Something to keep an eye on, under ten words." },
       },
     },
-    required: ["headline", "verdict", "reading", "notes", "watch"],
+    required: ["brief", "headline", "verdict", "working", "slipping", "cut", "change"],
   },
 
   plan: {

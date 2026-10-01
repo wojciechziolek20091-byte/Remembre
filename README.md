@@ -86,13 +86,27 @@ sliver with four lines of type piled on it.
 What has not been given a job is a node of its own, and so is spending with no
 budget behind it. Both are the things a plan most needs to say out loud.
 
-### Analytics
+### What your spending says
 
-The second page reads the numbers back to you, and it does it without being
-asked: open it and the analysis has either already run or runs now. Being asked
-is the problem with every other tool like this -- you only press the button on
-the day you already know the answer. It is read again when the figures move,
-not every time you look, and the last reading is kept on the device.
+The analysis is not a place you go. There is no Analytics tab, because a tab
+is somewhere you have to decide to visit, and a thing nobody visits may as
+well not exist. It runs when the money half opens, and what it writes lands
+in four places: the line under the greeting, the card below the balance, the
+budgets on the map, and nothing else.
+
+The card answers four questions, in the order anybody actually wants them:
+**where you do well**, **where you do not**, **what to cut**, **what to
+change**. One or two sentences each, with the figures in them. An essay would
+be read once and never again.
+
+The line under the greeting is there before any of that -- on the first
+launch, with no signal, the moment the page paints -- because a brief that is
+sometimes absent is not a brief. It is worked out on the device from the
+numbers already here, and the analysis replaces it with something better when
+it has read the month.
+
+It is read again when the figures move, not every time you look, and the last
+reading is kept on the device.
 
 What travels to Claude is a **summary, not a statement**: a few dozen totals,
 the top payees, the recurring charges and the shape of the last four weeks. The
@@ -110,12 +124,17 @@ default -- puts them in. Every move is shown with the habit it is really about
 and Undo is one tap. Automatic, because that was asked for; reversible,
 because automatic without reversible is just something happening to you.
 
-The plan in the analytics sector *is* on a button, deliberately. An analysis of what
-already happened costs nothing to be wrong about; a budget is a decision, and a
-decision nobody asked for is noise. It comes back as limits against what you
-actually spent, what each tightening costs in practice, and what a year of
-keeping it adds up to -- and it changes nothing until you press *Use these as
-my budgets*.
+Nothing on this page asks you about what already happened. A payment that did
+not land on the schedule is external, that is all; whatever it paid for is
+found and linked to it; and the budgets move to match. A queue of questions
+about last Tuesday is work, and work is the thing a money app is supposed to
+be saving you.
+
+The one thing worth saying in advance is what is *coming*. **Outside the plan**
+takes an amount, a date and what it is for, and when that money lands it is
+kept out of the month by itself. If the link it guesses is wrong, *Not that
+one* puts the payment back -- an action about something that happened, rather
+than a question about something that might.
 
 #### About "training"
 

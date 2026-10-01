@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.01-56";
+const APP_VERSION = "2026.10.01-57";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1412,6 +1412,9 @@ function setArea(area, { remember = true } = {}) {
     // The bank is only asked about when it is being looked at: there is no
     // reason to call it while the reader is on their timetable.
     if (typeof refreshBank === "function") refreshBank();
+    // And the reading runs on opening rather than on a button, because the
+    // whole point of it is to be there before you ask.
+    if (typeof runInsight === "function") runInsight();
   }
 }
 

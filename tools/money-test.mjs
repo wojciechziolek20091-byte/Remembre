@@ -27,6 +27,18 @@ const MIME = {
 
 const server = createServer(async (req, res) => {
   const path = normalize(decodeURIComponent(req.url.split("?")[0])).replace(/^(\.\.[/\\])+/, "");
+
+  /*
+    The page reads the month when the money half opens, so it calls the server
+    the moment these tests get there. There is no server here: answering
+    "nothing to say" is both true and quiet, and the console stays clean for
+    the errors that matter.
+  */
+  if (path.startsWith("/api/")) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, thin: true, message: "No server in the tests." }));
+    return;
+  }
   try {
     const file = join(root, path === "/" ? "index.html" : path);
     const body = await readFile(file);
@@ -319,6 +331,10 @@ const TWO_MONTHS = [
     state.transactions = [];
     writeStore("remembre.moneyrules.v1", DEFAULT_RULES);
     writeStore("remembre.moneybudgets.v1", "food = 400\ntransport = 100");
+    // No schedule here: this section is about the month's own arithmetic, and
+    // with a plan set the 1 000 that lands on the 15th is external money and
+    // would rightly be left out of it.
+    writeStore("remembre.incomeplan.v1", "# none");
     await importCsvText(csv, { label: "two months" });
     const september = monthReport("2026-09");
     const august = monthReport("2026-08");
@@ -744,73 +760,86 @@ console.log("\nthe income plan");
       arrived: standing.arrived,
       toCome: standing.toCome,
       next: standing.next ? standing.next.day : null,
-      waiting: undecidedIncome().length,
+      external: liveTransactions().filter((e) => e.amount > 0 && e.branch === "external").length,
     };
   }, month);
 
   check("a payment on its day is counted as the plan", rows.branches[0], ["01", 70000, "plan"]);
   check("and one a couple of days late still is", rows.branches.find((r) => r[0] === "10"), ["10", 60000, "plan"]);
-  check("but one that is not on the schedule is left for you to say",
-    rows.branches.find((r) => r[0] === "11"), ["11", 50000, ""]);
+  // Nothing is asked about what already happened: off the schedule is
+  // external, and that is the whole of the decision.
+  check("one that is not on the schedule is external, without a question",
+    rows.branches.find((r) => r[0] === "11"), ["11", 50000, "external"]);
   check("the month is measured against the plan, not against what landed", rows.planned, 250000);
   check("what has arrived is what matched it", rows.arrived, 190000);
   check("the rest is still to come", rows.toCome, 60000);
   check("and it says which instalment is next", rows.next, 22);
-  check("the one that did not match is a question", rows.waiting, 1);
+  check("and it is counted apart from the plan", rows.external, 1);
+  // With no schedule there is nothing to be outside of, and calling every
+  // payment external would empty the month of its income.
+  check("but with no schedule set, nothing is external",
+    await page.evaluate(() => {
+      const before = readStore("remembre.incomeplan.v1", null);
+      writeStore("remembre.incomeplan.v1", "# none");
+      state.transactions.forEach((entry) => { if (entry.amount > 0) entry.branch = ""; });
+      classifyIncome();
+      const any = liveTransactions().filter((e) => e.branch === "external").length;
+      writeStore("remembre.incomeplan.v1", before);
+      state.transactions.forEach((entry) => { if (entry.amount > 0) entry.branch = ""; });
+      classifyIncome();
+      return any;
+    }), 0);
 }
 
 {
-  const queue = await page.evaluate(() => {
+  const card = await page.evaluate(() => {
     renderDashboard();
     return {
-      shown: !document.querySelector("#money-review").hidden,
-      text: document.querySelector("#money-review .review-what").textContent,
-      buttons: [...document.querySelectorAll("#money-review .review-acts button")].map((b) => b.textContent),
       plan: (document.querySelector(".kpi-plan") || {}).textContent || "",
+      outside: (document.querySelector(".outside-row") || {}).textContent || "",
+      asked: document.querySelectorAll(".review-row").length,
     };
   });
-  check("the question is on the page, not in a setting", queue.shown, true);
-  check("it says which payment", /500,00 zł on 09-11/.test(queue.text), true, queue.text);
-  check("with both answers", queue.buttons, ["Part of the plan", "External"]);
-  check("and the card leads with the plan",
-    /Plan 2 500,00 zł — 1 900,00 zł in, 600,00 zł to come · next 600,00 zł on the 22nd/.test(queue.plan),
-    true, queue.plan);
+  check("the card leads with the plan",
+    /Plan 2\u00a0500,00 z\u0142 — 1\u00a0900,00 z\u0142 in, 600,00 z\u0142 to come · next 600,00 z\u0142 on the 22nd/.test(card.plan),
+    true, card.plan);
+  check("what came from outside it is listed apart", /BABCIA/.test(card.outside), true, card.outside);
+  check("and nothing on the page asks about it", card.asked, 0);
 }
 
 {
-  // Saying "external" asks the second question: what was it for.
-  const asked = await page.evaluate(() => {
-    const wire = liveTransactions().find((e) => e.amount === 50000);
+  // And whatever the money paid for is linked to it, also without asking.
+  const linked = await page.evaluate(() => {
     state.transactions.push(normaliseTransaction({
       id: "the-ticket", date: "2026-09-13", amount: -50000, counterparty: "EBILET", category: "fun",
     }));
     saveTransactions();
-    decideIncome(wire.id, "external");
-    return {
-      branch: liveTransactions().find((e) => e.amount === 50000).branch,
-      notice: (document.querySelector(".notice-text") || {}).textContent || "",
-      button: (document.querySelector(".notice-acts .btn") || {}).textContent || "",
-    };
-  });
-  check("the payment moves to the external branch", asked.branch, "external");
-  check("and the app asks what it paid for",
-    /500,00 zł went out to EBILET 2 days later/.test(asked.notice), true, asked.notice);
-  check("offering to leave both out", asked.button, "Yes, leave both out");
-
-  const linked = await page.evaluate(() => {
-    document.querySelector(".notice-acts .btn").click();
+    classifyIncome();
+    renderDashboard();
     const ticket = liveTransactions().find((e) => e.id === "the-ticket");
     return {
       branch: ticket.branch,
       linkedTo: Boolean(ticket.linkedTo),
       counted: liveTransactions().filter(SPENT_OUT).length,
-      waiting: undecidedIncome().length,
+      row: (document.querySelector(".outside-paid") || {}).textContent || "",
     };
   });
-  check("tapping it links the spending too", linked.branch, "external");
+  check("the spending it paid for is linked to it", linked.branch, "external");
   check("and remembers which payment it belonged to", linked.linkedTo, true);
   check("neither side is counted as the month's spending", linked.counted, 0);
-  check("and the queue is empty again", linked.waiting, 0);
+  check("and the card says what it paid for", /paid for EBILET/.test(linked.row), true, linked.row);
+
+  // When the guess is wrong, putting it back is an action rather than a
+  // question, and it stays put.
+  const back = await page.evaluate(() => {
+    countItAgain("the-ticket");
+    classifyIncome();
+    const ticket = liveTransactions().find((e) => e.id === "the-ticket");
+    return { branch: ticket.branch, counted: ticket.counted, spending: liveTransactions().filter(SPENT_OUT).length };
+  });
+  check("putting it back counts it again", back.branch, "");
+  check("and the linker does not take it away a second time", back.counted, true);
+  check("so it is the month's spending now", back.spending, 1);
 }
 
 {
@@ -975,24 +1004,28 @@ console.log("\nwhat the bank's answer looks like");
     outcomes.find((o) => o.name === "connected").tone, "good");
 }
 
-/* ---------- The analytics sector ---------- */
+/* ---------- The reading, which is part of the page ---------- */
 
-console.log("\nthe analytics sector");
+console.log("\nwhat your spending says");
 
 /*
   The server is not running here, so fetch is answered with a canned reply.
-  What is being checked is everything around the call: that opening the page
-  makes it, that the answer is drawn, that looking again does not pay twice,
-  and that the plan only changes a budget when the button is pressed.
+  What is being checked is everything around the call: that opening the half
+  makes it, that the answer lands in the page rather than on a page of its
+  own, that it writes the line under the greeting, and that looking again does
+  not pay twice.
 */
 const CANNED = {
   analyse: {
     ok: true,
     result: {
+      brief: "You have put aside 340,00 zł this month.",
       headline: "Zabka is 70% of your month.",
       verdict: "sustainable",
-      reading: "You spent 420,00 zl in four weeks.\n\nMost of it in one shop.",
-      notes: [{ label: "One shop", detail: "ZABKA took 400,00 zl across 20 visits." }],
+      working: "Transport is 68 zł against a 120 zł limit.",
+      slipping: "Zabka took 400 zł across 20 visits.",
+      cut: "Two Zabka runs a week would save about 150 zł a month.",
+      change: "The coffee limit is 80 zł and you spend 200. Move it.",
       watch: ["Zabka", "The bus"],
     },
     cost: { in: 1200, out: 300 },
@@ -1000,7 +1033,7 @@ const CANNED = {
   plan: {
     ok: true,
     result: {
-      approach: "50/30/20, adjusted down to what you actually spend.",
+      approach: "Adjusted to what is actually spent.",
       monthly: [{ category: "food", limit: 350, was: 420, why: "Ten percent under last month." }],
       save: { amount: 150, why: "Pay yourself first." },
       tradeoffs: ["One fewer Zabka run a week."],
@@ -1013,81 +1046,108 @@ const CANNED = {
   await page.evaluate((csv) => { window.__statement = csv; }, statement({ perDay: 20, income: 1000 }));
   await page.evaluate(async (canned) => {
     window.__calls = [];
-    // The automatic rebalance has a section of its own below; here the plan
-    // card is being tested, which is the manual half.
-    writeStore("remembre.autobudget.v1", false);
-    window.fetch = async (url, options) => {
+    window.fetch = async (url) => {
       window.__calls.push(String(url));
-      const action = String(url).includes("action=plan") ? "plan" : "analyse";
-      return {
-        ok: true,
-        json: async () => canned[action],
-      };
+      return { ok: true, json: async () => canned[String(url).includes("action=plan") ? "plan" : "analyse"] };
     };
     state.transactions = [];
     localStorage.removeItem("remembre.insight.v1");
-    localStorage.removeItem("remembre.plan.v1");
-    await importCsvText(window.__statement, { label: "for the analysis" });
+    localStorage.removeItem("remembre.budgetmoves.v1");
+    await importCsvText(window.__statement, { label: "for the reading" });
+    setArea("school");
   }, CANNED);
 
-  await page.click('[data-money-page="insight"]');
-  check("the analytics page opens", await page.locator("#money-insight").isVisible(), true);
-  check("and the dashboard steps aside", await page.locator("#money-dash").isVisible(), false);
+  // Opening the half is the whole trigger. There is no page to go to.
+  await page.evaluate(() => setArea("money"));
+  await page.waitForSelector(".reading-part");
 
-  await page.waitForSelector(".insight-headline");
-  check("it ran without being asked",
+  check("there is no analytics page to go to", await page.locator("[data-money-page]").count(), 0);
+  check("it reads the month on opening",
     await page.evaluate(() => window.__calls[0].includes("action=analyse")), true);
-  // And having read the month, it goes straight on to the budgets.
-  await page.waitForFunction(() => window.__calls.length === 2);
-  check("and goes on to look at the budgets", 
-    await page.evaluate(() => window.__calls[1].includes("action=plan")), true);
-  check("the headline is what leads", (await page.locator(".insight-headline").innerText()).trim(),
-    "Zabka is 70% of your month.");
-  check("the verdict carries a word", (await page.locator("#money-insight .verdict-label").innerText()).trim(),
-    "Sustainable");
-  check("the reading keeps its paragraphs", await page.locator(".insight-prose").count(), 2);
-  check("the findings are listed", await page.locator(".insight-notes li").count(), 1);
-  check("and what to watch", await page.locator(".watch-list li").count(), 2);
+  check("and goes on to look at the budgets",
+    await page.evaluate(() => window.__calls.some((u) => u.includes("action=plan"))), true);
 
-  // What travels is a summary. A statement would be both expensive and useless.
-  const digest = await page.evaluate(() => buildDigest());
-  check("what is sent is totals, not transactions", "transactions" in digest, false);
-  check("with the categories", digest.categories.length > 0, true);
-  check("the payees behind them", digest.topPayees.length > 0, true);
-  check("in zloty rather than grosze", digest.spending.perDay < 1000, true);
-  check("and it stays small", JSON.stringify(digest).length < 8000, true);
+  const parts = await page.evaluate(() => ({
+    titles: [...document.querySelectorAll(".reading-title")].map((n) => n.textContent),
+    texts: [...document.querySelectorAll(".reading-text")].map((n) => n.textContent),
+    headline: (document.querySelector(".insight-headline") || {}).textContent || "",
+    brief: (document.querySelector(".greeting-brief") || {}).textContent || "",
+    watch: document.querySelectorAll(".watch-list li").length,
+  }));
 
-  // Nothing is paid twice for the same numbers.
-  await page.click('[data-money-page="dash"]');
-  await page.click('[data-money-page="insight"]');
-  check("looking again does not ask again", await page.evaluate(() => window.__calls.length), 2);
-  await page.click("#insight-again");
-  await page.waitForFunction(() => window.__calls.length === 4);
-  check("but asking for it again does", await page.evaluate(() => window.__calls.length), 4);
+  check("the four questions are answered in order", parts.titles,
+    ["Where you do well", "Where you do not", "What to cut", "What to change"]);
+  check("where you do well", parts.texts[0], "Transport is 68 zł against a 120 zł limit.");
+  check("where you do not", parts.texts[1], "Zabka took 400 zł across 20 visits.");
+  check("what to cut", parts.texts[2], "Two Zabka runs a week would save about 150 zł a month.");
+  check("what to change", parts.texts[3], "The coffee limit is 80 zł and you spend 200. Move it.");
+  check("the headline leads the card", parts.headline, "Zabka is 70% of your month.");
+  check("and the brief greets you with it", parts.brief, "You have put aside 340,00 zł this month.");
+  check("with what to watch under it", parts.watch, 2);
 }
 
 {
-  await page.click("#insight-plan");
-  await page.waitForSelector(".plan-table");
-  check("the plan is asked for, not volunteered",
-    await page.evaluate(() => window.__calls[window.__calls.length - 1].includes("action=plan")), true);
-  check("it says which framework it leaned on",
-    /50\/30\/20/.test(await page.locator("#insight-plan-out .insight-prose").first().innerText()), true);
-  check("the limits are shown against what was spent",
-    await page.locator(".plan-table tbody tr").count(), 1);
-  check("the saving is a line of its own",
-    /150,00 zł a month/.test(await page.locator(".plan-save").innerText()), true);
-  check("and what it costs is said",
-    /Zabka run/.test(await page.locator("#insight-plan-out .watch-list li").first().innerText()), true);
+  // Nothing is paid twice for the same numbers.
+  const calls = await page.evaluate(() => window.__calls.length);
+  await page.evaluate(() => { setArea("school"); setArea("money"); });
+  await page.waitForTimeout(200);
+  check("opening it again does not ask again", await page.evaluate(() => window.__calls.length), calls);
 
-  check("nothing is applied until the button is pressed",
-    await page.evaluate(() => readStore("remembre.moneybudgets.v1", "")), "food = 400\ntransport = 100");
+  await page.click("#money-reading .link-btn");
+  await page.waitForFunction((was) => window.__calls.length > was, calls);
+  check("but asking for it again does",
+    await page.evaluate((was) => window.__calls.length > was, calls), true);
+}
 
-  await page.click("#insight-plan-out .btn-primary");
-  const budgets = await page.evaluate(() => readStore("remembre.moneybudgets.v1", ""));
-  check("and then the budgets are the plan's", /food = 350/.test(budgets), true);
-  check("with a line saying where they came from", /# Written from the plan/.test(budgets), true);
-  check("and the editor shows them", (await page.inputValue("#money-budgets")).includes("food = 350"), true);
+{
+  // Before any of that, and on a train with no signal, there is still a line.
+  const local = await page.evaluate(() => {
+    localStorage.removeItem("remembre.insight.v1");
+    renderGreeting();
+    const withoutAi = (document.querySelector(".greeting-brief") || {}).textContent || "";
+    state.transactions = [];
+    renderGreeting();
+    return { withoutAi, empty: (document.querySelector(".greeting-brief") || {}).textContent || "" };
+  });
+  check("without a reading there is still a brief", local.withoutAi.length > 10, true, local.withoutAi);
+  check("and it is made of the numbers on the device", /zł/.test(local.withoutAi), true, local.withoutAi);
+  check("with nothing imported it says so", /Nothing imported yet/.test(local.empty), true, local.empty);
+}
+
+console.log("\nmoney from outside the plan");
+
+{
+  const told = await page.evaluate(async () => {
+    localStorage.removeItem("remembre.expected.v1");
+    state.transactions = [];
+    const when = (back) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - back); return d.toISOString().slice(0, 10); };
+
+    addExpectation({ amount: 50000, date: when(2), what: "concert ticket" });
+    const waiting = document.querySelectorAll(".outside-row.is-waiting").length;
+
+    // And then it turns up.
+    state.transactions.push(normaliseTransaction({
+      id: "the-wire", date: when(2), amount: 50000, counterparty: "BABCIA", category: "income",
+    }));
+    saveTransactions();
+    classifyIncome();
+    renderDashboard();
+
+    const wire = liveTransactions().find((e) => e.id === "the-wire");
+    return {
+      waiting,
+      branch: wire.branch,
+      met: readStore("remembre.expected.v1", [])[0].metBy,
+      stillWaiting: document.querySelectorAll(".outside-row.is-waiting").length,
+      listed: (document.querySelector(".outside-row:not(.is-waiting)") || {}).textContent || "",
+    };
+  });
+
+  check("what is coming can be said in advance", told.waiting, 1);
+  check("and when it lands it is outside the plan", told.branch, "external");
+  check("without anybody being asked", told.met, "the-wire");
+  check("and it stops being something you are waiting for", told.stillWaiting, 0);
+  check("the card lists it", /BABCIA/.test(told.listed), true, told.listed);
 }
 
 /* ---------- The interface ---------- */
@@ -1144,7 +1204,10 @@ console.log("\nthe budget map");
   check("one flow per budget, plus what is left unallocated", map.flows, map.labels.length);
   check("every node is named", map.labels.includes("food") && map.labels.includes("unallocated"), true,
     map.labels.join(","));
-  check("and carries both figures", /of 600,00 zł · .* left/.test(map.figures[0]), true, map.figures[0]);
+  // Whole złoty on a narrow card, to the grosz on a wide one; either way the
+  // line says what was spent, of what, and what is left.
+  check("and carries both figures",
+    / of /.test(map.figures[0]) && /(left|over)/.test(map.figures[0]), true);
   // Each budget draws two rectangles: the budget, and the part of it gone.
   check("what has been spent is drawn inside the node", map.nodes > map.labels.length, true,
     `${map.nodes} rects for ${map.labels.length} rows`);
@@ -1228,26 +1291,23 @@ console.log("\nthe analysis moving the budgets");
 }
 
 {
-  // Turned off, it proposes and waits.
-  const waited = await page.evaluate(async () => {
-    writeStore("remembre.autobudget.v1", false);
+  // There is no switch to turn off. A switch is a question in a hat: it asks
+  // you, every time you see it, whether you still mean what you already said.
+  const always = await page.evaluate(async () => {
+    writeStore("remembre.moneybudgets.v1", "food = 600\ncoffee = 80\nfun = 150");
     writeStore("remembre.budgetmoves.v1", null);
     await rebalanceBudgets({ byHand: true });
     return {
       budgets: readStore("remembre.moneybudgets.v1", ""),
-      moves: readStore("remembre.budgetmoves.v1", null),
+      applied: readStore("remembre.budgetmoves.v1", null).applied,
       button: (document.querySelector(".card-map .panel-actions .btn") || {}).textContent || "",
+      switches: document.querySelectorAll(".auto-row, #auto-budget").length,
     };
   });
-  check("with the switch off, nothing moves on its own", /coffee = 80/.test(waited.budgets), true, waited.budgets);
-  check("but the proposal is kept", waited.moves.moves.length, 2);
-  check("and offered on the map", waited.button, "Use these");
-
-  const taken = await page.evaluate(() => {
-    document.querySelector(".card-map .panel-actions .btn").click();
-    return readStore("remembre.moneybudgets.v1", "");
-  });
-  check("tapping it applies them", /coffee = 200/.test(taken), true, taken);
+  check("the moves land without being asked about", /coffee = 200/.test(always.budgets), true, always.budgets);
+  check("and are marked as applied", always.applied, true);
+  check("what is offered is the way back", always.button, "Put them back");
+  check("and there is no switch to argue with", always.switches, 0);
 }
 
 check("no console or page errors", problems, []);
