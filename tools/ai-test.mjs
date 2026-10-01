@@ -77,8 +77,9 @@ console.log("\na key that is right");
   check("a client can be built", Boolean(client));
   // Reaching into the SDK's own options is brittle on purpose: if an upgrade
   // moves them, this fails loudly rather than quietly stopping checking.
-  check("with a timeout well inside the platform's", client._options.timeout === 60000, String(client._options.timeout));
-  check("and retries", client._options.maxRetries === 2, String(client._options.maxRetries));
+  check("with a timeout well inside the platform's", client._options.timeout === 50000, String(client._options.timeout));
+  check("and one retry, which is all that fits in the budget",
+    client._options.maxRetries === 1, String(client._options.maxRetries));
 
   set("nonsense");
   check("and no client is built from a bad key", aiClient() === null);
@@ -193,6 +194,10 @@ console.log("\nwhat the model is told before it sees a number");
   check("and prose that is the shape anyway is taken", /objectIn\(prose\)/.test(advise));
   // Both were refused outright by the current Opus, and the 400 reads as
   // "the analysis is broken" to anyone who only sees the page.
+  // Ten seconds is the default on this platform and Opus needs more; a run
+  // killed halfway answers nothing at all, which reads as a broken page.
+  check("the function is allowed to take as long as the model does",
+    /export const maxDuration = 60/.test(advise));
   check("nothing the current model refuses is sent",
     !/temperature:/.test(advise) && !/role: "assistant"/.test(advise));
   check("and it is told not to invent transactions",

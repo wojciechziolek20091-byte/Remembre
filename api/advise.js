@@ -18,6 +18,14 @@ import { ANALYSIS_SYSTEM, PLAN_SYSTEM } from "./_playbook.js";
  * top handful of payees, which is a fraction of the tokens a transaction list
  * would be and tells the model everything it can actually use.
  */
+/*
+  Opus takes tens of seconds to read a month of spending, and a platform that
+  gives a function ten seconds kills it halfway and answers nothing at all --
+  which looks like a broken page rather than a slow one. Sixty is the ceiling
+  on the plan this runs on, and the client below gives up before it.
+*/
+export const maxDuration = 60;
+
 export default async function handler(req, res) {
   if (cors(req, res)) return;
   if (req.method !== "GET" && req.method !== "POST") {

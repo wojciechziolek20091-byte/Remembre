@@ -67,9 +67,10 @@ export function aiClient() {
   if (!aiReport().configured) return null;
   return new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY.trim().replace(/^["']|["']$/g, ""),
-    // A serverless function should give up well before the platform does.
-    timeout: 60 * 1000,
-    maxRetries: 2,
+    // A serverless function should give up well before the platform does, and
+    // a retry inside a 60-second budget would only be killed mid-flight.
+    timeout: 50 * 1000,
+    maxRetries: 1,
   });
 }
 
