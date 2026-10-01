@@ -86,6 +86,12 @@ export default async function handler(req, res) {
   fields below are the schema it answers against, so there is no parsing step
   that can fail at the one moment somebody is looking at the page.
 */
+/** Without these the answer is not one, however much of it arrived. */
+const REQUIRED = {
+  analyse: ["headline", "verdict", "reading"],
+  plan: ["approach", "monthly", "save"],
+};
+
 const SHAPES = {
   analyse: {
     type: "object",
@@ -161,7 +167,13 @@ async function ask(action, digest) {
 
   const message = await client.messages.create({
     model: MODEL,
-    max_tokens: action === "plan" ? 2000 : 1600,
+    /*
+      Room to finish. The reply itself is a few hundred words, but the model
+      may reason its way there first and all of it is counted; a run that ends
+      at the ceiling comes back as half a tool call -- a headline and nothing
+      under it -- which is worse than an error because it looks like an answer.
+    */
+    max_tokens: action === "plan" ? 6000 : 5000,
     system,
     messages: [
       { role: "user", content: `Here is the summary of my spending.\n\n${JSON.stringify(digest, null, 1)}` },
@@ -181,8 +193,19 @@ async function ask(action, digest) {
   const usage = message.usage || {};
   const cost = { in: usage.input_tokens || 0, out: usage.output_tokens || 0 };
 
+  const cut = message.stop_reason === "max_tokens";
+
   const reported = message.content.find((block) => block.type === "tool_use");
-  if (reported) return { result: reported.input, cost };
+  if (reported) {
+    const missing = REQUIRED[action].filter((field) => reported.input[field] === undefined);
+    if (missing.length === 0) return { result: reported.input, cost };
+    // Half an answer is worse than none: it reads as a finished one.
+    const err = new Error(cut
+      ? "The analysis ran long and was cut off before it finished. Try again."
+      : "The analysis came back incomplete. Try again.");
+    err.status = 502;
+    throw err;
+  }
 
   // It answered in prose. If the prose is the shape anyway -- a fenced block,
   // or an object with something polite in front of it -- take it; otherwise

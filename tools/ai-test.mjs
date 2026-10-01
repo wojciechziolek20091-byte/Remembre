@@ -186,6 +186,10 @@ console.log("\nwhat the model is told before it sees a number");
   const advise = read("advise.js");
   check("and the shape is the tool's, not a hope about JSON",
     /name: "report"/.test(advise) && /input_schema: SHAPES\[action\]/.test(advise));
+  // A tool call that ran out of room arrives as a headline with nothing under
+  // it, which reads as a finished answer rather than a failed one.
+  check("an answer missing its required fields is refused, not shown",
+    /REQUIRED\[action\]/.test(advise) && /ran long and was cut off/.test(advise));
   check("a prose answer is still shown rather than erroring over",
     /result: null, prose/.test(advise));
   // The model is asked for the tool rather than forced into it, because the
