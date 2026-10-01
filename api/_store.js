@@ -94,9 +94,29 @@ const DRIVERS = [
 export function store() {
   for (const driver of DRIVERS) {
     const found = driver.detect();
-    if (found) return { name: driver.name, label: driver.label, ...driver.build(found) };
+    if (found) return guarded({ name: driver.name, label: driver.label, ...driver.build(found) });
   }
   return null;
+}
+
+/*
+  Nothing is ever stored empty; emptying something is a delete.
+
+  This lived inside the Redis driver for exactly as long as it took to write a
+  health check, which then found the same hole in the file driver. One rule
+  above all four is the only version of it that stays true -- and the rule
+  matters: an empty body is not a SET with an empty value, it is a SET with no
+  value at all, which is what answered 400 and killed every bank connection
+  after the consent had already been given.
+*/
+function guarded(driver) {
+  return {
+    ...driver,
+    async put(key, value) {
+      if (value === "" || value === null || value === undefined) return driver.del(key);
+      return driver.put(key, value);
+    },
+  };
 }
 
 /*
@@ -154,16 +174,6 @@ function redisDriver({ url, token }) {
       return body && typeof body.result === "string" ? body.result : null;
     },
     async put(key, value) {
-      /*
-        An empty body is not a SET with an empty value -- it is a SET with no
-        value at all, and Upstash answers 400. That is not a hypothetical: the
-        bank's one-time handover was spent by writing "" over it, so every
-        single connection died on the way back from mBank, after the consent
-        had been given and with nothing on the page to say why. Nothing is
-        ever stored empty; emptying something is a delete.
-      */
-      if (value === "" || value === null || value === undefined) return del(key);
-
       const res = await fetch(`${base}/set/${encodeURIComponent(key)}`, {
         method: "POST",
         headers: { ...auth, "Content-Type": "text/plain" },

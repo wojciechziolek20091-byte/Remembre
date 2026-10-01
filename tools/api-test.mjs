@@ -194,10 +194,27 @@ const post = (body) => fetch(`${base}/api/sync`, {
   check("all four drivers can delete",
     (sources.match(/del[,(:]/g) || []).length >= 4,
     String((sources.match(/del[,(:]/g) || []).length));
+  // One rule above all four, rather than one rule inside one of them.
+  check("and the rule about emptiness sits above them all",
+    /function guarded\(driver\)/.test(sources)
+    && sources.indexOf("function guarded") < sources.indexOf("function redisDriver"));
   check("and nothing writes emptiness any more",
     !/put\([^)]*, *""\)/.test(await import("node:fs").then((fs) =>
       ["bank-callback.js", "_push.js", "sync.js", "subscribe.js", "notify.js"]
         .map((name) => fs.readFileSync(new URL(`../api/${name}`, import.meta.url), "utf8")).join(""))));
+
+  // The health check that would have caught all this: it uses the store
+  // rather than reporting on how it is configured.
+  {
+    process.env.REMEMBRE_DATA_DIR = await import("node:fs/promises")
+      .then((fs) => fs.mkdtemp("/tmp/remembre-store-"));
+    const res = await fetch(`${base}/api/status?check=store`);
+    const body = await res.json();
+    check("the store can be exercised, not only reported on", body.ok === true, JSON.stringify(body));
+    check("and every step is named",
+      (body.steps || []).join(",") === "write,read,empty,gone", JSON.stringify(body.steps));
+    delete process.env.REMEMBRE_DATA_DIR;
+  }
 
   // A URL with no matching token is not half a store.
   process.env.STORAGE_REST_API_URL = "https://example.upstash.io";
