@@ -27,12 +27,47 @@ const b64u = (value) => Buffer.from(value).toString("base64url");
 */
 function repairPem(raw) {
   let text = String(raw).trim().replace(/\\n/g, "\n");
+
+  // Quotes wrapped round the value by a copy, or by a settings box being
+  // helpful, are not part of the key.
+  text = text.replace(/^["']|["']$/g, "").trim();
+
+  /*
+    Bare base64 with no armour: the key is there, it just lost its header and
+    footer on the way. PKCS#8 is what a browser's SubtleCrypto exports, so
+    that is what it is wrapped back into.
+  */
+  if (!text.includes("-----") && /^[A-Za-z0-9+/=\s]+$/.test(text) && text.replace(/\s/g, "").length > 100) {
+    const body = text.replace(/\s/g, "").replace(/(.{64})/g, "$1\n");
+    text = `-----BEGIN PRIVATE KEY-----\n${body.trim()}\n-----END PRIVATE KEY-----\n`;
+  }
+
   if (text.includes("\n")) return text;
 
   const match = /^(-----BEGIN [A-Z ]+-----)(.*)(-----END [A-Z ]+-----)$/s.exec(text);
   if (!match) return text;
   const body = match[2].replace(/\s+/g, "").replace(/(.{64})/g, "$1\n");
   return `${match[1]}\n${body.trim()}\n${match[3]}\n`;
+}
+
+/**
+ * The shape of a value, for when it is not what was expected. Lengths, counts
+ * and yes-or-nos only: never a character of the value itself.
+ */
+function describeValue(raw) {
+  const text = String(raw);
+  return {
+    length: text.length,
+    lines: text.split("\n").length,
+    startsWithDashes: text.trim().startsWith("-----"),
+    mentionsBegin: /BEGIN/i.test(text),
+    mentionsPrivate: /PRIVATE/i.test(text),
+    mentionsPublic: /PUBLIC/i.test(text),
+    looksLikeBase64: /^[A-Za-z0-9+/=\s]+$/.test(text.trim()) && text.trim().length > 100,
+    looksLikeJson: text.trim().startsWith("{"),
+    looksLikeUuid: /^[0-9a-f-]{20,40}$/i.test(text.trim()),
+    hasQuotes: /^["']|["']$/.test(text.trim()),
+  };
 }
 
 /**
@@ -60,6 +95,9 @@ export function bankReport() {
     return {
       ...nothing,
       problem: "ENABLE_BANKING_PRIVATE_KEY is not a PEM private key: it should begin -----BEGIN PRIVATE KEY-----.",
+      // Enough to work out what was pasted instead, without reporting any of
+      // it. A secret that is the wrong secret is still a secret.
+      sawInstead: describeValue(rawKey),
     };
   }
 

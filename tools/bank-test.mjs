@@ -52,7 +52,22 @@ console.log("\ncredentials that are not right");
   check("an id that is not one is caught", /does not look like an application id/.test(bankReport().problem));
 
   set(APP_ID, "just some text");
-  check("a key that is not a PEM is caught", /not a PEM private key/.test(bankReport().problem));
+  const notAKey = bankReport();
+  check("a key that is not a PEM is caught", /not a PEM private key/.test(notAKey.problem));
+  check("and its shape is described, so it can be worked out",
+    notAKey.sawInstead.length === 14 && notAKey.sawInstead.mentionsBegin === false,
+    JSON.stringify(notAKey.sawInstead));
+  check("without a character of it being reported",
+    !JSON.stringify(notAKey).includes("just some"), JSON.stringify(notAKey));
+
+  // The two most likely wrong pastes, named so they can be recognised.
+  set(APP_ID, APP_ID);
+  check("pasting the application id into the key slot is visible in the shape",
+    bankReport().sawInstead.looksLikeUuid, JSON.stringify(bankReport().sawInstead));
+  set(APP_ID, KEYS.publicKey.export({ type: "spki", format: "pem" }));
+  check("pasting the public half is caught", bankReport().configured === false);
+  check("and says it saw a public key",
+    bankReport().sawInstead.mentionsPublic, JSON.stringify(bankReport().sawInstead));
 
   // The failure the settings box actually causes.
   set(APP_ID, PEM.replace(/\n/g, ""));
@@ -62,6 +77,14 @@ console.log("\ncredentials that are not right");
   set(APP_ID, PEM.replace(/\n/g, "\\n"));
   const escaped = bankReport();
   check("and so is one with literal backslash-n", escaped.configured === true, escaped.problem);
+
+  // Armour lost entirely: the key is still there and still usable.
+  const bare = PEM.replace(/-----[A-Z ]+-----/g, "").replace(/\s/g, "");
+  set(APP_ID, bare);
+  check("and so is a key with no header or footer at all", bankReport().configured === true, bankReport().problem);
+
+  set(APP_ID, `"${PEM}"`);
+  check("and one wrapped in quotes", bankReport().configured === true, bankReport().problem);
 
   // Easy to generate by accident; fails at the first call rather than here.
   const ec = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
