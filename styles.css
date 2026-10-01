@@ -2061,11 +2061,10 @@ body.is-booting { overflow: hidden; }
   display: grid;
 }
 
+/* The row is a list item holding one button; the button does the laying out,
+   so the item itself gets out of the way. */
 .tx {
-  display: grid;
-  grid-template-columns: 3.2rem minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: .5rem .75rem;
+  display: block;
   padding: .55rem .1rem;
   border-top: 1px solid var(--line);
 }
@@ -2154,12 +2153,7 @@ body.is-booting { overflow: hidden; }
 /* The pile nothing has claimed is the one worth a rule, so it says so. */
 .tally-row.is-loose .tally-name { color: var(--accent); font-weight: 600; }
 
-.tx {
-  grid-template-columns: 3.2rem minmax(0, 1fr) auto;
-  grid-template-areas:
-    "date what amount"
-    ".    cat  cat";
-}
+
 
 .tx-date { grid-area: date; }
 .tx-what { grid-area: what; }
@@ -2587,17 +2581,11 @@ body.on-money .wordmark-mark { color: var(--accent); }
   gap: .3rem;
 }
 
-.payee {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: .6rem;
-  align-items: baseline;
-  font-size: .85rem;
+.tx-more {
+  font-size: .78rem;
+  color: var(--ink-2);
+  padding: .3rem 0 0;
 }
-
-.payee-name { overflow-wrap: anywhere; }
-.payee-count { color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.payee-sum { font-variant-numeric: tabular-nums; font-weight: 600; }
 
 /* ---------- The verdict ---------- */
 
@@ -3124,3 +3112,75 @@ body.on-money .wordmark-mark { color: var(--accent); }
   text-transform: uppercase;
   color: var(--line-strong);
 }
+
+/* ---------- A transaction, and its details ---------- */
+
+/*
+  Every row in every list of transactions is a button now. It has to look like
+  the row it replaced -- the lists are long and a page of buttons is a page of
+  noise -- so the affordance is the hover, the focus ring and the cursor,
+  rather than a border on each of two hundred rows.
+*/
+.tx-open {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: .45rem .4rem;
+  margin: -.45rem -.4rem;
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  grid-template-areas: "date what amount" "date cat amount";
+  grid-template-columns: 3.2rem minmax(0, 1fr) auto;
+  gap: 0 .7rem;
+  align-items: baseline;
+}
+
+.tx-open:hover { background: var(--surface-2); }
+.tx-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.tx-open .tx-date { grid-area: date; }
+.tx-open .tx-what { grid-area: what; }
+.tx-open .tx-amount { grid-area: amount; }
+.tx-open .tx-cat { grid-area: cat; justify-self: start; }
+.tx-open .tx-amount.is-in { color: var(--s-ess); }
+
+/* Out of the month: still there, visibly set aside. */
+.tx-open.is-outside .tx-title { color: var(--ink-2); }
+.tx-open.is-outside .tx-amount { color: var(--ink-2); }
+.tx-cat.is-outside { color: var(--accent); border-color: var(--accent); }
+
+.bar-detail.tx-list { padding-left: .6rem; }
+
+.dialog-tx .dialog-form { display: grid; gap: .2rem; }
+
+/* The money half's dialog is the money half's: sans, not the calendar's serif. */
+body.on-money .dialog-tx .dialog-title { font-family: var(--font-body); font-weight: 650; }
+
+.tx-figure {
+  margin: .4rem 0 .8rem;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tx-figure.is-in { color: var(--s-ess); }
+
+.tx-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .3rem .9rem;
+  margin: 0 0 1.1rem;
+  font-size: .88rem;
+}
+
+.tx-facts dt { color: var(--ink-2); }
+.tx-facts dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.dialog-tx .field-hint { margin: .3rem 0 .8rem; }
+.dialog-tx select.input { width: 100%; }

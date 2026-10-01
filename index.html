@@ -480,6 +480,18 @@
 
 <p class="sr-only" role="status" id="live-region"></p>
 
+<dialog class="dialog dialog-tx" id="tx-dialog" aria-labelledby="tx-dialog-title">
+  <div class="dialog-form">
+    <div class="dialog-head">
+      <h2 class="dialog-title" id="tx-dialog-title">Transaction</h2>
+      <button type="button" class="btn btn-icon dialog-close" data-close="tx-dialog">
+        <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+      </button>
+    </div>
+    <div id="tx-detail"></div>
+  </div>
+</dialog>
+
 <dialog class="dialog" id="task-dialog" aria-labelledby="task-dialog-title">
   <form method="dialog" class="dialog-form" id="task-form" novalidate>
     <div class="dialog-head">

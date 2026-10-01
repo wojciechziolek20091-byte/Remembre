@@ -260,6 +260,8 @@ function normaliseTransaction(raw) {
     // Set when a payment was put back into the month by hand, so the linker
     // does not quietly take it out again on the next pass.
     counted: raw.counted === true,
+    // And set when the category was chosen by hand, so the rules leave it be.
+    fixed: raw.fixed === true,
     source: raw.source === "api" ? "api" : "csv",
     deleted: raw.deleted === true,
     createdAt,
@@ -345,24 +347,8 @@ function renderMoney() {
       `${entries[entries.length - 1].date} to ${entries[0].date}`;
   }
 
-  list.replaceChildren(el("ul", { class: "tx-list" }, entries.slice(0, 200).map((entry) => el(
-    "li",
-    { class: `tx${entry.amount < 0 ? "" : " is-in"}` },
-    el("span", { class: "tx-date", text: entry.date.slice(5) }),
-    el(
-      "span",
-      { class: "tx-what" },
-      el("span", { class: "tx-title", text: entry.counterparty || entry.title || entry.description || "—" }),
-      entry.title && entry.counterparty
-        ? el("span", { class: "tx-note", text: entry.title })
-        : null
-    ),
-    el("span", { class: "tx-amount", text: zloty(entry.amount) }),
-    el("span", {
-      class: `tx-cat${(entry.category || "other") === "other" ? " is-loose" : ""}`,
-      text: entry.category || "other",
-    })
-  ))));
+  list.replaceChildren(el("ul", { class: "tx-list" },
+    entries.slice(0, 200).map((entry) => txRow(entry))));
 }
 
 /* ---------- Importing ---------- */
@@ -458,6 +444,7 @@ function setupMoney() {
   setupReport();
   setupBank();
   setupInsight();
+  setupTransactionDialog();
   // Rules may have been edited on a visit when nothing was imported yet, and
   // transactions may have arrived from the other device since.
   recategorise();
@@ -582,7 +569,7 @@ function recategorise() {
   let changed = 0;
 
   state.transactions.forEach((entry) => {
-    if (entry.deleted) return;
+    if (entry.deleted || entry.fixed) return;
     const category = categorise(entry, rules);
     if (entry.category === category) return;
     entry.category = category;
@@ -889,13 +876,7 @@ function renderReport() {
 
   if (now.biggest.length) {
     pieces.push(el("h3", { class: "report-sub", text: "Biggest this month" }));
-    pieces.push(el("ul", { class: "report-list" }, now.biggest.map((entry) => el(
-      "li",
-      { class: "report-row" },
-      el("span", { class: "report-name", text: entry.counterparty || entry.title || "—" }),
-      el("span", { class: "report-now", text: zloty(entry.amount) }),
-      el("span", { class: "report-was", text: `${entry.date.slice(5)} · ${entry.category || "other"}` })
-    ))));
+    pieces.push(el("ul", { class: "tx-list" }, now.biggest.map((entry) => txRow(entry))));
   }
 
   const repeats = recurringCharges();
@@ -2159,6 +2140,178 @@ function mapDescription(rows, planned, monthKey) {
   return `How ${zl(planned)} zloty of plan is divided in ${monthName(monthKey)}: ${parts.join("; ")}.`;
 }
 
+/* ---------- One transaction, up close ---------- */
+
+/*
+  The biggest single payments in a month are usually the ones somebody else
+  was covering, and a day-to-day budget with a 300 ticket sitting in it is a
+  budget that reads wrong all month. The rules cannot know which is which --
+  only the person who spent it can -- so every transaction opens, and moving
+  it out of the month is one tap.
+
+  Everything done here is marked by hand, and the automatic passes are told to
+  leave it alone: the category stays where it was put, and a payment counted
+  back into the month is not quietly taken out again by the linker.
+*/
+
+let txReturnFocus = null;
+
+function openTransaction(id, from = null) {
+  const dialog = $("tx-dialog");
+  const entry = liveTransactions().find((held) => held.id === id);
+  if (!dialog || !entry) return;
+
+  txReturnFocus = from;
+  renderTransaction(entry);
+  openDialog(dialog);
+}
+
+function renderTransaction(entry) {
+  const wrap = $("tx-detail");
+  if (!wrap) return;
+
+  const title = $("tx-dialog-title");
+  if (title) title.textContent = entry.counterparty || entry.title || entry.description || "Transaction";
+
+  const external = entry.branch === "external";
+  const paidFor = entry.linkedTo
+    ? liveTransactions().find((held) => held.id === entry.linkedTo)
+    : liveTransactions().find((held) => held.linkedTo === entry.id);
+
+  const facts = [
+    ["Amount", zloty(entry.amount)],
+    ["When", entry.date],
+    entry.booked && entry.booked !== entry.date ? ["Booked", entry.booked] : null,
+    entry.title && entry.counterparty ? ["Description", entry.title] : null,
+    entry.description ? ["Kind", entry.description] : null,
+    ["Where it counts", external
+      ? "Outside the plan — left out of the month"
+      : entry.amount > 0 ? "Money in, part of the plan" : "In this month's spending"],
+    paidFor ? [entry.amount > 0 ? "Paid for" : "Covered by",
+      `${paidFor.counterparty || paidFor.title || "—"} · ${zloty(paidFor.amount)}`] : null,
+    ["Where it came from", entry.source === "api" ? "mBank, automatically" : "a CSV you imported"],
+  ].filter(Boolean);
+
+  show(wrap, [
+    el("p", { class: `tx-figure${entry.amount < 0 ? "" : " is-in"}`, text: zloty(entry.amount) }),
+    el("dl", { class: "tx-facts" }, facts.flatMap(([label, value]) => [
+      el("dt", { text: label }),
+      el("dd", { text: value }),
+    ])),
+
+    el("label", { class: "field-label", for: "tx-category", text: "Category" }),
+    categoryPicker(entry),
+    entry.fixed
+      ? el("p", { class: "field-hint", text: "Set by hand, so the rules leave it alone." })
+      : el("p", { class: "field-hint", text: "Chosen by the rules. Pick another and it stays picked." }),
+
+    el(
+      "div",
+      { class: "dialog-actions" },
+      el("button", {
+        type: "button",
+        class: external ? "btn btn-quiet" : "btn btn-primary",
+        text: external ? "Count it in the month" : "Move it outside the plan",
+        onclick: () => {
+          moveTransaction(entry.id, external ? "" : "external");
+          const again = liveTransactions().find((held) => held.id === entry.id);
+          if (again) renderTransaction(again);
+        },
+      }),
+      el("span", { class: "dialog-actions-spacer" }),
+      el("button", { type: "button", class: "btn btn-quiet", text: "Done", onclick: () => closeDialog($("tx-dialog")) })
+    ),
+
+    el("p", { class: "field-hint", text: external
+      ? "Outside the plan, it is in neither the day-to-day budget nor the rate. The 2 500 is untouched by it."
+      : "Moving it out takes it off the budget and out of the daily rate — for the one-off that somebody else was covering." }),
+  ]);
+}
+
+/** Every category the rules or the data know about, plus where this one is. */
+function categoryPicker(entry) {
+  const names = new Set(parseRules(rulesText()).map((rule) => rule.category));
+  liveTransactions().forEach((held) => names.add(held.category || "other"));
+  names.add("other");
+
+  const picker = el("select", { class: "input", id: "tx-category" },
+    [...names].sort().map((name) => el("option", {
+      value: name,
+      text: name,
+      selected: (entry.category || "other") === name,
+    })));
+
+  picker.addEventListener("change", () => {
+    setTransactionCategory(entry.id, picker.value);
+    const again = liveTransactions().find((held) => held.id === entry.id);
+    if (again) renderTransaction(again);
+  });
+  return picker;
+}
+
+function moveTransaction(id, branch) {
+  const entry = state.transactions.find((held) => held.id === id);
+  if (!entry) return;
+
+  entry.branch = branch;
+  entry.updatedAt = new Date().toISOString();
+  if (branch === "") {
+    // Put back on purpose: the linker must not take it away again.
+    entry.counted = true;
+    entry.linkedTo = "";
+  } else {
+    entry.counted = false;
+  }
+
+  saveTransactions();
+  moneyChanged();
+  announce(branch === "external" ? "Moved outside the plan." : "Counted in the month again.");
+}
+
+function setTransactionCategory(id, category) {
+  const entry = state.transactions.find((held) => held.id === id);
+  if (!entry) return;
+  entry.category = String(category || "other").slice(0, 40);
+  entry.fixed = true;
+  entry.updatedAt = new Date().toISOString();
+  saveTransactions();
+  moneyChanged();
+  announce(`Filed under ${entry.category}.`);
+}
+
+/** One row in any list of transactions, which opens when it is tapped. */
+function txRow(entry, { showCategory = true } = {}) {
+  const button = el(
+    "button",
+    {
+      type: "button",
+      class: `tx-open${entry.branch === "external" ? " is-outside" : ""}`,
+      onclick: () => openTransaction(entry.id, button),
+    },
+    el("span", { class: "tx-date", text: entry.date.slice(5) }),
+    el("span", { class: "tx-what" },
+      el("span", { class: "tx-title", text: entry.counterparty || entry.title || entry.description || "—" }),
+      entry.title && entry.counterparty ? el("span", { class: "tx-note", text: entry.title }) : null),
+    el("span", { class: `tx-amount${entry.amount > 0 ? " is-in" : ""}`, text: zloty(entry.amount) }),
+    showCategory
+      ? el("span", {
+          class: `tx-cat${(entry.category || "other") === "other" ? " is-loose" : ""}${entry.branch === "external" ? " is-outside" : ""}`,
+          text: entry.branch === "external" ? "outside" : (entry.category || "other"),
+        })
+      : null
+  );
+  return el("li", { class: "tx" }, button);
+}
+
+function setupTransactionDialog() {
+  const dialog = $("tx-dialog");
+  if (!dialog) return;
+  dialog.addEventListener("close", () => {
+    if (txReturnFocus && document.body.contains(txReturnFocus)) txReturnFocus.focus();
+    txReturnFocus = null;
+  });
+}
+
 /* ---------- Weekdays, and what they leave for the weekend ---------- */
 
 /*
@@ -2477,19 +2630,18 @@ function openSyncing() {
   if (box) box.focus({ preventScroll: true });
 }
 
-/** The top handful of payees inside one category, for when a bar is opened. */
-function payeesIn(category, monthKey) {
-  const totals = new Map();
-  liveTransactions()
-    .filter((entry) => SPENT_OUT(entry) && (entry.category || "other") === category && monthOf(entry.date) === monthKey)
-    .forEach((entry) => {
-      const name = (entry.counterparty || entry.title || entry.description || "—").slice(0, 40);
-      const held = totals.get(name) || { name, total: 0, count: 0 };
-      held.total += Math.abs(entry.amount);
-      held.count += 1;
-      totals.set(name, held);
-    });
-  return [...totals.values()].sort((a, b) => b.total - a.total).slice(0, 4);
+/*
+  What is actually in a category, when one is opened: the payments themselves,
+  biggest first, each one a tap away from its own details. A summary by payee
+  was the first version of this and it answered the wrong question -- the one
+  payment worth moving out of the month is a single row, and a total hides it.
+*/
+function transactionsIn(category, monthKey) {
+  return liveTransactions()
+    .filter((entry) => entry.amount < 0
+      && (entry.category || "other") === category
+      && monthOf(entry.date) === monthKey)
+    .sort((a, b) => a.amount - b.amount);
 }
 
 function renderCategoryBars() {
@@ -2531,7 +2683,7 @@ function renderCategoryBars() {
           : "",
       ].filter(Boolean).join(" · ");
 
-      const detail = el("ul", { class: "bar-detail", hidden: true });
+      const detail = el("ul", { class: "bar-detail tx-list", hidden: true });
 
       const button = el(
         "button",
@@ -2543,14 +2695,14 @@ function renderCategoryBars() {
             const open = button.getAttribute("aria-expanded") === "true";
             button.setAttribute("aria-expanded", open ? "false" : "true");
             detail.hidden = open;
-            if (!open && detail.childElementCount === 0) {
-              detail.replaceChildren(...payeesIn(row.name, monthKey).map((payee) => el(
-                "li",
-                { class: "payee" },
-                el("span", { class: "payee-name", text: payee.name }),
-                el("span", { class: "payee-count", text: `${payee.count}×` }),
-                el("span", { class: "payee-sum", text: zloty(-payee.total) })
-              )));
+            if (!open) {
+              const inside = transactionsIn(row.name, monthKey);
+              show(detail, [
+                ...inside.slice(0, 12).map((entry) => txRow(entry, { showCategory: false })),
+                inside.length > 12
+                  ? el("li", { class: "tx-more", text: `and ${inside.length - 12} more, in Every transaction below` })
+                  : null,
+              ]);
             }
           },
         },

@@ -455,12 +455,14 @@ console.log("\nthe two halves");
     await page.evaluate(() => document.body.classList.contains("on-money")), true);
   check("and the calendar's controls step aside",
     await page.locator("#add-task-top").isVisible(), false);
+  // Scoped to the list itself: the same row is used in the category folds and
+  // in the biggest-of-the-month list now.
   check("the transactions are listed",
-    await page.locator(".tx").count(), 6);
+    await page.locator("#money-list .tx").count(), 6);
   check("the newest first",
-    (await page.locator(".tx .tx-date").first().innerText()).trim(), "09-28");
+    (await page.locator("#money-list .tx .tx-date").first().innerText()).trim(), "09-28");
   check("with amounts in złoty",
-    (await page.locator(".tx .tx-amount").first().innerText()).includes("12,49"), true);
+    (await page.locator("#money-list .tx .tx-amount").first().innerText()).includes("12,49"), true);
   // A column of figures that sometimes groups and sometimes does not is worse
   // than one that never does, so the grouping is ours rather than the browser's.
   check("and thousands grouped the Polish way",
@@ -613,11 +615,14 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
   check("a budget it has gone past is said in words",
     /over the 400,00 zł limit/.test(bars[0].note), true);
 
-  // Tapping a bar is how you find out it was all one shop.
+  // Tapping a bar is how you find out which single payment it was.
   await page.click(".bar-row:first-child .bar-open");
-  check("opening a category shows who was paid",
-    (await page.locator(".bar-row:first-child .payee-name").first().innerText()).trim(), "ZABKA");
-  check("and how many times", /×/.test(await page.locator(".bar-row:first-child .payee-count").first().innerText()), true);
+  check("opening a category shows the payments in it",
+    await page.locator(".bar-row:first-child .tx").count() > 0, true);
+  check("biggest first, because that is the one worth moving",
+    (await page.locator(".bar-row:first-child .tx-title").first().innerText()).trim(), "ZABKA");
+  check("and each one opens", 
+    await page.locator(".bar-row:first-child .tx-open").first().isEnabled(), true);
 }
 
 {
@@ -1148,6 +1153,122 @@ console.log("\nmoney from outside the plan");
   check("without anybody being asked", told.met, "the-wire");
   check("and it stops being something you are waiting for", told.stillWaiting, 0);
   check("the card lists it", /BABCIA/.test(told.listed), true, told.listed);
+}
+
+/* ---------- One transaction, up close ---------- */
+
+console.log("\nopening a transaction");
+
+{
+  const opened = await page.evaluate(async () => {
+    state.transactions = [];
+    writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 150");
+    writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
+    const when = todayISO();
+
+    // The month, and the one big thing in it that somebody else covered.
+    for (let i = 0; i < 4; i += 1) {
+      state.transactions.push(normaliseTransaction({
+        id: `small-${i}`, date: shiftISO(when, -i - 1), amount: -2000,
+        counterparty: "ZABKA", category: "food",
+      }));
+    }
+    state.transactions.push(normaliseTransaction({
+      id: "the-big-one", date: shiftISO(when, -2), amount: -90000,
+      counterparty: "BILETY NA KONCERT", title: "EBILET", category: "fun", source: "api",
+    }));
+    saveTransactions();
+    moneyChanged();
+
+    openTransaction("the-big-one");
+    return {
+      open: $("tx-dialog").open === true,
+      title: $("tx-dialog-title").textContent,
+      figure: document.querySelector(".tx-figure").textContent,
+      facts: [...document.querySelectorAll(".tx-facts dt")].map((n) => n.textContent),
+      where: [...document.querySelectorAll(".tx-facts dd")][
+        [...document.querySelectorAll(".tx-facts dt")].findIndex((n) => n.textContent === "Where it counts")].textContent,
+      source: [...document.querySelectorAll(".tx-facts dd")].pop().textContent,
+      action: document.querySelector(".dialog-tx .btn-primary").textContent,
+      categories: [...document.querySelectorAll("#tx-category option")].map((o) => o.value),
+      picked: $("tx-category").value,
+    };
+  });
+
+  check("a transaction opens", opened.open, true);
+  check("named by who was paid", opened.title, "BILETY NA KONCERT");
+  check("with the amount set large", /900,00 zł/.test(opened.figure), true, opened.figure);
+  check("and the facts under it", opened.facts.includes("When") && opened.facts.includes("Where it counts"), true,
+    opened.facts.join(","));
+  check("it says where it counts now", /this month's spending/.test(opened.where), true, opened.where);
+  check("and where it came from", /mBank, automatically/.test(opened.source), true, opened.source);
+  check("the action offered is to move it out", opened.action, "Move it outside the plan");
+  check("its category is pickable", opened.categories.includes("food") && opened.categories.includes("fun"), true);
+  check("and starts where it is", opened.picked, "fun");
+}
+
+{
+  // The whole point: the one-off goes out and the day-to-day stops reading wrong.
+  const moved = await page.evaluate(() => {
+    const before = { spent: monthReport(latestMonth()).spent, rate: sustainability().perDay };
+    document.querySelector(".dialog-tx .btn-primary").click();
+    const entry = liveTransactions().find((e) => e.id === "the-big-one");
+    return {
+      before,
+      after: { spent: monthReport(latestMonth()).spent, rate: sustainability().perDay },
+      branch: entry.branch,
+      action: document.querySelector(".dialog-tx .dialog-actions .btn").textContent,
+      where: [...document.querySelectorAll(".tx-facts dd")].find((n) => /Outside the plan/.test(n.textContent)),
+    };
+  });
+
+  check("moving it out takes it off the branch", moved.branch, "external");
+  check("the month's spending drops by it", moved.before.spent - moved.after.spent, -90000);
+  check("and so does the daily rate", moved.after.rate < moved.before.rate, true);
+  check("the dialog now offers the way back", moved.action, "Count it in the month");
+  check("and says where it counts now", Boolean(moved.where), true);
+
+  const back = await page.evaluate(() => {
+    document.querySelector(".dialog-tx .dialog-actions .btn").click();
+    const entry = liveTransactions().find((e) => e.id === "the-big-one");
+    classifyIncome();
+    return { branch: entry.branch, counted: entry.counted, spent: monthReport(latestMonth()).spent };
+  });
+  check("counting it back in puts it back", back.branch, "");
+  check("and it stays back", back.counted, true);
+  check("with the month's spending restored", back.spent, -98000);
+}
+
+{
+  // A category put right by hand is not undone by the rules on the next import.
+  const filed = await page.evaluate(async () => {
+    setTransactionCategory("the-big-one", "food");
+    const entry = liveTransactions().find((e) => e.id === "the-big-one");
+    const after = { category: entry.category, fixed: entry.fixed };
+    recategorise();
+    const still = liveTransactions().find((e) => e.id === "the-big-one");
+    return { after, kept: still.category };
+  });
+  check("a category can be set by hand", filed.after.category, "food");
+  check("it is marked as yours", filed.after.fixed, true);
+  check("and the rules leave it alone from then on", filed.kept, "food");
+
+  await page.evaluate(() => closeDialog($("tx-dialog")));
+  check("the dialog closes", await page.evaluate(() => $("tx-dialog").open === false), true);
+}
+
+{
+  // Every list of transactions opens the same way.
+  const everywhere = await page.evaluate(() => {
+    moneyChanged();
+    document.querySelectorAll("details").forEach((fold) => { fold.open = true; });
+    return {
+      list: document.querySelectorAll("#money-list .tx-open").length,
+      biggest: document.querySelectorAll("#money-report .tx-open").length,
+    };
+  });
+  check("the whole list opens", everywhere.list > 0, true);
+  check("and so does the biggest-of-the-month list", everywhere.biggest > 0, true);
 }
 
 /* ---------- The week, and the weekend ---------- */

@@ -72,6 +72,26 @@ Money moved to your own account is not spending and is left out of both;
 cash withdrawals are not, because the money has left the account and where it
 went afterwards is not something a statement knows.
 
+### One transaction, up close
+
+The biggest single payments in a month are usually the ones somebody else was
+covering, and a day-to-day budget with a 620 z&#322; concert ticket sitting in
+it reads wrong all month. The rules cannot know which is which -- only the
+person who spent it can -- so every row in every list of transactions opens,
+and moving one out of the month is one tap.
+
+Opening a category now lists the payments inside it, biggest first, rather
+than a summary by payee: the one worth moving is a single row, and a total
+hides it. Each row carries what it is and what it cost, and taps through to
+the detail -- the amount, the dates, which side of the plan it is on, what it
+was linked to if anything, and whether it came from mBank or from a CSV.
+
+Two things can be changed there, and both are marked as yours so the automatic
+passes leave them alone: **move it outside the plan**, which takes it off the
+budget and out of the daily rate without deleting anything, and the
+**category**, which from then on is ignored by the rules rather than
+overwritten by them on the next import.
+
 ### The week, and the weekend
 
 A month's spending money divided evenly over thirty days is a plan nobody
