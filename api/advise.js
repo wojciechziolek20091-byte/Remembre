@@ -86,7 +86,9 @@ async function ask(action, digest) {
     model: MODEL,
     max_tokens: action === "plan" ? 1600 : 1200,
     system,
-    temperature: 0.2,
+    // No temperature: the current Opus refuses it outright ("`temperature` is
+    // deprecated for this model"), and a 400 here reads as "the analysis is
+    // broken" to somebody who only sees the page.
     messages: [
       { role: "user", content: `Here is the summary of my spending.\n\n${JSON.stringify(digest, null, 1)}` },
       { role: "assistant", content: "{" },
