@@ -18,6 +18,8 @@ remembered for the session, so a reload puts you back where you were, but a
 fresh launch asks again -- they are separate errands, and which one you are on
 is not a setting.
 
+![The money dashboard](docs/screenshot-money-light.png)
+
 Money opens on a dashboard, in the order the questions actually get asked:
 **what have I got**, **where did it go**, **how fast is it going**. The
 statement, the setup and the month in detail are folded away underneath,
