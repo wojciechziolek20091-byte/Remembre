@@ -316,6 +316,20 @@
       </div>
     </section>
 
+    <section class="panel" id="bank-panel" aria-labelledby="bank-heading">
+      <h2 class="panel-title" id="bank-heading">Your bank</h2>
+      <p class="panel-hint" id="bank-hint">
+        Connect mBank once and new transactions arrive on their own, read-only.
+        You will be sent to mBank to approve it; nothing here can move money.
+        EU rules make you approve again every 180 days.
+      </p>
+      <p class="sync-status" id="bank-status" role="status"></p>
+      <div class="panel-actions">
+        <button type="button" class="btn btn-quiet" id="bank-connect">Connect mBank</button>
+        <button type="button" class="btn btn-quiet" id="bank-fetch" hidden>Fetch now</button>
+      </div>
+    </section>
+
     <section class="panel" aria-labelledby="money-report-heading">
       <div class="report-head">
         <h2 class="panel-title" id="money-report-heading">Spending</h2>

@@ -1,5 +1,8 @@
-import { cors, json } from "./_store.js";
-import { bankFetch, bankReport } from "./_bank.js";
+import { checkCode, cors, json, notConfigured, store, vaultKey } from "./_store.js";
+import { asTransaction, bankAuthorise, bankFetch, bankReport, bankTransactions, CONSENT_DAYS } from "./_bank.js";
+import {
+  handoverKey, listConnections, loadConnection, newNonce, onlyNewRows, saveConnection,
+} from "./_bankstore.js";
 
 /**
  * Read-only bank access.
@@ -12,16 +15,24 @@ import { bankFetch, bankReport } from "./_bank.js";
  */
 export default async function handler(req, res) {
   if (cors(req, res)) return;
-  if (req.method !== "GET") return json(res, 405, { error: "method-not-allowed" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    return json(res, 405, { error: "method-not-allowed" });
+  }
 
   const report = bankReport();
   if (!report.configured) {
     return json(res, 503, { ok: false, configured: false, problem: report.problem });
   }
 
-  const action = new URL(req.url, "http://localhost").searchParams.get("action") || "check";
+  const url = new URL(req.url, "http://localhost");
+  const action = url.searchParams.get("action") || "check";
+
+  if (action === "connect") return startConnecting(req, res);
+  if (action === "status") return connectionStatus(req, res);
+  if (action === "fetch") return fetchForOne(req, res);
+  if (action === "daily") return fetchForEveryone(req, res);
   if (action !== "check") {
-    return json(res, 400, { error: "unknown-action", message: `There is no "${action}" yet.` });
+    return json(res, 400, { error: "unknown-action", message: `There is no "${action}".` });
   }
 
   try {
@@ -88,4 +99,206 @@ function describeApplication(application) {
     linkedAccounts: accounts ? accounts.length : null,
     keys: Object.keys(application).sort(),
   };
+}
+
+/* ---------- Connecting ---------- */
+
+/** Where the bank sends the reader back to, derived rather than configured. */
+function redirectUrl(req) {
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  return `https://${host}/api/bank-callback`;
+}
+
+/**
+ * Starts an authorisation and hands back somewhere to send the reader.
+ *
+ * The sync phrase comes in, is turned straight into the vault key, and is not
+ * kept: what is stored against the one-time nonce is the key, so the bank
+ * never carries anything that identifies the reader and neither do the logs.
+ */
+async function startConnecting(req, res) {
+  const live = store();
+  if (!live) return notConfigured(res);
+
+  const body = await readBody(req);
+  const problem = checkCode(body && body.code);
+  if (problem) return json(res, 400, { error: "bad-code", message: problem });
+
+  try {
+    const nonce = newNonce();
+    const { url, validUntil } = await bankAuthorise({ redirectUrl: redirectUrl(req), state: nonce });
+    await live.put(handoverKey(nonce), JSON.stringify({
+      vault: vaultKey(body.code.trim()),
+      validUntil,
+      startedAt: new Date().toISOString(),
+    }));
+    return json(res, 200, { ok: true, url, validUntil, days: CONSENT_DAYS });
+  } catch (err) {
+    console.error("bank connect failed:", err.status || "", err.message);
+    return json(res, 502, { ok: false, message: err.message });
+  }
+}
+
+/** What this vault's connection looks like, without any account numbers. */
+async function connectionStatus(req, res) {
+  const live = store();
+  if (!live) return notConfigured(res);
+
+  const body = await readBody(req);
+  const problem = checkCode(body && body.code);
+  if (problem) return json(res, 400, { error: "bad-code", message: problem });
+
+  const held = await loadConnection(live, vaultKey(body.code.trim()));
+  if (!held) return json(res, 200, { ok: true, connected: false });
+
+  return json(res, 200, {
+    ok: true,
+    connected: true,
+    accounts: held.accounts.map((account) => ({ name: account.name, iban: account.iban })),
+    validUntil: held.validUntil || "",
+    connectedAt: held.connectedAt || "",
+    fetchedTo: held.fetchedTo || "",
+    expired: Boolean(held.validUntil) && held.validUntil < new Date().toISOString(),
+  });
+}
+
+/* ---------- Fetching ---------- */
+
+const HISTORY_DAYS = 90;        // What a first fetch reaches back for.
+const OVERLAP_DAYS = 5;         // Re-read a few days: a late booking is common.
+
+/**
+ * Pulls new transactions into the vault for one connection.
+ *
+ * Deliberately refetches the last few days every time. Banks book card
+ * payments a day or two after they happen, so a fetch that started exactly
+ * where the last one stopped would miss them permanently -- and the rule in
+ * onlyNewRows means re-reading them costs nothing.
+ */
+async function pullInto(live, vault, connection) {
+  const from = connection.fetchedTo
+    ? shiftDate(connection.fetchedTo, -OVERLAP_DAYS)
+    : shiftDate(today(), -HISTORY_DAYS);
+
+  const incoming = [];
+  for (const account of connection.accounts) {
+    const rows = await bankTransactions(account.uid, from);
+    rows.map(asTransaction).filter(Boolean).forEach((row) => incoming.push(row));
+  }
+
+  incoming.sort((a, b) => (a.date === b.date ? a.amount - b.amount : a.date.localeCompare(b.date)));
+
+  const vaultRaw = await live.get(vault);
+  const held = vaultRaw ? safeParse(vaultRaw) : null;
+  const stored = held && Array.isArray(held.transactions) ? held.transactions : [];
+
+  const fresh = onlyNewRows(stored, incoming);
+  const now = new Date().toISOString();
+  const added = fresh.map((row, index) => ({
+    ...row,
+    id: `eb-${row.date.replace(/-/g, "")}-${Math.abs(row.amount)}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    category: "",
+    source: "api",
+    deleted: false,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  if (added.length > 0) {
+    const next = held && typeof held === "object" ? held : { tasks: [], coursework: [], sessions: [] };
+    next.transactions = [...stored, ...added];
+    next.updatedAt = now;
+    await live.put(vault, JSON.stringify(next));
+  }
+
+  await saveConnection(live, vault, { ...connection, fetchedTo: today(), lastFetchAt: now });
+  return { read: incoming.length, added: added.length, from };
+}
+
+async function fetchForOne(req, res) {
+  const live = store();
+  if (!live) return notConfigured(res);
+
+  const body = await readBody(req);
+  const problem = checkCode(body && body.code);
+  if (problem) return json(res, 400, { error: "bad-code", message: problem });
+
+  const vault = vaultKey(body.code.trim());
+  const connection = await loadConnection(live, vault);
+  if (!connection) return json(res, 409, { ok: false, message: "This vault has no bank connected yet." });
+
+  try {
+    const result = await pullInto(live, vault, connection);
+    return json(res, 200, { ok: true, ...result });
+  } catch (err) {
+    console.error("bank fetch failed:", err.status || "", err.message);
+    // A consent that has run out is the one failure worth naming: it is fixed
+    // by reconnecting, and nothing else will fix it.
+    const expired = err.status === 401 || err.status === 403;
+    return json(res, 502, {
+      ok: false,
+      expired,
+      message: expired ? "The bank wants you to authorise again." : err.message,
+    });
+  }
+}
+
+/** The nightly run. Needs no phrase: every connection is already stored. */
+async function fetchForEveryone(req, res) {
+  const secret = process.env.CRON_SECRET;
+  const offered = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (secret && offered !== secret) {
+    return json(res, 200, { ok: true, dryRun: true, message: "No secret, so nothing was fetched." });
+  }
+
+  const live = store();
+  if (!live) return notConfigured(res);
+
+  const report = [];
+  for (const connection of await listConnections(live)) {
+    try {
+      const result = await pullInto(live, connection.vault, connection);
+      report.push({ added: result.added, read: result.read });
+    } catch (err) {
+      console.error("nightly bank fetch failed:", err.status || "", err.message);
+      report.push({ failed: err.status === 401 || err.status === 403 ? "needs reauthorising" : err.message });
+    }
+  }
+
+  return json(res, 200, { ok: true, connections: report.length, report });
+}
+
+/* ---------- Odds and ends ---------- */
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** Plain-date arithmetic, with no time zone anywhere near it. */
+function shiftDate(date, days) {
+  const [y, m, d] = String(date).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function safeParse(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function readBody(req) {
+  if (req.body && typeof req.body === "object") return req.body;
+  if (req.method === "GET") {
+    const url = new URL(req.url, "http://localhost");
+    return { code: url.searchParams.get("code") || "" };
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 64 * 1024) return {};
+    chunks.push(chunk);
+  }
+  return safeParse(Buffer.concat(chunks).toString("utf8")) || {};
 }

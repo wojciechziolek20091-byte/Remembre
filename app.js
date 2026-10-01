@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.01-46";
+const APP_VERSION = "2026.10.01-47";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1404,7 +1404,12 @@ function setArea(area, { remember = true } = {}) {
     }
   }
 
-  if (state.area === "money" && typeof renderMoney === "function") renderMoney();
+  if (state.area === "money") {
+    if (typeof renderMoney === "function") renderMoney();
+    // The bank is only asked about when it is being looked at: there is no
+    // reason to call it while the reader is on their timetable.
+    if (typeof refreshBank === "function") refreshBank();
+  }
 }
 
 function restoreArea() {

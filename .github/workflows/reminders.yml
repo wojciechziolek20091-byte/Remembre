@@ -30,6 +30,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Pull anything new from the bank
+        continue-on-error: true
+        env:
+          APP_URL: ${{ vars.REMEMBRE_URL || 'https://remembre.vercel.app' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          # Only worth doing a few times a day; the bank books card payments
+          # slowly and nothing here is urgent. Reminders stay quarter-hourly.
+          minute=$(date -u +%M)
+          hour=$(date -u +%H)
+          if [ "$minute" != "00" ] || [ $((10#$hour % 6)) -ne 0 ]; then
+            echo "not a bank hour; skipping"
+            exit 0
+          fi
+          status=$(curl -sS --max-time 120 -o bank.json -w '%{http_code}' \
+            "$APP_URL/api/bank?action=daily" \
+            ${CRON_SECRET:+-H "Authorization: Bearer $CRON_SECRET"}) || exit 0
+          echo "HTTP $status"
+          cat bank.json
+          echo
+
       - name: Send anything that has come due
         env:
           # Override with a repository variable if the app moves.

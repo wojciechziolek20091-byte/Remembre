@@ -443,6 +443,7 @@ function setupMoney() {
   setupRules();
   setupPaste();
   setupReport();
+  setupBank();
   // Rules may have been edited on a visit when nothing was imported yet, and
   // transactions may have arrived from the other device since.
   recategorise();
@@ -918,4 +919,176 @@ function setupReport() {
     renderReport();
     announce("Budgets saved.");
   });
+}
+
+/* ---------- The bank itself ---------- */
+
+/*
+  Connecting is a round trip through mBank, so it cannot be done quietly in the
+  background: the reader leaves the page, approves, and comes back to
+  /?bank=connected. Everything here is read-only -- the server has no endpoint
+  that could move money, and a test fails the build if one ever appears.
+
+  The sync phrase is what identifies the vault to the server, exactly as it
+  does for syncing. It is sent over HTTPS to a route that immediately hashes
+  it, and is never stored server-side.
+*/
+
+let bankNote = "";
+
+function bankPhrase() {
+  const { enabled, code } = cloudState();
+  return enabled && code ? code : "";
+}
+
+async function bankCall(action, { method = "POST" } = {}) {
+  const code = bankPhrase();
+  if (!code) throw new Error("Turn on automatic syncing first: that phrase is what tells the server whose this is.");
+
+  const res = await fetch(`/api/bank?action=${action}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+    cache: "no-store",
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((body && body.message) || `The server answered ${res.status}.`);
+  return body;
+}
+
+function renderBank(connection) {
+  const status = $("bank-status");
+  if (!status) return;
+
+  const connect = $("bank-connect");
+  const fetchNow = $("bank-fetch");
+
+  if (!bankPhrase()) {
+    status.textContent = "Turn on automatic syncing first — the server needs to know whose account this is.";
+    status.classList.add("is-stale");
+    connect.disabled = true;
+    fetchNow.hidden = true;
+    return;
+  }
+  connect.disabled = false;
+
+  if (bankNote) {
+    status.textContent = bankNote;
+    status.classList.add("is-stale");
+    return;
+  }
+
+  if (!connection || !connection.connected) {
+    status.textContent = "Not connected. Transactions come in by CSV until you connect.";
+    status.classList.remove("is-stale");
+    connect.textContent = "Connect mBank";
+    fetchNow.hidden = true;
+    return;
+  }
+
+  const accounts = connection.accounts.map((a) => `${a.name}${a.iban ? ` ${a.iban}` : ""}`).join(", ");
+  if (connection.expired) {
+    status.textContent = `${accounts} — mBank wants you to approve again.`;
+    status.classList.add("is-stale");
+  } else {
+    const until = connection.validUntil ? connection.validUntil.slice(0, 10) : "";
+    status.textContent = `Connected to ${accounts}${until ? `, approved until ${until}` : ""}.`;
+    status.classList.remove("is-stale");
+  }
+  connect.textContent = "Connect again";
+  fetchNow.hidden = false;
+}
+
+async function refreshBank() {
+  if (!bankPhrase()) {
+    renderBank(null);
+    return null;
+  }
+  try {
+    const connection = await bankCall("status");
+    bankNote = "";
+    renderBank(connection);
+    return connection;
+  } catch (err) {
+    bankNote = err.message;
+    renderBank(null);
+    return null;
+  }
+}
+
+/*
+  What the callback told us, carried back in the address. Read once and then
+  cleaned out of the URL, so a reload does not announce a week-old outcome.
+*/
+const BANK_OUTCOMES = {
+  connected: "mBank is connected. Fetching your transactions now.",
+  refused: "mBank was not approved, so nothing is connected.",
+  expired: "That took too long. Try connecting again.",
+  "no-accounts": "mBank approved it but returned no accounts. Link the account in the Enable Banking Control Panel first.",
+  "bad-return": "mBank sent back something unexpected. Try connecting again.",
+  "no-store": "The server has no storage attached, so there is nowhere to keep the connection.",
+  failed: "Connecting failed. Try again.",
+};
+
+function readBankOutcome() {
+  const url = new URL(window.location.href);
+  const outcome = url.searchParams.get("bank");
+  if (!outcome) return "";
+  url.searchParams.delete("bank");
+  window.history.replaceState({}, "", url.toString() + url.hash);
+  return outcome;
+}
+
+function setupBank() {
+  if (!$("bank-panel")) return;
+
+  $("bank-connect").addEventListener("click", async () => {
+    bankNote = "";
+    $("bank-connect").disabled = true;
+    try {
+      const { url } = await bankCall("connect");
+      // Leaving the page is the point: mBank does the approving, not us.
+      window.location.href = url;
+    } catch (err) {
+      bankNote = err.message;
+      $("bank-connect").disabled = false;
+      renderBank(null);
+    }
+  });
+
+  $("bank-fetch").addEventListener("click", async () => {
+    $("bank-fetch").disabled = true;
+    try {
+      const result = await bankCall("fetch");
+      bankNote = "";
+      // The server wrote them into the vault, so the way to see them is the
+      // same sync that carries everything else.
+      await runCloud(() => cloudPull({ quiet: true }));
+      announce(result.added === 0
+        ? "Nothing new at the bank."
+        : `${result.added} new ${result.added === 1 ? "transaction" : "transactions"} from mBank.`);
+      await refreshBank();
+    } catch (err) {
+      bankNote = err.message;
+      renderBank(null);
+    } finally {
+      $("bank-fetch").disabled = false;
+    }
+  });
+
+  const outcome = readBankOutcome();
+  if (outcome) {
+    announce(BANK_OUTCOMES[outcome] || "Something happened connecting to mBank.");
+    // Coming back from the bank always lands on the half it concerns.
+    setArea("money");
+    if (outcome === "connected") {
+      refreshBank().then(() => $("bank-fetch").click());
+      return;
+    }
+    bankNote = BANK_OUTCOMES[outcome] || "";
+  }
+
+  // Otherwise the panel is drawn from what is known, and the server is asked
+  // only when this half is opened -- see setArea.
+  renderBank(null);
 }

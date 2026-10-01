@@ -182,3 +182,115 @@ export async function bankFetch(path, { method = "GET", body = null } = {}) {
 
   return parsed;
 }
+
+/* ---------- Starting an authorisation ---------- */
+
+/*
+  EU rules let an account-information consent run for 180 days before the bank
+  asks for strong authentication again. Asking for the maximum is the whole
+  difference between re-authorising twice a year and re-authorising constantly:
+  left to default, mBank offered a consent valid for a single day.
+*/
+export const CONSENT_DAYS = 180;
+
+export async function bankAuthorise({ redirectUrl, state }) {
+  const validUntil = new Date(Date.now() + CONSENT_DAYS * 86400000).toISOString();
+
+  const answer = await bankFetch("/auth", {
+    method: "POST",
+    body: {
+      access: { valid_until: validUntil },
+      aspsp: { name: "mBank", country: "PL" },
+      state,
+      redirect_url: redirectUrl,
+      psu_type: "personal",
+    },
+  });
+
+  if (!answer || !answer.url) throw new Error("Enable Banking did not return somewhere to send you.");
+  return { url: answer.url, validUntil };
+}
+
+/** Trades the code the bank sent back for a session, and the accounts on it. */
+export async function bankSession(code) {
+  const answer = await bankFetch("/sessions", { method: "POST", body: { code } });
+  const accounts = Array.isArray(answer && answer.accounts) ? answer.accounts : [];
+
+  return {
+    sessionId: answer.session_id || "",
+    accounts: accounts.map((account, index) => ({
+      uid: account.uid || "",
+      // Enough to recognise which account this is, never the full number.
+      name: account.name || account.product || `Account ${index + 1}`,
+      iban: account.account_id && account.account_id.iban
+        ? `…${String(account.account_id.iban).slice(-4)}`
+        : "",
+      currency: account.currency || "",
+    })).filter((account) => account.uid),
+  };
+}
+
+/**
+ * Every transaction on one account since a date. Follows the continuation key
+ * to the end rather than stopping at the first page, which would quietly lose
+ * the oldest part of a busy month.
+ */
+export async function bankTransactions(accountUid, dateFrom) {
+  const rows = [];
+  let continuation = "";
+
+  for (let page = 0; page < 40; page += 1) {
+    const query = new URLSearchParams({ date_from: dateFrom });
+    if (continuation) query.set("continuation_key", continuation);
+
+    const answer = await bankFetch(`/accounts/${encodeURIComponent(accountUid)}/transactions?${query}`);
+    const batch = Array.isArray(answer && answer.transactions) ? answer.transactions : [];
+    rows.push(...batch);
+
+    continuation = (answer && answer.continuation_key) || "";
+    if (!continuation) break;
+  }
+
+  return rows;
+}
+
+/* ---------- Making their shape into ours ---------- */
+
+/** "12.49" and a debit indicator become -1249 grosze. */
+function groszeOf(transaction) {
+  const raw = transaction.transaction_amount || transaction.amount || {};
+  const text = String(raw.amount != null ? raw.amount : raw);
+  const value = Math.round(Number(text) * 100);
+  if (!Number.isFinite(value)) return null;
+  const credit = String(transaction.credit_debit_indicator || "").toUpperCase() === "CRDT";
+  return credit ? Math.abs(value) : -Math.abs(value);
+}
+
+const textOf = (value) => (Array.isArray(value) ? value.join(" ") : String(value || ""))
+  .replace(/\s+/g, " ").trim();
+
+/**
+ * One of their transactions in the shape the rest of the app already uses, so
+ * a row that arrived by CSV and the same row fetched from the bank are the
+ * same kind of thing.
+ */
+export function asTransaction(transaction) {
+  const amount = groszeOf(transaction);
+  if (amount === null) return null;
+
+  const date = String(transaction.transaction_date || transaction.booking_date || transaction.value_date || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+  const other = amount < 0 ? transaction.creditor : transaction.debtor;
+
+  return {
+    date,
+    booked: String(transaction.booking_date || date).slice(0, 10),
+    description: textOf(transaction.bank_transaction_code && transaction.bank_transaction_code.description),
+    title: textOf(transaction.remittance_information),
+    counterparty: textOf(other && other.name),
+    account: "",
+    amount,
+    balance: null,
+  };
+}

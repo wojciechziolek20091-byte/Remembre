@@ -149,6 +149,112 @@ console.log("\na JWT their API will accept");
   );
 }
 
+/* ---------- Their shape into ours ---------- */
+
+console.log("\nreading what the bank sends");
+
+/* This file's check takes a boolean, so every assertion has to be one: a bare
+   value would pass merely by being truthy. */
+const is = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+
+{
+  const { asTransaction } = await import("../api/_bank.js");
+
+  const card = asTransaction({
+    transaction_amount: { amount: "12.49", currency: "PLN" },
+    credit_debit_indicator: "DBIT",
+    transaction_date: "2026-09-28",
+    booking_date: "2026-09-29",
+    creditor: { name: "ZABKA" },
+    remittance_information: ["ZABKA Z7423 KRAKOW"],
+  });
+  check("a card payment is negative grosze", is(card.amount, -1249), String(card.amount));
+  check("the day it happened is the date", is(card.date, "2026-09-28"), card.date);
+  check("and the day it was booked is kept apart", is(card.booked, "2026-09-29"), card.booked);
+  check("the payee comes from the creditor", is(card.counterparty, "ZABKA"), card.counterparty);
+  check("and the reference is joined up", is(card.title, "ZABKA Z7423 KRAKOW"), card.title);
+
+  const paidIn = asTransaction({
+    transaction_amount: { amount: "1200.00" },
+    credit_debit_indicator: "CRDT",
+    transaction_date: "2026-09-27",
+    debtor: { name: "JAN ZIOLEK" },
+    remittance_information: ["Kieszonkowe"],
+  });
+  check("money in is positive", is(paidIn.amount, 120000), String(paidIn.amount));
+  check("and its payer comes from the debtor", is(paidIn.counterparty, "JAN ZIOLEK"), paidIn.counterparty);
+
+  check("a row with no usable amount is dropped",
+    asTransaction({ transaction_date: "2026-09-01" }) === null);
+  check("and one with no usable date too",
+    asTransaction({ transaction_amount: { amount: "5.00" }, credit_debit_indicator: "DBIT" }) === null);
+
+  // 12.49 * 100 is 1248.9999999999998 in binary floating point, so this is the
+  // rounding that keeps a statement's pennies right.
+  const rounded = [0.1, 0.29, 12.49, 1234.56].map((n) =>
+    asTransaction({
+      transaction_amount: { amount: String(n) },
+      credit_debit_indicator: "DBIT",
+      transaction_date: "2026-09-01",
+    }).amount);
+  check("awkward decimals land on the right grosz",
+    is(rounded, [-10, -29, -1249, -123456]), JSON.stringify(rounded));
+}
+
+/* ---------- Not storing the same purchase twice ---------- */
+
+console.log("\nwhen a CSV and the bank describe the same day");
+
+{
+  const { onlyNewRows } = await import("../api/_bankstore.js");
+
+  /*
+    The real case: the CSV said ZABKA, the API says Zabka Polska sp. z o.o.,
+    and they are the same two coffees. Matching their text would see four
+    purchases; matching the day and the amount sees two.
+  */
+  const fromCsv = [
+    { date: "2026-09-28", amount: -1249, counterparty: "ZABKA" },
+    { date: "2026-09-28", amount: -1249, counterparty: "ZABKA" },
+    { date: "2026-09-27", amount: 120000, counterparty: "JAN ZIOLEK" },
+  ];
+  const fromBank = [
+    { date: "2026-09-27", amount: 120000, counterparty: "Jan Zio\u0142ek" },
+    { date: "2026-09-28", amount: -1249, counterparty: "Zabka Polska sp. z o.o." },
+    { date: "2026-09-28", amount: -1249, counterparty: "Zabka Polska sp. z o.o." },
+  ];
+
+  const none = onlyNewRows(fromCsv, fromBank);
+  check("nothing is added for a day already imported", none.length === 0, `${none.length} added`);
+
+  const withExtra = [...fromBank, { date: "2026-09-28", amount: -1249, counterparty: "a third coffee" }];
+  const extra = onlyNewRows(fromCsv, withExtra);
+  check("a third one that day is new, though", extra.length === 1, `${extra.length} added`);
+
+  const laterDay = [...fromBank, { date: "2026-09-30", amount: -4500, counterparty: "ORLEN" }];
+  const later = onlyNewRows(fromCsv, laterDay);
+  check("and so is a day that was not there",
+    is(later.map((r) => r.counterparty), ["ORLEN"]), JSON.stringify(later.map((r) => r.counterparty)));
+
+  const twice = onlyNewRows([...fromCsv, ...later], laterDay);
+  check("fetching twice adds nothing the second time", twice.length === 0, `${twice.length} added`);
+
+  check("an empty vault takes everything", onlyNewRows([], fromBank).length === 3);
+
+  // A row the reader deleted should not quietly occupy its slot for ever: the
+  // slot frees up, and a refetch restores exactly that purchase.
+  const deleted = [{ date: "2026-09-30", amount: -4500, deleted: true }];
+  check("a deleted row leaves its slot free again",
+    onlyNewRows(deleted, [{ date: "2026-09-30", amount: -4500 }]).length === 1);
+
+  // Different amounts on one day never collide, however close.
+  const closeAmounts = onlyNewRows(
+    [{ date: "2026-09-28", amount: -1249 }],
+    [{ date: "2026-09-28", amount: -1249 }, { date: "2026-09-28", amount: -1250 }]
+  );
+  check("a penny apart is a different purchase", closeAmounts.length === 1, `${closeAmounts.length} added`);
+}
+
 /* ---------- Nothing here can move money ---------- */
 
 console.log("\nread-only by construction");

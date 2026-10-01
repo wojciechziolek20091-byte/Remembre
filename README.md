@@ -72,6 +72,40 @@ iPad imported. That means **your sync phrase now guards your bank history as
 well as your homework** -- worth a longer one than you might have picked for a
 calendar.
 
+## The bank
+
+Connecting mBank is a round trip: the app asks the server to start an
+authorisation, the server asks Enable Banking for somewhere to send you, you
+approve at mBank, and the bank returns you to `/api/bank-callback`.
+
+The authorisation asks for **180 days**, which is the EU maximum for account
+information. Left to default, mBank offered a consent good for a single day --
+the difference between re-approving twice a year and re-approving constantly.
+
+What travels through the bank is a one-time nonce, never the vault key: it
+lands in somebody's logs on the way, and a nonce there says nothing about whose
+account it is. The connection is filed against the vault key -- the same one-way
+hash of the sync phrase everything else uses -- so the nightly job can refresh an
+account without any phrase being stored anywhere.
+
+Fetching deliberately re-reads the last five days each time. Banks book card
+payments a day or two after they happen, so starting exactly where the last
+fetch stopped would miss them for good.
+
+**The same purchase must not be stored twice**, and a CSV row and the bank's own
+record of it do not look alike -- their API and their CSV export word the payee
+and the reference differently. What they agree on is the day and the amount, so
+the rule is: for a given day and amount, the Nth one is the Nth one. Rows that
+share both are interchangeable by definition. The honest cost: two genuinely
+different purchases of the same amount on the same day are counted correctly but
+may wear each other's payee, so a category can be wrong where a total never is.
+
+Nothing in `api/_bank.js` or `api/bank.js` can move money. The only endpoints
+either knows are the ones that list banks, start an authorisation, and read
+accounts and transactions -- and `tools/bank-test.mjs` reads both files and fails
+if a payment endpoint ever appears in them. It is a promise worth making
+mechanical rather than remembering.
+
 ## The welcome
 
 Opening the app plays a three-second title: three arcs swing in and close around
