@@ -149,6 +149,25 @@ const callAdvise = async (url, body) => {
   check("and a month with no categories in it", noCategories.body.thin === true, JSON.stringify(noCategories.body));
 }
 
+console.log("\nan answer that arrives the wrong way round");
+
+{
+  // Pulled out of the module and exercised directly: it is the one piece of
+  // the path that runs when the model does not do as it is asked.
+  const advise = read("advise.js");
+  const body = advise.slice(advise.indexOf("function objectIn"));
+  const objectIn = eval(`(${body.slice(0, body.indexOf("\n}\n") + 3).replace("function objectIn", "function")})`);
+
+  const fenced = objectIn('Here you go:\n```json\n{"verdict":"tight"}\n```');
+  check("a fenced block is read", fenced !== null && fenced.verdict === "tight", JSON.stringify(fenced));
+  check("a brace inside a string does not end it",
+    objectIn('{"s":"a } brace"}').s === "a } brace");
+  check("an escaped quote does not either",
+    objectIn('{"s":"a \\" quote"}').s === 'a " quote');
+  check("a truncated answer is not half-read", objectIn('{"a":') === null);
+  check("and prose with no object in it is left as prose", objectIn("no object here") === null);
+}
+
 console.log("\nwhat the model is told before it sees a number");
 
 {
@@ -165,10 +184,13 @@ console.log("\nwhat the model is told before it sees a number");
   // A shape asked for in prose is a hope; a tool it must call is not.
   const advise = read("advise.js");
   check("and the shape is the tool's, not a hope about JSON",
-    /tool_choice: \{ type: "tool", name: "report" \}/.test(advise)
-    && /input_schema/.test(advise));
+    /name: "report"/.test(advise) && /input_schema: SHAPES\[action\]/.test(advise));
   check("a prose answer is still shown rather than erroring over",
     /result: null, prose/.test(advise));
+  // The model is asked for the tool rather than forced into it, because the
+  // current Opus supports neither "tool" nor "any" as a tool_choice.
+  check("the tool is offered, not forced", !/tool_choice:\s*\{/.test(advise));
+  check("and prose that is the shape anyway is taken", /objectIn\(prose\)/.test(advise));
   // Both were refused outright by the current Opus, and the 400 reads as
   // "the analysis is broken" to anyone who only sees the page.
   check("nothing the current model refuses is sent",

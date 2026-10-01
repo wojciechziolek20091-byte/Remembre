@@ -161,11 +161,13 @@ async function ask(action, digest) {
     tools: [{
       name: "report",
       description: action === "plan"
-        ? "Report the budget you propose. This is the only way to answer."
-        : "Report what you read in the spending. This is the only way to answer.",
+        ? "Report the budget you propose. Always answer by calling this."
+        : "Report what you read in the spending. Always answer by calling this.",
       input_schema: SHAPES[action],
     }],
-    tool_choice: { type: "tool", name: "report" },
+    // No tool_choice: the current Opus supports neither "tool" nor "any", so
+    // the tool is offered and the prompt asks for it. The fallback below is
+    // what makes that safe rather than hopeful.
   });
 
   const usage = message.usage || {};
@@ -174,10 +176,46 @@ async function ask(action, digest) {
   const reported = message.content.find((block) => block.type === "tool_use");
   if (reported) return { result: reported.input, cost };
 
-  // It answered in prose instead. Worth showing rather than erroring over.
+  // It answered in prose. If the prose is the shape anyway -- a fenced block,
+  // or an object with something polite in front of it -- take it; otherwise
+  // show what it said rather than erroring over it.
   const prose = message.content.filter((block) => block.type === "text")
     .map((block) => block.text).join("").trim();
+
+  const found = objectIn(prose);
+  if (found) return { result: found, cost };
   return { result: null, prose, cost };
+}
+
+/** The first balanced {...} in a piece of text, parsed, or null. */
+function objectIn(text) {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (char === "\\") { escaped = true; continue; }
+    if (char === '"') { quoted = !quoted; continue; }
+    if (quoted) continue;
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(text.slice(start, i + 1));
+          return parsed && typeof parsed === "object" ? parsed : null;
+        } catch (err) {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /* The status is the useful part: 401 is a bad key, 402 an empty balance, 429 a
