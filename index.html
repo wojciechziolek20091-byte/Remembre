@@ -308,6 +308,24 @@
       </div>
     </section>
 
+    <section class="panel" aria-labelledby="money-rules-heading">
+      <h2 class="panel-title" id="money-rules-heading">Categories</h2>
+      <p class="panel-hint" id="money-rules-hint">
+        One category per line: the name, an equals sign, then the words to look for,
+        separated by commas. The first line that matches wins, so put the specific
+        ones above the general. Accents and capitals are ignored, so
+        <code>zabka</code> finds &#379;ABKA.
+      </p>
+      <p class="sync-status" id="money-rules-status" role="status"></p>
+      <label class="field-label" for="money-rules">Rules</label>
+      <textarea id="money-rules" class="input money-rules" rows="10" spellcheck="false" autocapitalize="none"></textarea>
+      <div class="panel-actions">
+        <button type="button" class="btn btn-quiet" id="money-rules-save">Save and apply</button>
+        <button type="button" class="btn btn-quiet" id="money-rules-reset">Restore the defaults</button>
+      </div>
+      <div id="money-tally"></div>
+    </section>
+
     <section class="panel" aria-labelledby="money-list-heading">
       <h2 class="panel-title" id="money-list-heading">Transactions</h2>
       <p class="sync-status" id="money-summary" role="status"></p>

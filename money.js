@@ -345,7 +345,11 @@ function renderMoney() {
         ? el("span", { class: "tx-note", text: entry.title })
         : null
     ),
-    el("span", { class: "tx-amount", text: zloty(entry.amount) })
+    el("span", { class: "tx-amount", text: zloty(entry.amount) }),
+    el("span", {
+      class: `tx-cat${(entry.category || "other") === "other" ? " is-loose" : ""}`,
+      text: entry.category || "other",
+    })
   ))));
 }
 
@@ -367,8 +371,10 @@ async function importCsvText(text, { label = "that file" } = {}) {
 
   const identified = await identify(rows);
   const result = mergeTransactions(identified);
+  recategorise();
   saveTransactions();
   renderMoney();
+  renderRules();
 
   const parts = [];
   if (result.added) parts.push(`${result.added} added`);
@@ -430,7 +436,12 @@ function setupMoney() {
     importCsvText(SAMPLE_CSV, { label: "the sample" });
   });
 
+  setupRules();
+  // Rules may have been edited on a visit when nothing was imported yet, and
+  // transactions may have arrived from the other device since.
+  recategorise();
   renderMoney();
+  renderRules();
 }
 
 /**
@@ -457,8 +468,182 @@ function mergeIncomingTransactions(incoming) {
   });
 
   if (changed > 0) {
+    recategorise();
     writeStore(MONEY_KEY, state.transactions);
     renderMoney();
+    renderRules();
   }
   return changed;
+}
+
+/* ---------- Deciding what each transaction was for ---------- */
+
+/*
+  The rules are text the reader owns, not a table buried in the code. One line
+  per category: the name, an equals sign, then the words to look for. The first
+  line that matches wins, so order is the only precedence there is -- which
+  means a rule can be fixed by moving it, and that is easy to explain.
+
+  Everything is folded before matching: accents away, case away. So "zabka"
+  finds "ŻABKA" and the reader never has to think about which spelling the bank
+  used.
+*/
+
+const MONEY_RULES_KEY = "remembre.moneyrules.v1";
+
+const DEFAULT_RULES = `# One per line:  category = word, word, word
+# The first matching line wins, so keep the specific ones near the top.
+
+cash = bankomat, wyplata gotowki, atm, euronet
+transfers = przelew wlasny, przelew na rachunek wlasny, blik p2p
+income = kieszonkowe, wynagrodzenie, stypendium, zwrot, przelew przychodzacy
+
+subscriptions = spotify, netflix, hbo, disney, youtube, icloud, apple.com/bill, google storage, microsoft, adobe, duolingo, openai, anthropic, claude, steam, playstation, allegro smart, canva, notion
+school = ksiegarnia, empik, pwn, podrecznik, korepetycje, kurs, szkola, uczelnia, biblioteka, papiernic, swiat ksiazki
+transport = mpk, ztm, skm, pkp, intercity, koleje, flixbus, bolt, uber, free now, orlen, bp, shell, circle k, lotos, parking, bilet, jakdojade, mevo
+food = zabka, biedronka, lidl, carrefour, auchan, kaufland, stokrotka, dino, netto, aldi, piekarnia, restauracja, pizzeria, mcdonald, kfc, burger, bistro, kebab, glovo, pyszne, wolt, bar mleczny, kantyna
+health = apteka, przychodnia, lekarz, dentysta, luxmed, medicover, enel-med, rossmann, hebe
+clothes = zara, h&m, reserved, cropp, house, sinsay, mohito, nike, adidas, zalando, vinted, decathlon
+fun = kino, multikino, helios, cinema, teatr, muzeum, silownia, fitness, basen, koncert, bilety
+home = ikea, castorama, leroy, obi, jysk, media expert, rtv euro, x-kom, komputronik
+phone = play, orange, t-mobile, plus, heyah, nju, virgin mobile
+`;
+
+/** Accents and case removed, so a pattern never has to know how it was typed. */
+function fold(text) {
+  return String(text)
+    .replace(/ł/g, "l")
+    .replace(/Ł/g, "L")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
+/** Turns the editable text into something matchable. Bad lines are skipped. */
+function parseRules(text) {
+  const rules = [];
+  String(text).split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+
+    const at = trimmed.indexOf("=");
+    if (at === -1) return;
+
+    const category = trimmed.slice(0, at).trim().toLowerCase();
+    const patterns = trimmed.slice(at + 1)
+      .split(",")
+      .map((word) => fold(word.trim()))
+      .filter(Boolean);
+    if (category && patterns.length) rules.push({ category, patterns });
+  });
+  return rules;
+}
+
+function rulesText() {
+  const stored = readStore(MONEY_RULES_KEY, null);
+  return typeof stored === "string" && stored.trim() ? stored : DEFAULT_RULES;
+}
+
+/**
+ * What one transaction was for. Money coming in with no rule of its own is
+ * income rather than "other": a positive amount is already a strong signal,
+ * and leaving it uncategorised makes every total read wrong.
+ */
+function categorise(entry, rules) {
+  const haystack = fold([entry.counterparty, entry.title, entry.description].join(" "));
+  const hit = rules.find((rule) => rule.patterns.some((pattern) => haystack.includes(pattern)));
+  if (hit) return hit.category;
+  return entry.amount > 0 ? "income" : "other";
+}
+
+/** Re-runs the rules over everything stored. Returns how many changed. */
+function recategorise() {
+  const rules = parseRules(rulesText());
+  const now = new Date().toISOString();
+  let changed = 0;
+
+  state.transactions.forEach((entry) => {
+    if (entry.deleted) return;
+    const category = categorise(entry, rules);
+    if (entry.category === category) return;
+    entry.category = category;
+    entry.updatedAt = now;
+    changed += 1;
+  });
+
+  if (changed > 0) saveTransactions();
+  return changed;
+}
+
+/** What is in each category, biggest spend first, for tuning the rules. */
+function categoryTally() {
+  const totals = new Map();
+  liveTransactions().forEach((entry) => {
+    const key = entry.category || "other";
+    const held = totals.get(key) || { category: key, count: 0, out: 0, in: 0 };
+    held.count += 1;
+    if (entry.amount < 0) held.out += entry.amount;
+    else held.in += entry.amount;
+    totals.set(key, held);
+  });
+  return [...totals.values()].sort((a, b) => a.out - b.out || b.count - a.count);
+}
+
+function renderTally() {
+  const wrap = $("money-tally");
+  if (!wrap) return;
+
+  const rows = categoryTally();
+  if (rows.length === 0) {
+    wrap.replaceChildren();
+    return;
+  }
+
+  wrap.replaceChildren(el("ul", { class: "tally" }, rows.map((row) => el(
+    "li",
+    { class: `tally-row${row.category === "other" ? " is-loose" : ""}` },
+    el("span", { class: "tally-name", text: row.category }),
+    el("span", { class: "tally-count", text: `${row.count}` }),
+    el("span", { class: "tally-sum", text: zloty(row.out || row.in) })
+  ))));
+}
+
+function renderRules() {
+  const field = $("money-rules");
+  if (!field) return;
+  field.value = rulesText();
+  renderTally();
+
+  const loose = liveTransactions().filter((entry) => (entry.category || "other") === "other").length;
+  const status = $("money-rules-status");
+  if (!status) return;
+  if (liveTransactions().length === 0) {
+    status.textContent = "";
+    return;
+  }
+  status.textContent = loose === 0
+    ? "Everything has a category."
+    : `${loose} ${loose === 1 ? "transaction has" : "transactions have"} no rule yet.`;
+  status.classList.toggle("is-stale", loose > 0);
+}
+
+function setupRules() {
+  $("money-rules-save").addEventListener("click", () => {
+    writeStore(MONEY_RULES_KEY, $("money-rules").value);
+    const changed = recategorise();
+    renderMoney();
+    renderRules();
+    announce(changed === 0
+      ? "Rules saved. Nothing changed category."
+      : `Rules saved. ${changed} ${changed === 1 ? "transaction" : "transactions"} recategorised.`);
+  });
+
+  $("money-rules-reset").addEventListener("click", () => {
+    if (!window.confirm("Put the default rules back? Anything you have written here will be lost.")) return;
+    writeStore(MONEY_RULES_KEY, DEFAULT_RULES);
+    recategorise();
+    renderMoney();
+    renderRules();
+    announce("Default rules restored.");
+  });
 }

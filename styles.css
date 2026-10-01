@@ -2105,3 +2105,81 @@ body.is-booting { overflow: hidden; }
 }
 
 .tx.is-in .tx-amount { color: var(--s-ess); }
+
+/* ---------- Money: rules and categories ---------- */
+
+.money-rules {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem;
+  line-height: 1.55;
+  min-height: 12rem;
+  margin-bottom: .75rem;
+  /* Rules are one per line and a wrapped line reads as two rules. */
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.tally {
+  list-style: none;
+  margin: .75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .1rem;
+}
+
+.tally-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.5rem auto;
+  align-items: baseline;
+  gap: .6rem;
+  padding: .3rem .1rem;
+  border-top: 1px solid var(--line);
+  font-size: .85rem;
+}
+
+.tally-name { text-transform: capitalize; overflow-wrap: anywhere; }
+
+.tally-count {
+  font-size: .78rem;
+  color: var(--ink-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tally-sum {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The pile nothing has claimed is the one worth a rule, so it says so. */
+.tally-row.is-loose .tally-name { color: var(--accent); font-weight: 600; }
+
+.tx {
+  grid-template-columns: 3.2rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    "date what amount"
+    ".    cat  cat";
+}
+
+.tx-date { grid-area: date; }
+.tx-what { grid-area: what; }
+.tx-amount { grid-area: amount; }
+
+.tx-cat {
+  grid-area: cat;
+  justify-self: start;
+  margin-top: .2rem;
+  padding: .1rem .45rem;
+  font-size: .72rem;
+  text-transform: capitalize;
+  color: var(--ink-2);
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+
+.tx-cat.is-loose {
+  color: var(--accent);
+  background: var(--accent-soft);
+}

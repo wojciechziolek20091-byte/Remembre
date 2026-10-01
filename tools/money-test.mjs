@@ -176,24 +176,130 @@ console.log("\nimporting, and importing again");
   check("the same rows always get the same ids", stable, true);
 }
 
+/* ---------- Deciding what each one was for ---------- */
+
+console.log("\ncategorising");
+
+{
+  const folded = await page.evaluate(() => [
+    fold("\u017bABKA"), fold("Ksi\u0119garnia"), fold("\u0141\u00d3D\u017a"), fold("Biedronka"),
+  ]);
+  check("accents and case are folded away", folded, ["zabka", "ksiegarnia", "lodz", "biedronka"]);
+
+  const rules = await page.evaluate(() => parseRules([
+    "# a comment",
+    "",
+    "food = zabka, biedronka",
+    "not a rule at all",
+    "transport = mpk",
+  ].join("\n")));
+  check("comments and nonsense lines are skipped", rules.length, 2);
+  check("the patterns come through folded", rules[0], { category: "food", patterns: ["zabka", "biedronka"] });
+}
+
+{
+  const got = await page.evaluate(() => {
+    const rules = parseRules(DEFAULT_RULES);
+    const of = (counterparty, title, amount) =>
+      categorise({ counterparty, title, description: "", amount }, rules);
+    return {
+      zabka: of("\u017bABKA", "ZABKA Z7423 KRAKOW", -1249),
+      spotify: of("SPOTIFY AB", "SPOTIFY P0A1B2C3", -2399),
+      mpk: of("MPK", "BILET MPK KRAKOW", -400),
+      pocket: of("JAN ZIOLEK", "Kieszonkowe", 120000),
+      mystery: of("SOMETHING ODD", "", -5000),
+      // Money in with no rule is income, not "other": a positive amount is
+      // already a strong signal and leaving it loose makes totals read wrong.
+      refund: of("SOMETHING ODD", "", 5000),
+    };
+  });
+
+  check("a corner shop is food", got.zabka, "food");
+  check("a streaming charge is a subscription", got.spotify, "subscriptions");
+  check("a tram ticket is transport", got.mpk, "transport");
+  check("pocket money is income", got.pocket, "income");
+  check("something with no rule is left loose", got.mystery, "other");
+  check("but money in with no rule is income", got.refund, "income");
+}
+
+{
+  // Order is the only precedence there is, which is what makes a wrong
+  // category fixable by moving a line.
+  const order = await page.evaluate(() => {
+    const first = parseRules("fun = kino\nschool = kino ksiegarnia");
+    const second = parseRules("school = kino ksiegarnia\nfun = kino");
+    const row = { counterparty: "KINO KSIEGARNIA", title: "", description: "", amount: -2000 };
+    return [categorise(row, first), categorise(row, second)];
+  });
+  check("the first matching line wins", order, ["fun", "school"]);
+}
+
+{
+  const applied = await page.evaluate(async () => {
+    state.transactions = [];
+    writeStore("remembre.moneyrules.v1", DEFAULT_RULES);
+    await importCsvText(SAMPLE_CSV, { label: "the sample" });
+    return liveTransactions().map((t) => `${t.counterparty}:${t.category}`).sort();
+  });
+  check("importing categorises as it goes", applied, [
+    "JERONIMO MARTINS:food", "JAN ZIOLEK:income", "MPK:transport",
+    "SPOTIFY AB:subscriptions", "ZABKA:food", "ZABKA:food",
+  ].sort());
+
+  const retuned = await page.evaluate(() => {
+    writeStore("remembre.moneyrules.v1", "fun = spotify");
+    return { changed: recategorise(), spotify: liveTransactions().find((t) => t.counterparty === "SPOTIFY AB").category };
+  });
+  check("editing the rules moves what they match", retuned.spotify, "fun");
+  check("and reports how many moved", retuned.changed > 0, true);
+
+  const tally = await page.evaluate(() => {
+    writeStore("remembre.moneyrules.v1", DEFAULT_RULES);
+    recategorise();
+    return categoryTally().map((row) => [row.category, row.count]);
+  });
+  check("the tally groups them, biggest spend first", tally[0], ["food", 3]);
+  check("and counts every transaction once",
+    tally.reduce((sum, [, count]) => sum + count, 0), 6);
+}
+
+{
+  // The editor is the config file, so what it holds has to survive a save.
+  // It lives in the money half, which has to be open to be typed into.
+  await page.click('[data-area="money"]');
+  await page.evaluate(() => { writeStore("remembre.moneyrules.v1", DEFAULT_RULES); renderRules(); });
+  await page.fill("#money-rules", "fun = zabka");
+  await page.click("#money-rules-save");
+  check("saving the editor applies what is in it",
+    await page.evaluate(() => liveTransactions().find((t) => t.counterparty === "ZABKA").category), "fun");
+  check("and the row says so",
+    (await page.locator(".tx .tx-cat").first().innerText()).trim().length > 0, true);
+
+  page.once("dialog", (d) => d.accept());
+  await page.click("#money-rules-reset");
+  check("restoring the defaults puts them back",
+    await page.evaluate(() => liveTransactions().find((t) => t.counterparty === "ZABKA").category), "food");
+  check("and refills the editor",
+    (await page.inputValue("#money-rules")).includes("biedronka"), true);
+}
+
 /* ---------- On the page ---------- */
 
 console.log("\nthe two halves");
 
 {
-  check("the chooser is what shows first", await page.locator("#chooser").isVisible(), true);
-  check("with neither half open", await page.locator("#school-area").isVisible(), false);
+  check("the calendar half stays out of the way",
+    await page.locator("#school-area").isVisible(), false);
 
-  await page.click('[data-area="money"]');
-  check("money opens", await page.locator("#money-area").isVisible(), true);
+  check("money is open", await page.locator("#money-area").isVisible(), true);
   check("and the calendar's controls step aside",
     await page.locator("#add-task-top").isVisible(), false);
   check("the transactions are listed",
-    await page.locator(".tx").count(), 7);
+    await page.locator(".tx").count(), 6);
   check("the newest first",
-    (await page.locator(".tx .tx-date").first().innerText()).trim(), "09-30");
+    (await page.locator(".tx .tx-date").first().innerText()).trim(), "09-28");
   check("with amounts in złoty",
-    (await page.locator(".tx .tx-amount").first().innerText()).includes("45,00"), true);
+    (await page.locator(".tx .tx-amount").first().innerText()).includes("12,49"), true);
   // A column of figures that sometimes groups and sometimes does not is worse
   // than one that never does, so the grouping is ours rather than the browser's.
   check("and thousands grouped the Polish way",

@@ -18,10 +18,24 @@ remembered for the session, so a reload puts you back where you were, but a
 fresh launch asks again -- they are separate errands, and which one you are on
 is not a setting.
 
-Money is a work in progress. What exists today is the importer: you export a CSV
-from mBank (*Finanse &rarr; Historia &rarr; Lista operacji &rarr; eksportuj
-list&#281;*) and it reads it. Categories, budgets, the monthly report and the
-bank connection come next.
+Money is a work in progress. What exists today is the importer -- you export a
+CSV from mBank (*Finanse &rarr; Historia &rarr; Lista operacji &rarr; eksportuj
+list&#281;*) and it reads it -- and categorisation. Budgets, the monthly report
+and the bank connection come next.
+
+Categories are rules you write, in the box in the Categories panel: one line per
+category, the name, an equals sign, then the words to look for. The first line
+that matches wins, so order is the only precedence there is and a wrong category
+is fixed by moving a line. Everything is folded before matching -- accents away,
+case away -- so `zabka` finds `&#379;ABKA` and you never have to think about how
+the bank spelled it. Money coming in with no rule of its own is counted as
+income rather than left loose, because a positive amount is already a strong
+signal and leaving it uncategorised makes every total read wrong.
+
+The tally under the rules is there to tune them: it shows what landed in each
+category and marks the pile nothing has claimed, which is the one worth writing
+a rule for. The rules live on the device that wrote them; the categories they
+produce are stored on the transactions, so they travel with sync.
 
 Two things run through the money code and are worth knowing before changing it:
 
