@@ -2802,3 +2802,38 @@ body.is-booting { overflow: hidden; }
 .kpi-dot.is-on { background: var(--s-ess); }
 .kpi-dot.is-off { background: var(--line-strong); }
 .kpi-dot.is-stale { background: var(--now); }
+
+/* ---------- Payments waiting to be placed ---------- */
+
+.card-review { border-left: 4px solid var(--accent); }
+
+.review-list {
+  list-style: none;
+  margin: .7rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .55rem;
+}
+
+.review-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem .9rem;
+  padding-bottom: .55rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.review-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.review-what { font-size: .9rem; font-variant-numeric: tabular-nums; }
+.review-acts { display: flex; gap: .4rem; margin-left: auto; }
+
+/* The plan, on the card the month is measured on. */
+.kpi-plan {
+  margin: .5rem 0 0;
+  font-size: .85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}

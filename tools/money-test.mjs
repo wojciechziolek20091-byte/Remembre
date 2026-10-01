@@ -669,14 +669,183 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
   check("in words", /faster than it comes/.test(fast.label), true);
   check("with the shortfall in zloty", /more than comes in/.test(fast.why), true);
 
+  // With a plan set, the plan is the measure whatever happens to arrive. With
+  // no plan and nothing coming in, there is nothing to measure against and
+  // saying so is the only honest answer.
   const noIncome = await page.evaluate(async (csv) => {
     state.transactions = [];
+    writeStore("remembre.incomeplan.v1", "# none");
     await importCsvText(csv, { label: "no income" });
     const read = sustainability();
+    writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
     return { verdict: read.verdict, why: read.why };
   }, statement({ perDay: 20, income: 0 }).replace(/.*PRZELEW PRZYCHODZACY.*\r\n/, ""));
-  check("with nothing coming in, no verdict is invented", noIncome.verdict, "unclear");
-  check("and it says what is missing", /nothing to measure the spending against/.test(noIncome.why), true);
+  check("with no plan and nothing coming in, no verdict is invented", noIncome.verdict, "unclear");
+  check("and it says what is missing", /no income plan is set/i.test(noIncome.why), true, noIncome.why);
+
+  // The plan carries the month even before the instalments land.
+  const onPlan = await page.evaluate(async (csv) => {
+    state.transactions = [];
+    await importCsvText(csv, { label: "plan only" });
+    const read = sustainability();
+    return { verdict: read.verdict, typical: read.typical };
+  }, statement({ perDay: 20, income: 0 }).replace(/.*PRZELEW PRZYCHODZACY.*\r\n/, ""));
+  check("with a plan, the month is measured even before money lands", onPlan.typical, 250000);
+  check("and 20 zloty a day fits inside 2 500", onPlan.verdict, "sustainable");
+}
+
+/* ---------- The income plan ---------- */
+
+/*
+  2 500 a month in four instalments, and anything off that schedule is a
+  question rather than an assumption. The dates are built relative to the
+  month being tested, so none of this goes stale.
+*/
+
+console.log("\nthe income plan");
+
+{
+  const read = await page.evaluate(() => {
+    const plan = parseIncomePlan("1 = 700\n8 = 600\n15 = 600\n22 = 600\n# a comment\nnonsense\n0 = 50\n");
+    return { plan, total: plan.reduce((sum, slot) => sum + slot.amount, 0) };
+  });
+  check("the schedule is read", read.plan.map((s) => [s.day, s.amount]),
+    [[1, 70000], [8, 60000], [15, 60000], [22, 60000]]);
+  check("and comes to the right month", read.total, 250000);
+  check("a day that is not a day is dropped", read.plan.length, 4);
+}
+
+{
+  // A month of the plan, one instalment two days late, and one wire that is
+  // not on the schedule at all.
+  const month = "2026-09";
+  const rows = await page.evaluate(async (key) => {
+    state.transactions = [];
+    writeStore("remembre.incomeplan.v1", "1 = 700\n8 = 600\n15 = 600\n22 = 600\n");
+    const add = (date, amount, who) => state.transactions.push(normaliseTransaction({
+      id: `${date}-${amount}`, date, amount, counterparty: who, category: amount > 0 ? "income" : "food",
+    }));
+    add(`${key}-01`, 70000, "MAMA");
+    add(`${key}-10`, 60000, "MAMA");          // two days late
+    add(`${key}-15`, 60000, "MAMA");
+    add(`${key}-11`, 50000, "BABCIA");        // not on the schedule
+    saveTransactions();
+    classifyIncome();
+    const standing = incomeStanding(key);
+    return {
+      branches: liveTransactions().filter((e) => e.amount > 0)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((e) => [e.date.slice(8), e.amount, e.branch]),
+      planned: standing.planned,
+      arrived: standing.arrived,
+      toCome: standing.toCome,
+      next: standing.next ? standing.next.day : null,
+      waiting: undecidedIncome().length,
+    };
+  }, month);
+
+  check("a payment on its day is counted as the plan", rows.branches[0], ["01", 70000, "plan"]);
+  check("and one a couple of days late still is", rows.branches.find((r) => r[0] === "10"), ["10", 60000, "plan"]);
+  check("but one that is not on the schedule is left for you to say",
+    rows.branches.find((r) => r[0] === "11"), ["11", 50000, ""]);
+  check("the month is measured against the plan, not against what landed", rows.planned, 250000);
+  check("what has arrived is what matched it", rows.arrived, 190000);
+  check("the rest is still to come", rows.toCome, 60000);
+  check("and it says which instalment is next", rows.next, 22);
+  check("the one that did not match is a question", rows.waiting, 1);
+}
+
+{
+  const queue = await page.evaluate(() => {
+    renderDashboard();
+    return {
+      shown: !document.querySelector("#money-review").hidden,
+      text: document.querySelector("#money-review .review-what").textContent,
+      buttons: [...document.querySelectorAll("#money-review .review-acts button")].map((b) => b.textContent),
+      plan: (document.querySelector(".kpi-plan") || {}).textContent || "",
+    };
+  });
+  check("the question is on the page, not in a setting", queue.shown, true);
+  check("it says which payment", /500,00 zł on 09-11/.test(queue.text), true, queue.text);
+  check("with both answers", queue.buttons, ["Part of the plan", "External"]);
+  check("and the card leads with the plan",
+    /Plan 2 500,00 zł — 1 900,00 zł in, 600,00 zł to come · next 600,00 zł on the 22nd/.test(queue.plan),
+    true, queue.plan);
+}
+
+{
+  // Saying "external" asks the second question: what was it for.
+  const asked = await page.evaluate(() => {
+    const wire = liveTransactions().find((e) => e.amount === 50000);
+    state.transactions.push(normaliseTransaction({
+      id: "the-ticket", date: "2026-09-13", amount: -50000, counterparty: "EBILET", category: "fun",
+    }));
+    saveTransactions();
+    decideIncome(wire.id, "external");
+    return {
+      branch: liveTransactions().find((e) => e.amount === 50000).branch,
+      notice: (document.querySelector(".notice-text") || {}).textContent || "",
+      button: (document.querySelector(".notice-acts .btn") || {}).textContent || "",
+    };
+  });
+  check("the payment moves to the external branch", asked.branch, "external");
+  check("and the app asks what it paid for",
+    /500,00 zł went out to EBILET 2 days later/.test(asked.notice), true, asked.notice);
+  check("offering to leave both out", asked.button, "Yes, leave both out");
+
+  const linked = await page.evaluate(() => {
+    document.querySelector(".notice-acts .btn").click();
+    const ticket = liveTransactions().find((e) => e.id === "the-ticket");
+    return {
+      branch: ticket.branch,
+      linkedTo: Boolean(ticket.linkedTo),
+      counted: liveTransactions().filter(SPENT_OUT).length,
+      waiting: undecidedIncome().length,
+    };
+  });
+  check("tapping it links the spending too", linked.branch, "external");
+  check("and remembers which payment it belonged to", linked.linkedTo, true);
+  check("neither side is counted as the month's spending", linked.counted, 0);
+  check("and the queue is empty again", linked.waiting, 0);
+}
+
+{
+  // The whole point of the branch: it must not move the verdict.
+  const kept = await page.evaluate(() => {
+    const before = sustainability();
+    state.transactions.push(normaliseTransaction({
+      id: "outside-spend", date: "2026-09-14", amount: -120000,
+      counterparty: "SOMETHING BIG", category: "other", branch: "external",
+    }));
+    saveTransactions();
+    const after = sustainability();
+    return { before: before.perDay, after: after.perDay, typical: after.typical };
+  });
+  check("external spending does not touch the rate", kept.after, kept.before);
+  check("and the plan is what the rate is measured against", kept.typical, 250000);
+}
+
+{
+  // What the analysis is given: this month in detail, the ones before it in
+  // two numbers each.
+  const digest = await page.evaluate(() => {
+    state.transactions.push(normaliseTransaction({
+      id: "august-one", date: "2026-08-12", amount: -20000, counterparty: "ZABKA", category: "food",
+    }));
+    saveTransactions();
+    state.moneyMonth = "2026-09";
+    return buildDigest();
+  });
+  check("the plan is in the summary", digest.income.planPerMonth, 2500);
+  check("with what has arrived of it", digest.income.arrivedThisMonth, 1900);
+  check("and the schedule itself", digest.income.schedule.length, 4);
+  check("the external branch is named, apart", digest.external.inThisMonth, 500);
+  check("so the model cannot read it as overspending",
+    /never as overspending/.test(digest.external.note), true);
+  check("earlier months are two numbers each",
+    Object.keys(digest.earlierMonths[0]).sort(), ["in", "month", "out"]);
+  check("and are not broken down by category",
+    digest.categories.every((row) => !("august" in row)), true);
 }
 
 /* ---------- Coming back from the bank ---------- */

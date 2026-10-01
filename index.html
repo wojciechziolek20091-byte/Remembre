@@ -303,6 +303,8 @@
 
   <div class="money-page" id="money-dash" role="tabpanel" aria-labelledby="money-tab-dash">
 
+    <section class="card card-review" id="money-review" aria-label="Payments to place" hidden></section>
+
     <section class="card card-kpi" id="money-balance" aria-label="Current balance"></section>
 
     <section class="card" aria-labelledby="money-cats-heading">
@@ -414,6 +416,18 @@
           <textarea id="money-budgets" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none"></textarea>
           <div class="panel-actions">
             <button type="button" class="btn btn-quiet" id="money-budgets-save">Save the budgets</button>
+          </div>
+
+          <hr class="panel-rule">
+          <label class="field-label" for="money-income">Your income plan</label>
+          <p class="field-hint" id="money-income-hint">
+            One instalment per line: the day of the month, an equals sign, and the amount.
+            Anything that arrives off this schedule is counted apart from it, and the app
+            asks what it was for rather than guessing.
+          </p>
+          <textarea id="money-income" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none"></textarea>
+          <div class="panel-actions">
+            <button type="button" class="btn btn-quiet" id="money-income-save">Save the plan</button>
           </div>
         </section>
 

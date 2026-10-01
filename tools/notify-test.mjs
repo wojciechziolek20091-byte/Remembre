@@ -34,6 +34,18 @@ const { default: subscribeRoute } = await import("../api/subscribe.js");
 const { store, vaultKey } = await import("../api/_store.js");
 
 /* Spread far enough apart that some zone is always in its evening. */
+/*
+  Every whole-hour offset, so there is always a zone in whatever local hour
+  the test needs whenever it runs. The named-city list above has gaps -- no
+  UTC-5, no UTC+8 -- so on some hours of the day nothing matched and the test
+  settled for a zone that was not in the window at all.
+
+  Etc/GMT has its signs the other way round from everything else: Etc/GMT+5
+  is UTC-5. That is the standard's doing, not a mistake here.
+*/
+const EVERY_OFFSET = Array.from({ length: 27 }, (unused, i) => i - 12)
+  .map((offset) => (offset === 0 ? "UTC" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`));
+
 const ZONES = [
   "Pacific/Kiritimati", "Pacific/Auckland", "Australia/Sydney", "Asia/Tokyo",
   "Asia/Kolkata", "Europe/Warsaw", "UTC", "America/New_York", "America/Los_Angeles",
@@ -351,9 +363,21 @@ function tomorrowIn(zone) {
 }
 
 {
-  // A zone where it is certainly past 17:00, whatever time this test runs.
+  // A zone inside the window the sender uses, whatever time this test runs.
   const zone = zoneWhereItIsEvening();
   await register(zone);
+  /*
+    And the task has to be due tomorrow *there*. It was dated against Warsaw,
+    which is tomorrow in a different zone for two hours out of every
+    twenty-four -- so the digest was empty and the sender was blamed for it.
+  */
+  await putVault({
+    tasks: [
+      { id: "t1", title: "Economics practice paper", date: tomorrowIn(zone), type: "homework", updatedAt: "2026-01-01" },
+    ],
+    coursework: [],
+    sessions: [],
+  });
   delivered.length = 0;
   const res = await call(notify, { url: "/api/notify" });
   const only = res.body.report[0];
@@ -429,8 +453,9 @@ console.log("\nwho may set it running");
 
 /* ---------- A zone where the evening has already arrived ---------- */
 
+
 function zoneWhereItIsAfternoon() {
-  const found = ZONES.find((zone) => {
+  const found = EVERY_OFFSET.find((zone) => {
     const hour = localClock(zone).hour;
     return hour >= 10 && hour <= 15;
   });
@@ -438,14 +463,20 @@ function zoneWhereItIsAfternoon() {
   return found;
 }
 
+/*
+  Inside the window the sender actually uses, which is REMINDER_HOUR plus
+  WINDOW_MINUTES -- not "the evening" loosely. A zone at 22:06 is in nobody's
+  idea of the window and the test used to pick one, then report the sender
+  broken for agreeing.
+*/
 function zoneWhereItIsEvening() {
-  // 17:00 through 22:00 leaves room for the run to take a moment without the
-  // local date rolling over underneath it.
-  const found = ZONES.find((zone) => {
-    const hour = localClock(zone).hour;
-    return hour >= 17 && hour <= 22;
+  const found = EVERY_OFFSET.find((zone) => {
+    const { hour, minute } = localClock(zone);
+    const since = (hour - 17) * 60 + minute;
+    // A few minutes in hand, so a slow run cannot fall out of the window.
+    return since >= 0 && since < 75;
   });
-  if (!found) throw new Error("no candidate zone is in its evening right now");
+  if (!found) throw new Error("no candidate zone is inside the reminder window right now");
   return found;
 }
 

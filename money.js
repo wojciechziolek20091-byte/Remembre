@@ -248,6 +248,15 @@ function normaliseTransaction(raw) {
     amount,
     balance: Number.isFinite(Number(raw.balance)) ? Math.round(Number(raw.balance)) : null,
     category: String(raw.category || "").slice(0, 40),
+    /*
+      Which side of the income plan this sits on. "plan" is money that arrived
+      on schedule and the spending it pays for; "external" is a payment from
+      outside the cycle and whatever it was for, which is counted separately
+      because it never belonged to the month's budget. Empty means nobody has
+      decided yet -- which, for money coming in, is a question to ask.
+    */
+    branch: ["plan", "external"].includes(raw.branch) ? raw.branch : "",
+    linkedTo: String(raw.linkedTo || "").slice(0, 40),
     source: raw.source === "api" ? "api" : "csv",
     deleted: raw.deleted === true,
     createdAt,
@@ -910,6 +919,18 @@ function setupReport() {
     renderReport();
     renderCategoryBars();
   });
+  $("money-income").value = incomePlanText();
+  $("money-income-save").addEventListener("click", () => {
+    writeStore(MONEY_INCOME_KEY, $("money-income").value);
+    // A changed schedule re-opens every question it used to answer.
+    state.transactions.forEach((entry) => {
+      if (entry.amount > 0 && entry.branch === "plan") entry.branch = "";
+    });
+    saveTransactions();
+    moneyChanged();
+    announce(`Income plan saved. ${zloty(plannedMonthly())} a month.`);
+  });
+
   $("money-budgets").value = budgetsText();
   $("money-budgets-save").addEventListener("click", () => {
     writeStore(MONEY_BUDGETS_KEY, $("money-budgets").value);
@@ -1285,6 +1306,161 @@ function balanceMovement(current) {
   return { change: current.amount - seen.amount, when: seen.at || "" };
 }
 
+/* ---------- The income plan ---------- */
+
+/*
+  Money arrives on a schedule: 700 on the 1st, 600 on the 8th, the 15th and
+  the 22nd. 2 500 a month, and that is the figure the month has to fit inside
+  -- not the median of what happened to land, which was a guess made because
+  nothing better was known.
+
+  Anything else that arrives is external: a wire for a specific thing, and
+  the spending it pays for is not part of the cycle either. Both sides are
+  left out of the rate and the verdict, because counting a 500 that came in
+  for a ticket and the 500 that bought the ticket makes a month look first
+  rich and then reckless, and it was neither.
+
+  Nothing is guessed about external money. A payment that does not match the
+  schedule is a question, and the question is asked on the page.
+*/
+
+const MONEY_INCOME_KEY = "remembre.incomeplan.v1";
+
+const DEFAULT_INCOME_PLAN = `# The day of the month, an equals sign, and how much lands that day.
+1 = 700
+8 = 600
+15 = 600
+22 = 600
+`;
+
+/** Same shape as the rules and the budgets: a day, an equals sign, an amount. */
+function parseIncomePlan(text) {
+  const slots = [];
+  String(text).split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const at = trimmed.indexOf("=");
+    if (at === -1) return;
+    const day = Number(trimmed.slice(0, at).trim());
+    const amount = parseAmount(trimmed.slice(at + 1));
+    if (Number.isInteger(day) && day >= 1 && day <= 31 && amount !== null && amount > 0) {
+      slots.push({ day, amount });
+    }
+  });
+  return slots.sort((a, b) => a.day - b.day);
+}
+
+function incomePlanText() {
+  const stored = readStore(MONEY_INCOME_KEY, null);
+  return typeof stored === "string" && stored.trim() ? stored : DEFAULT_INCOME_PLAN;
+}
+
+const incomePlan = () => parseIncomePlan(incomePlanText());
+
+/** What a whole month is meant to bring in. */
+const plannedMonthly = () => incomePlan().reduce((sum, slot) => sum + slot.amount, 0);
+
+/** The dates this month's instalments are due, in order. */
+function slotsFor(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return incomePlan().map((slot) => ({
+    ...slot,
+    // A plan with a 31st in it still works in February.
+    date: `${monthKey}-${String(Math.min(slot.day, lastDay)).padStart(2, "0")}`,
+  }));
+}
+
+/* How far a payment may miss its day and still be that payment. A transfer
+   due on a Saturday turns up on the Monday, and sometimes on the Friday. */
+const SLOT_DAYS = 5;
+const SLOT_SLACK = 0.02;   // and how far off the amount may be
+
+/**
+ * Puts this month's arrivals against this month's slots.
+ *
+ * Only the ones nobody has ruled on are touched: a decision made on the page
+ * is never undone by a later import. Exact amounts are matched first, so a
+ * 600 that landed two days late does not steal the slot of the 600 that
+ * landed on the day.
+ */
+function matchIncome(monthKey) {
+  const slots = slotsFor(monthKey);
+  const arrivals = liveTransactions()
+    .filter((entry) => entry.amount > 0 && monthOf(entry.date) === monthKey)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const taken = new Set(arrivals.filter((entry) => entry.branch === "plan").map((entry) => entry.id));
+  const filled = [];
+
+  slots.forEach((slot) => {
+    const already = arrivals.find((entry) => entry.branch === "plan" && near(entry, slot));
+    if (already) {
+      filled.push({ slot, got: already });
+      return;
+    }
+
+    const candidates = arrivals
+      .filter((entry) => !entry.branch && !taken.has(entry.id) && near(entry, slot))
+      .sort((a, b) =>
+        Math.abs(a.amount - slot.amount) - Math.abs(b.amount - slot.amount)
+        || Math.abs(dayGap(a.date, slot.date)) - Math.abs(dayGap(b.date, slot.date)));
+
+    const got = candidates[0] || null;
+    if (got) taken.add(got.id);
+    filled.push({ slot, got });
+  });
+
+  return filled;
+}
+
+const dayGap = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000);
+
+const near = (entry, slot) =>
+  Math.abs(dayGap(entry.date, slot.date)) <= SLOT_DAYS
+  && Math.abs(entry.amount - slot.amount) <= Math.max(100, slot.amount * SLOT_SLACK);
+
+/**
+ * Marks what matched. Everything that did not is left alone and becomes a
+ * question on the page rather than an assumption in the figures.
+ */
+function classifyIncome() {
+  const months = new Set(liveTransactions().filter((entry) => entry.amount > 0).map((entry) => monthOf(entry.date)));
+  const now = new Date().toISOString();
+  let changed = 0;
+
+  months.forEach((monthKey) => {
+    matchIncome(monthKey).forEach(({ got }) => {
+      if (!got || got.branch) return;
+      got.branch = "plan";
+      got.updatedAt = now;
+      changed += 1;
+    });
+  });
+
+  if (changed > 0) saveTransactions();
+  return changed;
+}
+
+/** Money in that nobody has ruled on yet: the queue of questions. */
+const undecidedIncome = () => liveTransactions()
+  .filter((entry) => entry.amount > 0 && !entry.branch)
+  .sort((a, b) => b.date.localeCompare(a.date));
+
+/** Where this month stands against the plan. */
+function incomeStanding(monthKey) {
+  const filled = matchIncome(monthKey);
+  const planned = plannedMonthly();
+  const arrived = filled.filter((row) => row.got).reduce((sum, row) => sum + row.got.amount, 0);
+  const next = filled.find((row) => !row.got) || null;
+
+  const external = liveTransactions()
+    .filter((entry) => entry.amount > 0 && entry.branch === "external" && monthOf(entry.date) === monthKey)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+
+  return { planned, arrived, toCome: planned - arrived, next: next ? next.slot : null, external, filled };
+}
+
 /* ---------- How fast it is going ---------- */
 
 /*
@@ -1293,7 +1469,9 @@ function balanceMovement(current) {
   expensive as it was. Cash withdrawals stay in: the money has left the
   account and where it went afterwards is not something a statement knows.
 */
-const SPENT_OUT = (entry) => entry.amount < 0 && (entry.category || "other") !== "transfers";
+const SPENT_OUT = (entry) => entry.amount < 0
+  && (entry.category || "other") !== "transfers"
+  && entry.branch !== "external";
 
 /** Every day in the window, including the ones nothing happened on. */
 function dailySpending(days = 28) {
@@ -1395,7 +1573,13 @@ function sustainability() {
   const perDayRecent = Math.round(lastSeven.reduce((sum, day) => sum + day.spent, 0) / lastSeven.length);
   const projected = Math.round(perDay * DAYS_IN_MONTH);
 
-  const { typical, months } = typicalIncome();
+  /*
+    The plan is what the month has to fit inside. It is known, so it is used:
+    the median of what happened to land was a guess made when nothing better
+    was available. External money is not in it, by definition.
+  */
+  const typical = plannedMonthly() || typicalIncome().typical;
+  const months = incomePlan().length ? 0 : typicalIncome().months;
   const balance = balanceNow();
   const cover = perDay > 0 && balance ? Math.floor(balance.amount / perDay) : null;
 
@@ -1406,7 +1590,7 @@ function sustainability() {
   if (counted < 14) {
     why = `Only ${counted} ${counted === 1 ? "day" : "days"} of data, so this is a guess rather than a rate.`;
   } else if (typical <= 0) {
-    why = "Nothing has come in yet, so there is nothing to measure the spending against.";
+    why = "No income plan is set, so there is nothing to measure the spending against.";
   } else if (share <= 0.85) {
     verdict = "sustainable";
     why = `At ${zloty(perDay)} a day this month would cost ${zloty(projected)}, against ${zloty(typical)} coming in.`;
@@ -1430,6 +1614,116 @@ const VERDICTS = {
   overspending: { label: "Spending faster than it comes in", mark: "▲" },
   unclear: { label: "Not enough to tell yet", mark: "?" },
 };
+
+/* ---------- Asking about money from outside the plan ---------- */
+
+/*
+  A payment that is not on the schedule is not something to guess about. It
+  goes in a queue at the top of the page with two buttons, and until it is
+  answered it counts as neither -- which is honest, and is also the only way
+  the question gets answered rather than quietly decided wrong.
+
+  Saying "external" then asks the second question: a wire for a thing is
+  followed by the thing. The best single match is proposed; the amounts of
+  the two are usually identical, so this is nearly always right, and when it
+  is not it is one tap to leave it alone.
+*/
+
+const LINK_DAYS = 21;       // how long after a wire its spending may turn up
+const LINK_SLACK = 0.05;    // and how far the amounts may differ
+
+/** The one payment out that most looks like what this money came in for. */
+function spendingFor(income) {
+  const until = shiftISO(income.date, LINK_DAYS);
+  return liveTransactions()
+    .filter((entry) => entry.amount < 0 && !entry.branch
+      && entry.date >= income.date && entry.date <= until
+      && Math.abs(Math.abs(entry.amount) - income.amount) <= Math.max(100, income.amount * LINK_SLACK))
+    .sort((a, b) =>
+      Math.abs(Math.abs(a.amount) - income.amount) - Math.abs(Math.abs(b.amount) - income.amount)
+      || a.date.localeCompare(b.date))[0] || null;
+}
+
+function decideIncome(id, branch) {
+  const entry = state.transactions.find((held) => held.id === id);
+  if (!entry) return;
+  entry.branch = branch;
+  entry.updatedAt = new Date().toISOString();
+  saveTransactions();
+
+  if (branch !== "external") {
+    moneyChanged();
+    announce("Counted as part of the plan.");
+    return;
+  }
+
+  const paidFor = spendingFor(entry);
+  moneyChanged();
+  if (paidFor) askAboutLink(entry, paidFor);
+  else announce("Kept outside the plan.");
+}
+
+function linkSpending(spendId, incomeId) {
+  const entry = state.transactions.find((held) => held.id === spendId);
+  if (!entry) return;
+  entry.branch = "external";
+  entry.linkedTo = incomeId;
+  entry.updatedAt = new Date().toISOString();
+  saveTransactions();
+  moneyChanged();
+  announce("Left out of the month.");
+}
+
+function askAboutLink(income, paidFor) {
+  const what = paidFor.counterparty || paidFor.title || paidFor.description || "a payment";
+  const when = dayGap(paidFor.date, income.date);
+  showMoneyNotice(
+    `${zloty(income.amount)} came in on ${income.date.slice(5)} from outside the plan, and ${zloty(paidFor.amount)} `
+    + `went out to ${what} ${when === 0 ? "the same day" : `${when} ${when === 1 ? "day" : "days"} later`}. `
+    + "Was that what the money was for?",
+    {
+      tone: "plain",
+      act: {
+        label: "Yes, leave both out",
+        go: () => { linkSpending(paidFor.id, income.id); showMoneyNotice(""); },
+      },
+    }
+  );
+}
+
+/** The queue, drawn only when there is something in it. */
+function renderReview() {
+  const wrap = $("money-review");
+  if (!wrap) return;
+
+  const waiting = undecidedIncome();
+  wrap.hidden = waiting.length === 0;
+  if (waiting.length === 0) {
+    wrap.replaceChildren();
+    return;
+  }
+
+  show(wrap, [
+    el("p", { class: "card-title", text: waiting.length === 1 ? "One payment to place" : `${waiting.length} payments to place` }),
+    el("p", { class: "chart-caption", text: "These did not land on your schedule. Money from outside the plan is counted apart from it, along with whatever it paid for." }),
+    el("ul", { class: "review-list" }, waiting.slice(0, 6).map((entry) => el(
+      "li",
+      { class: "review-row" },
+      el("span", { class: "review-what" },
+        el("strong", { text: zloty(entry.amount) }),
+        el("span", { text: ` on ${entry.date.slice(5)} · ${entry.counterparty || entry.title || entry.description || "—"}` })),
+      el("span", { class: "review-acts" },
+        el("button", {
+          type: "button", class: "btn btn-quiet btn-tiny", text: "Part of the plan",
+          onclick: () => decideIncome(entry.id, "plan"),
+        }),
+        el("button", {
+          type: "button", class: "btn btn-primary btn-tiny", text: "External",
+          onclick: () => decideIncome(entry.id, "external"),
+        }))
+    ))),
+  ]);
+}
 
 /* ---------- The dashboard ---------- */
 
@@ -1480,6 +1774,7 @@ function renderBalanceCard() {
         class: "kpi-note",
         text: "No statement has told us what is in the account yet. Import a CSV, or connect mBank and it arrives on its own.",
       }),
+      planLine(state.moneyMonth || latestMonth()),
       bankLine(),
     ]);
     return;
@@ -1506,6 +1801,7 @@ function renderBalanceCard() {
         })
       : null,
     el("p", { class: "kpi-note", text: provenance }),
+    planLine(monthKey),
     bankLine(),
     el(
       "ul",
@@ -1527,6 +1823,33 @@ function renderBalanceCard() {
 function show(node, children) {
   node.replaceChildren(...children.filter(Boolean));
 }
+
+/**
+ * Where the month stands against the schedule: what is meant to arrive, what
+ * has, and when the next instalment is due. On the card rather than in a
+ * setting, because it is the number every other number here is measured
+ * against.
+ */
+function planLine(monthKey) {
+  const plan = incomePlan();
+  if (plan.length === 0) return null;
+
+  const standing = incomeStanding(monthKey);
+  const when = standing.next ? ` · next ${zloty(standing.next.amount)} on the ${ordinal(standing.next.day)}` : "";
+  const outside = standing.external ? ` · ${zloty(standing.external)} from outside the plan` : "";
+
+  return el("p", { class: "kpi-plan" },
+    el("span", {
+      text: `Plan ${zloty(standing.planned)} — ${zloty(standing.arrived)} in${
+        standing.toCome > 0 ? `, ${zloty(standing.toCome)} to come` : ""}${when}${outside}`,
+    }));
+}
+
+const ordinal = (n) => {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] || "th"}`;
+};
 
 /**
  * Whether the bank is connected, said on the page somebody actually looks at.
@@ -1793,6 +2116,10 @@ function renderRateCard() {
 }
 
 function renderDashboard() {
+  // What matched the schedule is settled before anything is totalled, so the
+  // figures and the queue can never disagree.
+  classifyIncome();
+  renderReview();
   renderBalanceCard();
   renderCategoryBars();
   renderRateCard();
@@ -1841,20 +2168,40 @@ function buildDigest() {
   const now = monthReport(thisMonth);
   const before = monthReport(shiftMonth(thisMonth, -1));
   const budgets = parseBudgets(budgetsText());
-  const { typical, months } = typicalIncome();
 
-  const categories = [...new Set([...now.byCategory.keys(), ...before.byCategory.keys()])]
-    .filter((name) => name !== "income")
+  /*
+    This month in detail; the ones before it as two numbers each.
+
+    The months that have gone are context, not the subject: a category-level
+    breakdown of August makes the summary three times the size and the advice
+    no better, because nothing can be done about August.
+  */
+  const categories = [...now.byCategory.keys()]
+    .filter((name) => name !== "income" && name !== "transfers")
     .map((name) => ({
       name,
-      thisMonth: zl(Math.abs(now.byCategory.get(name) || 0)),
+      spent: zl(Math.abs(now.byCategory.get(name) || 0)),
       lastMonth: zl(Math.abs(before.byCategory.get(name) || 0)),
       budget: budgets.has(name) ? zl(budgets.get(name)) : null,
       count: liveTransactions().filter((entry) =>
-        (entry.category || "other") === name && monthOf(entry.date) === thisMonth).length,
+        SPENT_OUT(entry) && (entry.category || "other") === name && monthOf(entry.date) === thisMonth).length,
     }))
-    .filter((row) => row.thisMonth > 0 || row.lastMonth > 0)
-    .sort((a, b) => b.thisMonth - a.thisMonth);
+    .filter((row) => row.spent > 0)
+    .sort((a, b) => b.spent - a.spent);
+
+  const history = [...new Set(liveTransactions().map((entry) => monthOf(entry.date)))]
+    .filter((key) => key < thisMonth)
+    .sort()
+    .slice(-5)
+    .map((key) => {
+      const month = monthReport(key);
+      return { month: key, out: zl(Math.abs(month.spent)), in: zl(month.received) };
+    });
+
+  const standing = incomeStanding(thisMonth);
+  const externalOut = liveTransactions()
+    .filter((entry) => entry.amount < 0 && entry.branch === "external" && monthOf(entry.date) === thisMonth)
+    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
 
   const payees = new Map();
   liveTransactions()
@@ -1875,7 +2222,17 @@ function buildDigest() {
     to: read.to || "",
     days: read.counted || 0,
     balance: balance ? { amount: zl(balance.amount), source: balance.source, asAt: balance.at || "" } : null,
-    income: { typicalMonth: zl(typical), monthsSeen: months, thisMonth: zl(now.received) },
+    income: {
+      planPerMonth: zl(standing.planned),
+      arrivedThisMonth: zl(standing.arrived),
+      stillToCome: zl(standing.toCome),
+      schedule: incomePlan().map((slot) => ({ day: slot.day, amount: zl(slot.amount) })),
+    },
+    external: {
+      note: "Money from outside the schedule and the spending it paid for. Counted apart from the plan: mention it only if it is large or frequent, and never as overspending.",
+      inThisMonth: zl(standing.external),
+      outThisMonth: zl(externalOut),
+    },
     spending: {
       thisMonth: zl(Math.abs(now.spent)),
       lastMonth: zl(Math.abs(before.spent)),
@@ -1885,6 +2242,7 @@ function buildDigest() {
       ownVerdict: read.verdict,
     },
     categories,
+    earlierMonths: history,
     topPayees: [...payees.values()].sort((a, b) => b.total - a.total).slice(0, 12)
       .map((payee) => ({ ...payee, total: zl(payee.total) })),
     recurring: recurringCharges().slice(0, 10)
