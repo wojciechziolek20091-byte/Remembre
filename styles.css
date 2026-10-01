@@ -2054,8 +2054,6 @@ body.is-booting { overflow: hidden; }
   padding: 1.5rem 1.25rem 2rem;
 }
 
-.money-inner { display: grid; gap: 1rem; }
-
 .tx-list {
   list-style: none;
   margin: 0;
@@ -2278,3 +2276,477 @@ body.is-booting { overflow: hidden; }
 
 .report-row.is-over .report-bar-fill { background: var(--danger); }
 .report-row.is-over .report-limit { color: var(--danger); font-weight: 600; }
+
+/* ---------- The money dashboard ---------- */
+
+/*
+  A different kind of page from the calendar on purpose: no paper, no serif, no
+  colour-per-subject. Cards on hairlines, numbers set large in tabular figures,
+  and one hue that gets darker as the figure gets bigger.
+
+  The ramp below is the whole colour scheme. Five steps of one hue, light to
+  dark, because the thing being encoded is magnitude -- five different hues
+  would say "different" where this says "more". Both sets were checked against
+  the surface they sit on for contrast, for a chroma floor, and for separation
+  under the three common kinds of colour blindness; the dark steps are chosen
+  for the dark surface rather than flipped from the light ones.
+
+  Every bar carries its own number, so the colour is never load-bearing.
+*/
+.area-money {
+  --seq-1: #E2A0AE;
+  --seq-2: #CF7688;
+  --seq-3: #BC5068;
+  --seq-4: #A62C4A;
+  --seq-5: #871026;
+  --card-line: var(--line);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .area-money {
+    --seq-1: #F7B3C1;
+    --seq-2: #EC8F9F;
+    --seq-3: #DE6B7F;
+    --seq-4: #CC4A61;
+    --seq-5: #B52E47;
+  }
+}
+
+:root[data-theme="dark"] .area-money {
+  --seq-1: #F7B3C1;
+  --seq-2: #EC8F9F;
+  --seq-3: #DE6B7F;
+  --seq-4: #CC4A61;
+  --seq-5: #B52E47;
+}
+
+.seq-1 { background: var(--seq-1); }
+.seq-2 { background: var(--seq-2); }
+.seq-3 { background: var(--seq-3); }
+.seq-4 { background: var(--seq-4); }
+.seq-5 { background: var(--seq-5); }
+
+/* ---------- Tabs ---------- */
+
+.money-tabs {
+  display: flex;
+  gap: .25rem;
+  margin: 0 0 .85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.money-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: .55rem .2rem;
+  margin-right: 1.1rem;
+  font: inherit;
+  font-size: .95rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.money-tab.is-on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.money-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------- Cards ---------- */
+
+.money-page { display: grid; gap: .75rem; align-content: start; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius);
+  padding: .95rem 1.05rem 1.1rem;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-bottom: .55rem;
+}
+
+.card-title {
+  margin: 0;
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.card .panel-hint { margin-top: 0; }
+
+/* The folds under the dashboard: everything that is not a question you open
+   the app to ask. */
+.card-fold { padding: 0; }
+
+.fold-summary {
+  display: grid;
+  gap: .15rem;
+  padding: .8rem 1.05rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.fold-summary::-webkit-details-marker { display: none; }
+
+.fold-summary::after {
+  content: "";
+  position: absolute;
+  right: 1.1rem;
+  width: .5rem;
+  height: .5rem;
+  border-right: 2px solid var(--ink-2);
+  border-bottom: 2px solid var(--ink-2);
+  transform: translateY(.35rem) rotate(45deg);
+}
+
+.card-fold { position: relative; }
+.card-fold[open] > .fold-summary::after { transform: translateY(.55rem) rotate(225deg); }
+
+.fold-summary:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.fold-title { font-weight: 650; font-size: .95rem; padding-right: 1.5rem; }
+.fold-note { font-size: .8rem; color: var(--ink-2); padding-right: 1.5rem; }
+
+.fold-body { padding: 0 1.05rem 1.1rem; display: grid; gap: 1.35rem; }
+.fold-body > .subpanel { display: grid; gap: .45rem; }
+.fold-body .panel-title { margin: 0; }
+
+/* ---------- The balance ---------- */
+
+.kpi-label {
+  margin: 0;
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/*
+  The headline figure. A single current number is not a chart -- it is a
+  number, set large enough that it is the first thing read, in tabular figures
+  so it does not reflow as it changes.
+*/
+.kpi-figure {
+  margin: .15rem 0 .1rem;
+  font-size: clamp(2.6rem, 9vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.kpi-figure.is-negative { color: var(--danger); }
+.kpi-figure.is-missing { color: var(--ink-2); }
+
+.kpi-move {
+  margin: 0 0 .2rem;
+  font-size: .9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.kpi-note { margin: .1rem 0 0; font-size: .82rem; color: var(--ink-2); }
+
+.kpi-strip, .rate-strip {
+  list-style: none;
+  margin: .9rem 0 0;
+  padding: .8rem 0 0;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: .7rem 1rem;
+}
+
+.kpi-strip li, .rate-strip li { display: grid; gap: .1rem; }
+
+.strip-label { font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+
+.strip-value {
+  font-size: 1.08rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.strip-value.is-negative { color: var(--danger); }
+
+/* ---------- Category bars ---------- */
+
+.chart-caption { margin: 0 0 .7rem; font-size: .82rem; color: var(--ink-2); }
+.chart-caption.is-stale { color: var(--ink); font-weight: 600; }
+
+.bars { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; }
+
+.bar-open {
+  appearance: none;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: .2rem 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: .22rem;
+}
+
+.bar-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+
+.bar-head { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.bar-name { font-weight: 600; font-size: .95rem; text-transform: capitalize; }
+.bar-value { font-variant-numeric: tabular-nums; font-weight: 650; }
+
+/* Thin marks, square at the baseline and rounded at the data end. */
+.bar-track {
+  display: block;
+  height: 10px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+}
+
+.bar-note { font-size: .76rem; color: var(--ink-2); }
+.bar-note.is-close, .bar-note.is-over { color: var(--ink); font-weight: 600; }
+
+/* Past a budget the bar leaves the ramp, because that is a state and not a
+   magnitude. The words beside it say so too. */
+.bar-fill.is-over { background: var(--danger); }
+.bar-fill.is-close { background: var(--now); }
+
+.bar-detail {
+  list-style: none;
+  margin: .3rem 0 .5rem;
+  padding: .45rem 0 .1rem .9rem;
+  border-left: 2px solid var(--line);
+  display: grid;
+  gap: .3rem;
+}
+
+.payee {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: .6rem;
+  align-items: baseline;
+  font-size: .85rem;
+}
+
+.payee-name { overflow-wrap: anywhere; }
+.payee-count { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.payee-sum { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---------- The verdict ---------- */
+
+/*
+  A state, so it carries a mark and a word as well as a colour -- the colour is
+  the last of the three to be read and the only one that can fail.
+*/
+.verdict {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-start;
+  padding: .7rem .8rem;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  margin: 0 0 .9rem;
+}
+
+.verdict-mark {
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.verdict-words { display: grid; gap: .15rem; }
+.verdict-label { font-size: .98rem; }
+.verdict-why { font-size: .84rem; color: var(--ink-2); }
+
+.verdict.is-sustainable { border-left-color: var(--s-ess); }
+.verdict.is-sustainable .verdict-mark { color: var(--s-ess); }
+.verdict.is-tight { border-left-color: var(--now); }
+.verdict.is-tight .verdict-mark { color: var(--now); }
+.verdict.is-overspending { border-left-color: var(--danger); }
+.verdict.is-overspending .verdict-mark { color: var(--danger); }
+.verdict.is-unclear { border-left-color: var(--line-strong); }
+.verdict.is-unclear .verdict-mark { color: var(--ink-2); }
+
+/* ---------- Daily rate ---------- */
+
+.rate-chart {
+  position: relative;
+  height: 9rem;
+  margin: 1rem 0 .3rem;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.rate-days {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.rate-day { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; min-width: 0; }
+.rate-day.is-weekend { background: linear-gradient(var(--surface-2), var(--surface-2)); }
+
+.rate-col {
+  display: block;
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+}
+
+/* The line is the point of the chart: a column is only tall against something.
+   Its label sits under the plot rather than over it, where it would land on
+   whichever column happened to be tall that week. */
+.rate-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px dashed var(--line-strong);
+  pointer-events: none;
+}
+
+.rate-key { display: flex; align-items: center; gap: .4rem; margin-top: .45rem; }
+
+.rate-key-mark {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  border-top: 2px dashed var(--line-strong);
+}
+
+.weeks {
+  list-style: none;
+  margin: .9rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .35rem;
+}
+
+.week {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: .7rem;
+  align-items: baseline;
+  font-size: .85rem;
+  padding-bottom: .35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.week:last-child { border-bottom: 0; padding-bottom: 0; }
+.week-when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.week-sum { font-weight: 650; font-variant-numeric: tabular-nums; }
+.week-rate { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* ---------- The same thing as a table ---------- */
+
+.as-table { margin-top: .9rem; font-size: .85rem; }
+.as-table summary { cursor: pointer; color: var(--ink-2); }
+.as-table summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.plain-table { width: 100%; border-collapse: collapse; margin-top: .6rem; }
+
+.plain-table th, .plain-table td {
+  text-align: left;
+  padding: .35rem .5rem .35rem 0;
+  border-bottom: 1px solid var(--line);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.plain-table thead th {
+  font-size: .74rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.plain-table tbody th { font-weight: 600; }
+
+/* ---------- The analytics sector ---------- */
+
+.insight-headline {
+  margin: .2rem 0 .8rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -.01em;
+}
+
+.insight-prose { margin: .55rem 0; font-size: .92rem; line-height: 1.6; }
+
+.insight-notes {
+  list-style: none;
+  margin: .9rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .5rem;
+}
+
+.insight-notes li {
+  font-size: .88rem;
+  line-height: 1.5;
+  padding-left: .8rem;
+  border-left: 2px solid var(--accent);
+}
+
+.insight-sub {
+  margin: 1.1rem 0 .4rem;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.watch-list { margin: 0; padding-left: 1.1rem; display: grid; gap: .25rem; font-size: .88rem; }
+
+.sync-status.is-busy { color: var(--ink); font-weight: 600; }
+
+.plan-save { margin: .7rem 0; font-size: .95rem; }
+.plan-table { margin-top: .8rem; }
+.plan-cat { text-transform: capitalize; }
+.plan-limit { font-weight: 650; }
+.plan-why { color: var(--ink-2); font-size: .82rem; }
+.plan-year { margin: .9rem 0 .2rem; font-size: .9rem; font-weight: 600; }
+
+/* ---------- Wide enough for two ---------- */
+
+@media (min-width: 60rem) {
+  #money-dash { grid-template-columns: 1fr 1fr; }
+  #money-dash > .card-kpi,
+  #money-dash > .card-fold { grid-column: 1 / -1; }
+  .fold-body { grid-template-columns: 1fr 1fr; }
+  .fold-body > .subpanel:first-child { grid-column: 1 / -1; }
+  #money-more .fold-body, #money-history .fold-body { grid-template-columns: 1fr; }
+}

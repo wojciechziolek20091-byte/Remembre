@@ -18,10 +18,88 @@ remembered for the session, so a reload puts you back where you were, but a
 fresh launch asks again -- they are separate errands, and which one you are on
 is not a setting.
 
-Money is a work in progress. What exists today is the importer -- you export a
-CSV from mBank (*Finanse &rarr; Historia &rarr; Lista operacji &rarr; eksportuj
-list&#281;*) and it reads it -- and categorisation. Budgets, the monthly report
-and the bank connection come next.
+Money opens on a dashboard, in the order the questions actually get asked:
+**what have I got**, **where did it go**, **how fast is it going**. The
+statement, the setup and the month in detail are folded away underneath,
+because nobody opens a money app to re-read last Tuesday.
+
+### The balance
+
+The first figure on the page is what is in the account, and it is never a sum
+of what has been imported -- a CSV reaching back ninety days does not know what
+the account held ninety days ago. It comes from whoever actually knows, in this
+order: the bank, through the connection; the statement's own closing balance
+(mBank's *Saldo ko&#324;cowe* footer, or the newest row's running balance),
+rolled forward over anything dated after it; or nothing at all, said plainly.
+Where it came from is always printed beside it, because "1 842,10 z&#322; at the
+bank" and "1 842,10 z&#322; as at 28 September" are different claims.
+
+Watching it is the only kind that is useful on a device you own: the figure is
+compared with the one you were shown last time and the difference leads the
+card. Nothing is polled -- a balance changes when a transaction arrives, and
+that is already an event here.
+
+### Where it went, and how fast
+
+Categories are drawn as bars in **one hue, light to dark**: the colour means
+"bigger", which five different colours could not say. Every bar carries its own
+figure, its share of the month and what it was last month, so the colour is
+decoration and the number is the data; tap one and it opens to show who was
+actually paid. Past a budget the bar leaves the ramp, and the words beside it
+change too.
+
+The rate card is four weeks of daily columns with a dashed line across them at
+what a day may cost if the month is to fit inside the money coming in. The
+window never reaches further back than the data goes: counting the days before
+a statement starts as zeros would understate the rate by a quarter and turn an
+overspending month into a comfortable one. Under it a verdict --
+*sustainable*, *tight*, *spending faster than it comes in*, or *not enough to
+tell yet* -- with a mark, a word and the arithmetic spelled out. Income is the
+**median** of the complete months rather than the mean, so one transfer from a
+grandparent does not become a monthly salary.
+
+Money moved to your own account is not spending and is left out of both;
+cash withdrawals are not, because the money has left the account and where it
+went afterwards is not something a statement knows.
+
+### Analytics
+
+The second page reads the numbers back to you, and it does it without being
+asked: open it and the analysis has either already run or runs now. Being asked
+is the problem with every other tool like this -- you only press the button on
+the day you already know the answer. It is read again when the figures move,
+not every time you look, and the last reading is kept on the device.
+
+What travels to Claude is a **summary, not a statement**: a few dozen totals,
+the top payees, the recurring charges and the shape of the last four weeks. The
+arithmetic has already been done here, and that summary is the only part a
+model can use.
+
+The plan underneath it *is* on a button, deliberately. An analysis of what
+already happened costs nothing to be wrong about; a budget is a decision, and a
+decision nobody asked for is noise. It comes back as limits against what you
+actually spent, what each tightening costs in practice, and what a year of
+keeping it adds up to -- and it changes nothing until you press *Use these as
+my budgets*.
+
+#### About "training"
+
+Nothing here fine-tunes a model, and saying otherwise would be dishonest.
+Fine-tuning is not available to this project, and it is not what would help: a
+model that has read a million budgets is not better at reading *yours*. What
+makes the advice good is the right frameworks in front of it and your real
+numbers beside them, so the published plans are distilled into
+`api/_playbook.js` and sent with every request -- 50/30/20 and its 40/40/20
+student variant, zero-based budgeting and YNAB's four rules, pay-yourself-first,
+sinking funds, the three-to-six-month emergency fund, and the *Portfel Studenta
+2026* figures for what a student in Poland actually spends. Every number in it
+is attributable and the sources are listed at the foot of the file. That is
+reproducible, auditable, and free to change the day one of them stops being
+true.
+
+Transactions still come in by CSV as well -- export from mBank (*Finanse
+&rarr; Historia &rarr; Lista operacji &rarr; eksportuj list&#281;*) and the
+importer reads it.
 
 Categories are rules you write, in the box in the Categories panel: one line per
 category, the name, an equals sign, then the words to look for. The first line

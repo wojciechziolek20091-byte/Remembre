@@ -294,3 +294,48 @@ export function asTransaction(transaction) {
     balance: null,
   };
 }
+
+/* ---------- What is actually in the account ---------- */
+
+/*
+  A balance is not a sum of transactions, and treating it as one is how a money
+  app ends up confidently wrong. The account has a figure; this asks for it.
+
+  Banks publish several at once -- booked, available, expected -- and they
+  disagree by whatever has not cleared yet. The one worth showing is what could
+  be spent today, so interim-available is preferred, then closing-booked, then
+  whatever came first. The type that was used is returned with it, because
+  "1 842,10 zl available" and "1 842,10 zl booked" are different claims.
+*/
+const BALANCE_ORDER = ["ITAV", "CLAV", "XPCD", "CLBD", "PRCD", "OTHR"];
+
+export async function bankBalances(accountUid) {
+  const answer = await bankFetch(`/accounts/${encodeURIComponent(accountUid)}/balances`);
+  const rows = Array.isArray(answer && answer.balances) ? answer.balances : [];
+
+  const read = rows.map((row) => {
+    const money = row.balance_amount || row.amount || {};
+    const value = Math.round(Number(money.amount != null ? money.amount : money) * 100);
+    const type = String(row.balance_type || row.name || "OTHR").toUpperCase();
+    return Number.isFinite(value)
+      ? {
+          type,
+          amount: value,
+          currency: String(money.currency || "PLN"),
+          at: String(row.reference_date || row.last_change_date_time || "").slice(0, 10),
+        }
+      : null;
+  }).filter(Boolean);
+
+  if (read.length === 0) return null;
+
+  read.sort((a, b) => {
+    const rank = (row) => {
+      const at = BALANCE_ORDER.findIndex((code) => row.type.includes(code));
+      return at === -1 ? BALANCE_ORDER.length : at;
+    };
+    return rank(a) - rank(b);
+  });
+
+  return read[0];
+}

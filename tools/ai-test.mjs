@@ -86,14 +86,87 @@ console.log("\na key that is right");
 
 console.log("\nnothing is spent to find out");
 
-{
-  const source = await import("node:fs").then((fs) =>
-    fs.readFileSync(new URL("../api/_ai.js", import.meta.url), "utf8")
-    + fs.readFileSync(new URL("../api/advise.js", import.meta.url), "utf8"));
+const read = await import("node:fs").then((fs) => (name) =>
+  fs.readFileSync(new URL(`../api/${name}`, import.meta.url), "utf8"));
 
-  // countTokens authenticates exactly like a real request and is not billed.
+{
+  // countTokens authenticates exactly like a real request and is not billed,
+  // so the check must use it and must never reach the generating endpoint.
+  const ai = read("_ai.js");
   check("the check counts tokens rather than generating any",
-    /countTokens/.test(source) && !/messages\.create/.test(source));
+    /countTokens/.test(ai) && !/messages\.create/.test(ai));
+
+  const advise = read("advise.js");
+  const checkBranch = advise.slice(advise.indexOf('action === "check"'), advise.indexOf('action !== "analyse"'));
+  check("and the check route only ever calls that",
+    /aiCheck\(\)/.test(checkBranch) && !/messages\.create/.test(checkBranch));
+
+  // Generating is reached by exactly one path, and that path has an action.
+  check("generating happens in one place only",
+    (advise.match(/messages\.create/g) || []).length === 1);
+  check("and only for the two actions that ask for it",
+    /action !== "analyse" && action !== "plan"/.test(advise));
+}
+
+console.log("\nwhat is refused before a request is made");
+
+const callAdvise = async (url, body) => {
+  const { default: handler } = await import(`../api/advise.js?v=${Math.random()}`);
+  const out = { status: 0, body: null };
+  const res = {
+    statusCode: 200,
+    setHeader() {},
+    end(text) { out.body = text ? JSON.parse(text) : null; out.status = res.statusCode; },
+    writeHead(code) { res.statusCode = code; return res; },
+  };
+  const req = { method: body ? "POST" : "GET", url, headers: {}, body };
+  await handler(req, res);
+  return out;
+};
+
+{
+  set(null);
+  const noKey = await callAdvise("/api/advise?action=analyse", { digest: { days: 30, categories: [{}] } });
+  check("with no key, nothing is attempted", noKey.status === 503, String(noKey.status));
+  check("and it says why", /not set/.test((noKey.body && noKey.body.problem) || ""), JSON.stringify(noKey.body));
+
+  set(LOOKS_RIGHT);
+  const unknown = await callAdvise("/api/advise?action=rummage", { digest: {} });
+  check("an action that does not exist is named", unknown.status === 400, String(unknown.status));
+
+  const empty = await callAdvise("/api/advise?action=analyse", {});
+  check("a request with nothing to analyse is refused", empty.status === 400, String(empty.status));
+
+  // A week is the floor: less than that and the advice would be confident
+  // nonsense, so it is refused here rather than dressed up.
+  const thin = await callAdvise("/api/advise?action=analyse", {
+    digest: { days: 3, categories: [{ name: "food", thisMonth: 12 }] },
+  });
+  check("so is less than a week of data", thin.status === 200 && thin.body.thin === true, JSON.stringify(thin.body));
+  check("and it says what would fix it", /Import a bit more/.test(thin.body.message), thin.body.message);
+
+  const noCategories = await callAdvise("/api/advise?action=plan", { digest: { days: 40, categories: [] } });
+  check("and a month with no categories in it", noCategories.body.thin === true, JSON.stringify(noCategories.body));
+}
+
+console.log("\nwhat the model is told before it sees a number");
+
+{
+  const playbook = read("_playbook.js");
+  check("the frameworks are named, not invented",
+    /50\/30\/20/.test(playbook) && /zero-based|Zero-based/.test(playbook)
+    && /[Ss]inking funds/.test(playbook) && /Pay yourself first/.test(playbook));
+  check("the Polish figures carry their source",
+    /Portfel Studenta 2026/.test(playbook) && /wib\.org\.pl/.test(playbook));
+  check("every rule of thumb has somewhere it came from",
+    (playbook.match(/https:\/\//g) || []).length >= 5);
+  check("the answer is pinned to a shape",
+    /"verdict"/.test(playbook) && /"monthly"/.test(playbook));
+  check("and it is told not to invent transactions",
+    /[Dd]o not invent/.test(playbook));
+  // The reader is seventeen and lives at home. Pension advice is noise.
+  check("and who it is writing for",
+    /secondary-school student/.test(playbook) && /pension/.test(playbook));
 }
 
 if (failures.length) {

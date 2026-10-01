@@ -291,90 +291,170 @@
 </div>
 
 <div class="area-money" id="money-area" hidden>
-  <div class="money-inner">
 
-    <section class="panel" aria-labelledby="money-import-heading">
-      <h2 class="panel-title" id="money-import-heading">Bring in transactions</h2>
-      <p class="panel-hint" id="money-import-hint">
-        In mBank: <strong>Finanse &rarr; Historia &rarr; Lista operacji</strong>, then
-        <strong>eksportuj list&#281;</strong> and choose CSV. Importing the same file twice
-        changes nothing, so overlapping exports are safe.
-      </p>
-      <p class="sync-status" id="money-status" role="status"></p>
-      <div class="panel-actions">
-        <button type="button" class="btn btn-quiet" id="money-pick">Choose a CSV file</button>
-        <input type="file" id="money-file" accept=".csv,text/csv" class="sr-only" tabindex="-1" aria-hidden="true">
-        <button type="button" class="btn btn-quiet" id="money-sample">Try it with sample data</button>
-        <button type="button" class="btn btn-quiet" id="money-paste-open">Paste it instead</button>
-      </div>
-      <div id="money-paste" hidden>
-        <label class="field-label" for="money-paste-text">Paste the contents of the CSV</label>
-        <textarea id="money-paste-text" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none" placeholder="#Data operacji;#Data ksiegowania;..."></textarea>
-        <div class="panel-actions">
-          <button type="button" class="btn btn-quiet" id="money-paste-import">Import what I pasted</button>
-        </div>
-      </div>
-    </section>
+  <div class="money-tabs" role="tablist" aria-label="Money">
+    <button type="button" class="money-tab is-on" id="money-tab-dash" data-money-page="dash"
+            role="tab" aria-selected="true" aria-controls="money-dash">Dashboard</button>
+    <button type="button" class="money-tab" id="money-tab-insight" data-money-page="insight"
+            role="tab" aria-selected="false" aria-controls="money-insight">Analytics</button>
+  </div>
 
-    <section class="panel" id="bank-panel" aria-labelledby="bank-heading">
-      <h2 class="panel-title" id="bank-heading">Your bank</h2>
-      <p class="panel-hint" id="bank-hint">
-        Connect mBank once and new transactions arrive on their own, read-only.
-        You will be sent to mBank to approve it; nothing here can move money.
-        EU rules make you approve again every 180 days.
-      </p>
-      <p class="sync-status" id="bank-status" role="status"></p>
-      <div class="panel-actions">
-        <button type="button" class="btn btn-quiet" id="bank-connect">Connect mBank</button>
-        <button type="button" class="btn btn-quiet" id="bank-fetch" hidden>Fetch now</button>
-      </div>
-    </section>
+  <div class="money-page" id="money-dash" role="tabpanel" aria-labelledby="money-tab-dash">
 
-    <section class="panel" aria-labelledby="money-report-heading">
-      <div class="report-head">
-        <h2 class="panel-title" id="money-report-heading">Spending</h2>
+    <section class="card card-kpi" id="money-balance" aria-label="Current balance"></section>
+
+    <section class="card" aria-labelledby="money-cats-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="money-cats-heading">Where it went</h2>
         <div class="report-nav">
           <button type="button" class="btn btn-quiet btn-tiny" id="money-prev" aria-label="The month before">&larr;</button>
           <span class="report-month" id="money-month" role="status"></span>
           <button type="button" class="btn btn-quiet btn-tiny" id="money-next" aria-label="The month after">&rarr;</button>
         </div>
       </div>
-      <div id="money-report"></div>
+      <div id="money-cats"></div>
     </section>
 
-    <section class="panel" aria-labelledby="money-rules-heading">
-      <h2 class="panel-title" id="money-rules-heading">Categories</h2>
-      <p class="panel-hint" id="money-rules-hint">
-        One category per line: the name, an equals sign, then the words to look for,
-        separated by commas. The first line that matches wins, so put the specific
-        ones above the general. Accents and capitals are ignored, so
-        <code>zabka</code> finds &#379;ABKA.
+    <section class="card" aria-labelledby="money-rate-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="money-rate-heading">How fast it is going</h2>
+      </div>
+      <div id="money-rate"></div>
+    </section>
+
+    <details class="card card-fold" id="money-more">
+      <summary class="fold-summary">
+        <span class="fold-title">The month in detail</span>
+        <span class="fold-note">Category by category against last month, the biggest few, and what repeats.</span>
+      </summary>
+      <div class="fold-body">
+        <div class="report-head">
+          <h3 class="panel-title" id="money-report-heading">Spending</h3>
+        </div>
+        <div id="money-report"></div>
+      </div>
+    </details>
+
+    <details class="card card-fold" id="money-history">
+      <summary class="fold-summary">
+        <span class="fold-title">Every transaction</span>
+        <span class="fold-note" id="money-summary" role="status"></span>
+      </summary>
+      <div class="fold-body">
+        <div id="money-list"></div>
+      </div>
+    </details>
+
+    <details class="card card-fold" id="money-setup">
+      <summary class="fold-summary">
+        <span class="fold-title">Where the data comes from, and the rules</span>
+        <span class="fold-note">Import a CSV, connect mBank, and edit the categories and budgets.</span>
+      </summary>
+      <div class="fold-body">
+
+        <section class="subpanel" aria-labelledby="money-import-heading">
+          <h3 class="panel-title" id="money-import-heading">Bring in transactions</h3>
+          <p class="panel-hint" id="money-import-hint">
+            In mBank: <strong>Finanse &rarr; Historia &rarr; Lista operacji</strong>, then
+            <strong>eksportuj list&#281;</strong> and choose CSV. Importing the same file twice
+            changes nothing, so overlapping exports are safe.
+          </p>
+          <p class="sync-status" id="money-status" role="status"></p>
+          <div class="panel-actions">
+            <button type="button" class="btn btn-quiet" id="money-pick">Choose a CSV file</button>
+            <input type="file" id="money-file" accept=".csv,text/csv" class="sr-only" tabindex="-1" aria-hidden="true">
+            <button type="button" class="btn btn-quiet" id="money-sample">Try it with sample data</button>
+            <button type="button" class="btn btn-quiet" id="money-paste-open">Paste it instead</button>
+          </div>
+          <div id="money-paste" hidden>
+            <label class="field-label" for="money-paste-text">Paste the contents of the CSV</label>
+            <textarea id="money-paste-text" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none" placeholder="#Data operacji;#Data ksiegowania;..."></textarea>
+            <div class="panel-actions">
+              <button type="button" class="btn btn-quiet" id="money-paste-import">Import what I pasted</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="subpanel" id="bank-panel" aria-labelledby="bank-heading">
+          <h3 class="panel-title" id="bank-heading">Your bank</h3>
+          <p class="panel-hint" id="bank-hint">
+            Connect mBank once and new transactions arrive on their own, read-only.
+            You will be sent to mBank to approve it; nothing here can move money.
+            EU rules make you approve again every 180 days.
+          </p>
+          <p class="sync-status" id="bank-status" role="status"></p>
+          <div class="panel-actions">
+            <button type="button" class="btn btn-quiet" id="bank-connect">Connect mBank</button>
+            <button type="button" class="btn btn-quiet" id="bank-fetch" hidden>Fetch now</button>
+          </div>
+        </section>
+
+        <section class="subpanel" aria-labelledby="money-rules-heading">
+          <h3 class="panel-title" id="money-rules-heading">Categories</h3>
+          <p class="panel-hint" id="money-rules-hint">
+            One category per line: the name, an equals sign, then the words to look for,
+            separated by commas. The first line that matches wins, so put the specific
+            ones above the general. Accents and capitals are ignored, so
+            <code>zabka</code> finds &#379;ABKA.
+          </p>
+          <p class="sync-status" id="money-rules-status" role="status"></p>
+          <label class="field-label" for="money-rules">Rules</label>
+          <textarea id="money-rules" class="input money-rules" rows="10" spellcheck="false" autocapitalize="none"></textarea>
+          <div class="panel-actions">
+            <button type="button" class="btn btn-quiet" id="money-rules-save">Save and apply</button>
+            <button type="button" class="btn btn-quiet" id="money-rules-reset">Restore the defaults</button>
+          </div>
+          <div id="money-tally"></div>
+
+          <hr class="panel-rule">
+          <label class="field-label" for="money-budgets">Monthly budgets</label>
+          <p class="field-hint" id="money-budgets-hint">One per line: the category, an equals sign, and a limit in z&#322;oty. Leave a category out and it is simply not watched.</p>
+          <textarea id="money-budgets" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none"></textarea>
+          <div class="panel-actions">
+            <button type="button" class="btn btn-quiet" id="money-budgets-save">Save the budgets</button>
+          </div>
+        </section>
+
+      </div>
+    </details>
+
+  </div>
+
+  <div class="money-page" id="money-insight" role="tabpanel" aria-labelledby="money-tab-insight" hidden>
+
+    <section class="card" aria-labelledby="insight-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="insight-heading">What your spending says</h2>
+        <button type="button" class="link-btn" id="insight-again">Read it again</button>
+      </div>
+      <p class="panel-hint">
+        This runs on its own when you open this page, on the numbers already on your
+        device &ndash; totals, the payees behind them and what repeats, never the whole
+        statement. It is read again when the figures move, not every time you look.
       </p>
-      <p class="sync-status" id="money-rules-status" role="status"></p>
-      <label class="field-label" for="money-rules">Rules</label>
-      <textarea id="money-rules" class="input money-rules" rows="10" spellcheck="false" autocapitalize="none"></textarea>
-      <div class="panel-actions">
-        <button type="button" class="btn btn-quiet" id="money-rules-save">Save and apply</button>
-        <button type="button" class="btn btn-quiet" id="money-rules-reset">Restore the defaults</button>
-      </div>
-      <div id="money-tally"></div>
-
-      <hr class="panel-rule">
-      <label class="field-label" for="money-budgets">Monthly budgets</label>
-      <p class="field-hint" id="money-budgets-hint">One per line: the category, an equals sign, and a limit in z&#322;oty. Leave a category out and it is simply not watched.</p>
-      <textarea id="money-budgets" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none"></textarea>
-      <div class="panel-actions">
-        <button type="button" class="btn btn-quiet" id="money-budgets-save">Save the budgets</button>
-      </div>
+      <p class="sync-status" id="insight-status" role="status"></p>
+      <p class="sync-status is-stale" id="insight-stale" hidden>These numbers have moved since this was written.</p>
+      <div id="insight-reading"></div>
     </section>
 
-    <section class="panel" aria-labelledby="money-list-heading">
-      <h2 class="panel-title" id="money-list-heading">Transactions</h2>
-      <p class="sync-status" id="money-summary" role="status"></p>
-      <div id="money-list"></div>
+    <section class="card" aria-labelledby="insight-plan-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="insight-plan-heading">A plan you could keep</h2>
+      </div>
+      <p class="panel-hint">
+        Budgets worked out from what you actually spend, aimed at putting the most
+        aside over a year while the month still feels liveable &ndash; not at winning
+        one month. Nothing is applied until you say so.
+      </p>
+      <p class="sync-status" id="plan-status" role="status"></p>
+      <div class="panel-actions">
+        <button type="button" class="btn btn-primary" id="insight-plan">Suggest budget adjustments</button>
+      </div>
+      <div id="insight-plan-out"></div>
     </section>
 
   </div>
+
 </div>
 
 <footer class="site-footer">

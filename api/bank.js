@@ -1,5 +1,7 @@
 import { checkCode, cors, json, notConfigured, store, vaultKey } from "./_store.js";
-import { asTransaction, bankAuthorise, bankFetch, bankReport, bankTransactions, CONSENT_DAYS } from "./_bank.js";
+import {
+  asTransaction, bankAuthorise, bankBalances, bankFetch, bankReport, bankTransactions, CONSENT_DAYS,
+} from "./_bank.js";
 import {
   handoverKey, listConnections, loadConnection, newNonce, onlyNewRows, saveConnection,
 } from "./_bankstore.js";
@@ -161,6 +163,11 @@ async function connectionStatus(req, res) {
     connectedAt: held.connectedAt || "",
     fetchedTo: held.fetchedTo || "",
     expired: Boolean(held.validUntil) && held.validUntil < new Date().toISOString(),
+    // What the bank last said was in the account. Stored rather than fetched
+    // here: status is called whenever the half is opened, and a balance call
+    // per visit spends somebody's rate limit for a figure that only moves when
+    // a transaction does.
+    balance: held.balance || null,
   });
 }
 
@@ -213,8 +220,37 @@ async function pullInto(live, vault, connection) {
     await live.put(vault, JSON.stringify(next));
   }
 
-  await saveConnection(live, vault, { ...connection, fetchedTo: today(), lastFetchAt: now });
-  return { read: incoming.length, added: added.length, from };
+  /*
+    The balance is asked for on the same trip, because this is the moment it
+    can have changed. A bank that will not answer is not an error worth
+    failing the fetch over -- the transactions are already in -- so the last
+    known figure is kept and marked with when it was true.
+  */
+  let balance = connection.balance || null;
+  try {
+    const read = [];
+    for (const account of connection.accounts) {
+      const figure = await bankBalances(account.uid);
+      if (figure) read.push({ account: account.name, iban: account.iban, ...figure });
+    }
+    if (read.length > 0) {
+      balance = {
+        amount: read.reduce((sum, row) => sum + row.amount, 0),
+        currency: read[0].currency,
+        type: read.length === 1 ? read[0].type : "SUM",
+        at: read[0].at || today(),
+        readAt: now,
+        accounts: read,
+      };
+    }
+  } catch (err) {
+    console.error("bank balance failed:", err.status || "", err.message);
+  }
+
+  await saveConnection(live, vault, {
+    ...connection, fetchedTo: today(), lastFetchAt: now, balance,
+  });
+  return { read: incoming.length, added: added.length, from, balance };
 }
 
 async function fetchForOne(req, res) {

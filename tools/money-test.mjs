@@ -52,6 +52,17 @@ const browser = await chromium.launch(
   process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
 );
 const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+
+/*
+  The money half now opens on a dashboard, with the statement, the setup and
+  the month's detail behind folds. Nothing below is about the folds, so they
+  are opened on every load rather than clicked open in twelve places.
+*/
+await page.addInitScript(() => {
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("details").forEach((fold) => { fold.open = true; });
+  });
+});
 const problems = [];
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 page.on("console", (m) => { if (m.type() === "error") problems.push(`console: ${m.text()}`); });
@@ -445,6 +456,336 @@ console.log("\nthe two halves");
   check("and schoolwork still opens", await page.locator("#school-area").isVisible(), true);
   check("with its controls back", await page.locator("#add-task-top").isVisible(), true);
   check("and the timetable drawn", await page.locator(".tt-lesson").count() > 0, true);
+}
+
+/* ---------- The dashboard ---------- */
+
+/*
+  The dashboard answers three questions in order -- what have I got, where did
+  it go, how fast is it going -- so each is checked against a statement built
+  to a known shape. The dates are relative to today, because a fixture with
+  2026-09 in it stops testing the thing the day the month turns.
+*/
+
+console.log("\nthe dashboard");
+
+/**
+ * A statement spending `perDay` zloty every day for `days` days up to
+ * yesterday, with one payment in, and a footer closing balance.
+ */
+function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {}) {
+  const day = (back) => {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() - back);
+    return date.toISOString().slice(0, 10);
+  };
+
+  const rows = [];
+  for (let back = days; back >= 1; back -= 1) {
+    rows.push(`${day(back)};${day(back)};PLATNOSC KARTA;ZABKA Z1;ZABKA;;-${perDay},00 PLN;0,00 PLN`);
+    if (back % 7 === 0) {
+      rows.push(`${day(back)};${day(back)};PLATNOSC KARTA;BILET MPK KRAKOW;MPK;;-4,00 PLN;0,00 PLN`);
+    }
+  }
+  rows.push(`${day(days)};${day(days)};PRZELEW PRZYCHODZACY;Kieszonkowe;JAN ZIOLEK;;${income},00 PLN;0,00 PLN`);
+
+  return [
+    "#Numer rachunku;",
+    "PL61109010140000071219812874;",
+    "",
+    "#Data operacji;#Data ksiegowania;#Opis operacji;#Tytul;#Nadawca/Odbiorca;#Numer konta;#Kwota;#Saldo po operacji",
+    ...rows,
+    "",
+    `#Saldo koncowe;;;;;;${closing},00 PLN;`,
+  ].join("\r\n");
+}
+
+{
+  await page.evaluate(() => { setArea("money"); });
+
+  const read = await page.evaluate(async (csv) => {
+    localStorage.removeItem("remembre.balance.v1");
+    localStorage.removeItem("remembre.balanceseen.v1");
+    localStorage.removeItem("remembre.insight.v1");
+    localStorage.removeItem("remembre.plan.v1");
+    state.transactions = [];
+    writeStore("remembre.moneyrules.v1", DEFAULT_RULES);
+    writeStore("remembre.moneybudgets.v1", "food = 400\ntransport = 100");
+    await importCsvText(csv, { label: "a statement" });
+    return {
+      balance: balanceNow(),
+      stored: readStore("remembre.balance.v1", null),
+      figure: document.querySelector(".kpi-figure").textContent,
+      note: document.querySelector(".kpi-note").textContent,
+    };
+  }, statement({ closing: 1000 }));
+
+  // The footer figure is the account's own, and the sum of the rows is not it.
+  check("the statement's closing balance is taken from its footer", read.stored.amount, 100000);
+  check("and shown as the first thing on the page", read.figure.includes("1 000,00"), true);
+  check("with where it came from beside it", /statement that closed on/.test(read.note), true);
+  check("rather than a sum of what was imported", read.balance.amount, 100000);
+  check("and nothing is pending at that point", read.balance.since, 0);
+}
+
+{
+  // A card payment that arrived after the statement was cut still counts.
+  const rolled = await page.evaluate(() => {
+    const after = new Date();
+    after.setUTCDate(after.getUTCDate() + 1);
+    const date = after.toISOString().slice(0, 10);
+    state.transactions.push(normaliseTransaction({
+      id: "later-one", date, amount: -5000, counterparty: "ZABKA", category: "food",
+    }));
+    renderBalanceCard();
+    return { balance: balanceNow(), note: document.querySelector(".kpi-note").textContent };
+  });
+
+  check("a transaction newer than the statement is rolled forward", rolled.balance.amount, 95000);
+  check("and the card says how many and how much", /1 transaction since \(−50,00/.test(rolled.note), true);
+
+  const moved = await page.evaluate(() => {
+    renderBalanceCard();
+    const first = document.querySelector(".kpi-move");
+    state.transactions = state.transactions.filter((t) => t.id !== "later-one");
+    renderBalanceCard();
+    return { first: Boolean(first), second: document.querySelector(".kpi-move").textContent };
+  });
+  check("a balance that has not moved says nothing about movement", moved.first, false);
+  check("one that has is compared with what you last saw",
+    /↑ 50,00 zł since you last looked/.test(moved.second), true);
+}
+
+{
+  // The bank knows better than any statement, so it wins when it is there.
+  const fromBank = await page.evaluate(() => {
+    renderBank({ connected: true, accounts: [{ name: "eKonto", iban: "…8067" }],
+      balance: { amount: 123456, at: "2026-10-01", readAt: new Date().toISOString(), type: "ITAV" } });
+    renderBalanceCard();
+    return { balance: balanceNow(), note: document.querySelector(".kpi-note").textContent };
+  });
+  check("the bank's own figure wins over a statement's", fromBank.balance.amount, 123456);
+  check("and says so", /Straight from mBank/.test(fromBank.note), true);
+  await page.evaluate(() => { bankBalance = null; renderBalanceCard(); });
+}
+
+{
+  const bars = await page.evaluate(() => {
+    // The dashboard opens on the month the data ends in, as the report does.
+    state.moneyMonth = latestMonth();
+    renderCategoryBars();
+    return [...document.querySelectorAll(".bar-row")].map((row) => ({
+      name: row.querySelector(".bar-name").textContent,
+      value: row.querySelector(".bar-value").textContent,
+      width: row.querySelector(".bar-fill").style.width,
+      step: [...row.querySelector(".bar-fill").classList].find((c) => c.startsWith("seq-")),
+      note: row.querySelector(".bar-note").textContent,
+    }));
+  });
+
+  check("the categories are a chart, biggest first", bars[0].name, "food");
+  check("the biggest bar is full width", bars[0].width, "100%");
+  check("and the darkest step of the one hue", bars[0].step, "seq-5");
+  check("a smaller one gets a lighter step", bars[1].step !== "seq-5", true);
+  check("every bar carries its own figure, so the colour is decoration",
+    bars.every((bar) => /\d,\d\d zł$/.test(bar.value)), true);
+  check("and its share of the month", /% of the month/.test(bars[0].note), true);
+  check("a budget it has gone past is said in words",
+    /over the 400,00 zł limit/.test(bars[0].note), true);
+
+  // Tapping a bar is how you find out it was all one shop.
+  await page.click(".bar-row:first-child .bar-open");
+  check("opening a category shows who was paid",
+    (await page.locator(".bar-row:first-child .payee-name").first().innerText()).trim(), "ZABKA");
+  check("and how many times", /×/.test(await page.locator(".bar-row:first-child .payee-count").first().innerText()), true);
+}
+
+{
+  // Money moved to your own account has not been spent, so it is not spending.
+  const withTransfer = await page.evaluate(async () => {
+    state.transactions.push(normaliseTransaction({
+      id: "own-transfer", date: todayISO(), amount: -30000,
+      counterparty: "WLASNY", title: "PRZELEW WLASNY", category: "transfers",
+    }));
+    renderCategoryBars();
+    const names = [...document.querySelectorAll(".bar-name")].map((n) => n.textContent);
+    const rate = sustainability();
+    state.transactions = state.transactions.filter((t) => t.id !== "own-transfer");
+    return { names, perDay: rate.perDay };
+  });
+  check("a transfer to yourself is not in the categories",
+    withTransfer.names.includes("transfers"), false);
+  check("nor in the daily rate", withTransfer.perDay < 10000, true);
+}
+
+{
+  const rate = await page.evaluate(() => {
+    renderRateCard();
+    const read = sustainability();
+    return {
+      verdict: read.verdict,
+      perDay: read.perDay,
+      columns: document.querySelectorAll(".rate-col").length,
+      weeks: document.querySelectorAll(".week").length,
+      mark: document.querySelector(".verdict-mark").textContent,
+      label: document.querySelector(".verdict-label").textContent,
+      why: document.querySelector(".verdict-why").textContent,
+      line: Boolean(document.querySelector(".rate-line")),
+      lineLabel: (document.querySelector(".rate-key") || {}).textContent,
+      table: document.querySelectorAll(".as-table .plain-table tbody tr").length,
+    };
+  });
+
+  // The statement is three weeks old, so the window is three weeks and a day,
+  // not four weeks with a week of invented zeros at the front.
+  check("the chart covers the days there is data for", rate.columns, 22);
+  check("with the complete weeks summarised under it", rate.weeks, 3);
+  check("the rate is what was spent over those days",
+    rate.perDay > 1900 && rate.perDay < 2050, true, String(rate.perDay));
+  // 20 zl a day is about 630 zl a month against 1 000 zl coming in.
+  check("spending well inside what comes in is sustainable", rate.verdict, "sustainable");
+  check("and the word is on the page, not just a colour", rate.label, "Sustainable");
+  check("with a mark beside it", rate.mark.length > 0, true);
+  check("and the arithmetic spelled out", /a day this month would cost/.test(rate.why), true);
+  check("there is a line to read the columns against", rate.line, true);
+  check("and a key under the chart says what it is",
+    /dashed line is .* a day, which keeps the month even/.test(rate.lineLabel), true);
+  check("the same numbers are available as a table", rate.table, 3);
+}
+
+{
+  // The same days, five times the spending: 100 zl a day against 1 000 zl in.
+  const fast = await page.evaluate(async (csv) => {
+    state.transactions = [];
+    await importCsvText(csv, { label: "a fast month" });
+    renderRateCard();
+    return {
+      verdict: sustainability().verdict,
+      label: document.querySelector(".verdict-label").textContent,
+      why: document.querySelector(".verdict-why").textContent,
+    };
+  }, statement({ perDay: 100, income: 1000 }));
+  check("spending faster than it comes in is called that", fast.verdict, "overspending");
+  check("in words", /faster than it comes/.test(fast.label), true);
+  check("with the shortfall in zloty", /more than comes in/.test(fast.why), true);
+
+  const noIncome = await page.evaluate(async (csv) => {
+    state.transactions = [];
+    await importCsvText(csv, { label: "no income" });
+    const read = sustainability();
+    return { verdict: read.verdict, why: read.why };
+  }, statement({ perDay: 20, income: 0 }).replace(/.*PRZELEW PRZYCHODZACY.*\r\n/, ""));
+  check("with nothing coming in, no verdict is invented", noIncome.verdict, "unclear");
+  check("and it says what is missing", /nothing to measure the spending against/.test(noIncome.why), true);
+}
+
+/* ---------- The analytics sector ---------- */
+
+console.log("\nthe analytics sector");
+
+/*
+  The server is not running here, so fetch is answered with a canned reply.
+  What is being checked is everything around the call: that opening the page
+  makes it, that the answer is drawn, that looking again does not pay twice,
+  and that the plan only changes a budget when the button is pressed.
+*/
+const CANNED = {
+  analyse: {
+    ok: true,
+    result: {
+      headline: "Zabka is 70% of your month.",
+      verdict: "sustainable",
+      reading: "You spent 420,00 zl in four weeks.\n\nMost of it in one shop.",
+      notes: [{ label: "One shop", detail: "ZABKA took 400,00 zl across 20 visits." }],
+      watch: ["Zabka", "The bus"],
+    },
+    cost: { in: 1200, out: 300 },
+  },
+  plan: {
+    ok: true,
+    result: {
+      approach: "50/30/20, adjusted down to what you actually spend.",
+      monthly: [{ category: "food", limit: 350, was: 420, why: "Ten percent under last month." }],
+      save: { amount: 150, why: "Pay yourself first." },
+      tradeoffs: ["One fewer Zabka run a week."],
+      year: "1 800 zl over twelve months.",
+    },
+  },
+};
+
+{
+  await page.evaluate((csv) => { window.__statement = csv; }, statement({ perDay: 20, income: 1000 }));
+  await page.evaluate(async (canned) => {
+    window.__calls = [];
+    window.fetch = async (url, options) => {
+      window.__calls.push(String(url));
+      const action = String(url).includes("action=plan") ? "plan" : "analyse";
+      return {
+        ok: true,
+        json: async () => canned[action],
+      };
+    };
+    state.transactions = [];
+    localStorage.removeItem("remembre.insight.v1");
+    localStorage.removeItem("remembre.plan.v1");
+    await importCsvText(window.__statement, { label: "for the analysis" });
+  }, CANNED);
+
+  await page.click('[data-money-page="insight"]');
+  check("the analytics page opens", await page.locator("#money-insight").isVisible(), true);
+  check("and the dashboard steps aside", await page.locator("#money-dash").isVisible(), false);
+
+  await page.waitForSelector(".insight-headline");
+  check("it ran without being asked", await page.evaluate(() => window.__calls.length), 1);
+  check("against the analyse action",
+    await page.evaluate(() => window.__calls[0].includes("action=analyse")), true);
+  check("the headline is what leads", (await page.locator(".insight-headline").innerText()).trim(),
+    "Zabka is 70% of your month.");
+  check("the verdict carries a word", (await page.locator("#money-insight .verdict-label").innerText()).trim(),
+    "Sustainable");
+  check("the reading keeps its paragraphs", await page.locator(".insight-prose").count(), 2);
+  check("the findings are listed", await page.locator(".insight-notes li").count(), 1);
+  check("and what to watch", await page.locator(".watch-list li").count(), 2);
+
+  // What travels is a summary. A statement would be both expensive and useless.
+  const digest = await page.evaluate(() => buildDigest());
+  check("what is sent is totals, not transactions", "transactions" in digest, false);
+  check("with the categories", digest.categories.length > 0, true);
+  check("the payees behind them", digest.topPayees.length > 0, true);
+  check("in zloty rather than grosze", digest.spending.perDay < 1000, true);
+  check("and it stays small", JSON.stringify(digest).length < 8000, true);
+
+  // Nothing is paid twice for the same numbers.
+  await page.click('[data-money-page="dash"]');
+  await page.click('[data-money-page="insight"]');
+  check("looking again does not ask again", await page.evaluate(() => window.__calls.length), 1);
+  await page.click("#insight-again");
+  await page.waitForFunction(() => window.__calls.length === 2);
+  check("but asking for it again does", await page.evaluate(() => window.__calls.length), 2);
+}
+
+{
+  await page.click("#insight-plan");
+  await page.waitForSelector(".plan-table");
+  check("the plan is asked for, not volunteered",
+    await page.evaluate(() => window.__calls[window.__calls.length - 1].includes("action=plan")), true);
+  check("it says which framework it leaned on",
+    /50\/30\/20/.test(await page.locator("#insight-plan-out .insight-prose").first().innerText()), true);
+  check("the limits are shown against what was spent",
+    await page.locator(".plan-table tbody tr").count(), 1);
+  check("the saving is a line of its own",
+    /150,00 zł a month/.test(await page.locator(".plan-save").innerText()), true);
+  check("and what it costs is said",
+    /Zabka run/.test(await page.locator("#insight-plan-out .watch-list li").first().innerText()), true);
+
+  check("nothing is applied until the button is pressed",
+    await page.evaluate(() => readStore("remembre.moneybudgets.v1", "")), "food = 400\ntransport = 100");
+
+  await page.click("#insight-plan-out .btn-primary");
+  const budgets = await page.evaluate(() => readStore("remembre.moneybudgets.v1", ""));
+  check("and then the budgets are the plan's", /food = 350/.test(budgets), true);
+  check("with a line saying where they came from", /# Written from the plan/.test(budgets), true);
+  check("and the editor shows them", (await page.inputValue("#money-budgets")).includes("food = 350"), true);
 }
 
 check("no console or page errors", problems, []);
