@@ -224,3 +224,76 @@ export function unbudgeted(rows, settings, date) {
     .filter((entry) => counts(entry) && entry.date === date && !budgets.has(entry.category || "other"))
     .sort((a, b) => a.amount - b.amount);
 }
+
+/* ---------- The week, looked back on ---------- */
+
+/*
+  Everything the Sunday debrief needs, worked out here so the thing that calls
+  Claude does arithmetic in one place and prose in another.
+
+  A week is Monday to Sunday. The comparison is the week before it, because a
+  figure on its own says nothing: 240 zl of food is a good week or a bad one
+  only against the last one.
+*/
+export function weekReview(rows, settings, sunday) {
+  const monday = weekStart(sunday);
+  const plan = weekPlan(settings, monthOf(sunday));
+  const budgets = parseBudgets(settings && settings.budgets);
+
+  /* A week can straddle two months, and the two months rarely have the same
+     count of weekend days, so each day is rated by its own month. */
+  const rateFor = (date) => baseRate(weekPlan(settings, monthOf(date)), date);
+  const live = (Array.isArray(rows) ? rows : []).filter((entry) => entry && !entry.deleted);
+
+  const week = (from) => {
+    const days = Array.from({ length: 7 }, (unused, i) => shiftISO(from, i));
+    const inside = live.filter((entry) => counts(entry) && days.includes(entry.date));
+
+    const byCategory = new Map();
+    inside.forEach((entry) => {
+      const name = entry.category || "other";
+      byCategory.set(name, (byCategory.get(name) || 0) + Math.abs(entry.amount));
+    });
+
+    return {
+      from,
+      to: days[6],
+      days: days.map((date) => ({
+        date,
+        weekend: isWeekend(date),
+        limit: rateFor(date),
+        spent: spentOn(live, date),
+      })),
+      out: inside.reduce((sum, entry) => sum + Math.abs(entry.amount), 0),
+      count: inside.length,
+      byCategory,
+      biggest: inside.slice().sort((a, b) => a.amount - b.amount).slice(0, 4),
+    };
+  };
+
+  const now = week(monday);
+  const before = week(shiftISO(monday, -7));
+
+  const weekdays = now.days.filter((day) => !day.weekend);
+  const weekend = now.days.filter((day) => day.weekend);
+  const over = now.days.filter((day) => day.spent > day.limit);
+
+  return {
+    monday,
+    sunday: now.to,
+    plan,
+    now,
+    before,
+    allowed: now.days.reduce((sum, day) => sum + day.limit, 0),
+    weekdaySpent: weekdays.reduce((sum, day) => sum + day.spent, 0),
+    weekdayAllowed: weekdays.reduce((sum, day) => sum + day.limit, 0),
+    weekendSpent: weekend.reduce((sum, day) => sum + day.spent, 0),
+    weekendAllowed: weekend.reduce((sum, day) => sum + day.limit, 0),
+    daysOver: over.map((day) => day.date),
+    in: live
+      .filter((entry) => entry.amount > 0 && entry.branch !== "external"
+        && entry.date >= monday && entry.date <= now.to)
+      .reduce((sum, entry) => sum + entry.amount, 0),
+    budgets,
+  };
+}

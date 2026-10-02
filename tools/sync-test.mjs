@@ -21,11 +21,13 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const store = await mkdtemp(join(tmpdir(), "remembre-sync-"));
 process.env.REMEMBRE_DATA_DIR = store;
 
-const [{ default: syncRoute }, { default: calendarRoute }, { default: statusRoute }] =
+const [{ default: syncRoute }, { default: calendarRoute }, { default: statusRoute },
+  { default: debriefRoute }] =
   await Promise.all([
     import("../api/sync.js"),
     import("../api/calendar.js"),
     import("../api/status.js"),
+    import("../api/debrief.js"),
   ]);
 
 const MIME = {
@@ -51,6 +53,16 @@ const server = createServer(async (req, res) => {
   if (path === "/api/sync") return void syncRoute(req, res);
   if (path === "/api/calendar") return void calendarRoute(req, res);
   if (path === "/api/status") return void statusRoute(req, res);
+  // The money half asks for its week the moment it opens, and the real route
+  // answers it here: with no week written it returns an empty list, which is
+  // the honest answer and leaves the console clean for errors that matter.
+  if (path === "/api/debrief") return void debriefRoute(req, res);
+  // The reading needs a key this test has not got, and says so. Answering it
+  // here keeps a 503 out of the console without pretending there is a model.
+  if (path === "/api/advise") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return void res.end(JSON.stringify({ ok: true, thin: true, message: "No model in the tests." }));
+  }
 
   try {
     const file = join(root, path === "/" ? "index.html" : path);

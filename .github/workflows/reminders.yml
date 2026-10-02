@@ -68,6 +68,28 @@ jobs:
           cat bank.json
           echo
 
+      - name: Read the week back, on a Sunday evening
+        continue-on-error: true
+        env:
+          APP_URL: ${{ vars.REMEMBRE_URL || 'https://remembre.vercel.app' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          # The route decides whether it is Sunday evening where the reader is,
+          # and writes nothing twice. This only has to knock often enough that
+          # one of the knocks lands in the window, so it knocks on the hour
+          # through Sunday evening in every European offset.
+          if [ "$(date -u +%u)" != "7" ] || [ "$(date -u +%M)" != "00" ]; then
+            echo "not a Sunday hour; skipping"
+            exit 0
+          fi
+          status=$(curl -sS --max-time 180 -o debrief.json -w '%{http_code}' \
+            -X POST "$APP_URL/api/debrief" \
+            ${CRON_SECRET:+-H "Authorization: Bearer $CRON_SECRET"}) || exit 0
+          echo "HTTP $status"
+          cat debrief.json
+          echo
+
       - name: Send anything that has come due
         env:
           # Override with a repository variable if the app moves.

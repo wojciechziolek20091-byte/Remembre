@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.01-60";
+const APP_VERSION = "2026.10.02-62";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1415,6 +1415,8 @@ function setArea(area, { remember = true } = {}) {
     // And the reading runs on opening rather than on a button, because the
     // whole point of it is to be there before you ask.
     if (typeof runInsight === "function") runInsight();
+    // And whatever Sunday evening left behind.
+    if (typeof fetchDebrief === "function") fetchDebrief();
   }
 }
 

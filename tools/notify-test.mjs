@@ -29,7 +29,8 @@ process.env.VAPID_PUBLIC_KEY = fresh.publicKey;
 process.env.VAPID_PRIVATE_KEY = fresh.privateKey;
 process.env.VAPID_SUBJECT = "mailto:tests@example.com";
 
-const { default: notify, digest, dueReminders, localClock, moneyAlerts } = await import("../api/notify.js");
+const { default: notify, debriefReady, digest, dueReminders, localClock, moneyAlerts } =
+  await import("../api/notify.js");
 const { default: subscribeRoute } = await import("../api/subscribe.js");
 const { store, vaultKey } = await import("../api/_store.js");
 
@@ -452,6 +453,47 @@ const shareOf = (rows, date, share) => {
   const all = dueReminders(vault, clockAt("2026-10-08", 15 * 60));
   check("they come out of dueReminders with the rest",
     all.some((one) => one.key.startsWith("over")));
+}
+
+console.log("\nthe Sunday debrief");
+
+/*
+  The notification only ever announces what the debrief route already wrote.
+  A week that failed to generate makes no notification rather than one about
+  nothing, which is the whole reason the two are separate routes.
+*/
+{
+  const week = { week: "2026-10-05", sunday: "2026-10-11", result: { headline: "A quiet week: 318 zł of 420." } };
+
+  const sundayEvening = debriefReady([week], clockAt("2026-10-11", 19 * 60));
+  check("a written week is announced on the Sunday evening", sundayEvening.length === 1);
+  check("the title says what it is", sundayEvening[0].message.title === "Your week is ready",
+    sundayEvening[0] && sundayEvening[0].message.title);
+  check("and the model's own headline carries the number",
+    /318 zł of 420/.test(sundayEvening[0].message.body), sundayEvening[0].message.body);
+
+  check("not in the Sunday afternoon", debriefReady([week], clockAt("2026-10-11", 14 * 60)).length === 0);
+  check("but on into the Monday morning, for anybody who was out",
+    debriefReady([week], clockAt("2026-10-12", 9 * 60)).length === 1);
+  check("and not on the Tuesday",
+    debriefReady([week], clockAt("2026-10-13", 9 * 60)).length === 0);
+
+  check("a week that was never written is never announced",
+    debriefReady([], clockAt("2026-10-11", 19 * 60)).length === 0);
+  check("nor one that came back without a headline",
+    debriefReady([{ week: "2026-10-05", sunday: "2026-10-11", result: {} }],
+      clockAt("2026-10-11", 19 * 60)).length === 0);
+  check("nor last week's, this Sunday",
+    debriefReady([{ week: "2026-09-28", sunday: "2026-10-04", result: { headline: "old" } }],
+      clockAt("2026-10-11", 19 * 60)).length === 0);
+
+  // Keyed by the week, so a run that fires every quarter of an hour all
+  // evening sends it once.
+  check("the key is the week itself", sundayEvening[0].key === "debrief:2026-10-05", sundayEvening[0].key);
+
+  const withTheRest = dueReminders(vaultOf([spend("2026-10-11", -2000)]), clockAt("2026-10-11", 19 * 60), [week]);
+  check("it rides in with everything else",
+    withTheRest.some((one) => one.key.startsWith("debrief")));
 }
 
 console.log("\nthe nightly run");

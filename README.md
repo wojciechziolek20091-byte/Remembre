@@ -118,6 +118,24 @@ limits that spends everything that arrives is not a budget, it is a
 description. A proposal that goes over is scaled back to the ceiling rather
 than refused -- the shape of the advice is kept, its size is not.
 
+### The Sunday debrief
+
+On a Sunday evening the server reads the week back: what it cost against what
+it was allowed, weekdays and the weekend judged separately because they are
+budgeted separately, the one thing worth curbing, and one concrete thing to do
+differently. The phone gets the headline; the rest waits in the app.
+
+It is its own route rather than part of the reminder run, because it calls
+Claude and that takes tens of seconds while the reminder run has to stay quick
+enough to be called every quarter of an hour. The reminder run only ever
+announces what the debrief route already wrote, so **a week that failed to
+generate makes no notification rather than a notification about nothing** --
+which is the whole reason the two are separate.
+
+Written once per week, on the reader's own Sunday evening, and announced that
+evening and into the Monday morning for anybody who was out. A fortnight on,
+the card takes itself away.
+
 ### Notifications
 
 Four things reach the phone, and no more, because a phone that buzzes at every
@@ -130,6 +148,7 @@ coffee gets silenced and then none of it works:
 - **Past it**: by how much, and what it costs tomorrow.
 - **A payment with no budget behind it**, over 20 z&#322;: what it was and what
   to do about it.
+- **Sunday evening**: the week's debrief is ready, led by its own headline.
 
 Each is keyed by the local date, so a scheduler that fires five times in a
 minute sends one of each, and one that is an hour late still sends it.
@@ -707,6 +726,24 @@ same explanation rather than pretending to have saved anything.
 
 Nothing here is a paid tier at the time of writing, and the GitHub option needs
 no storage product to be provisioned at all.
+
+### The Sunday debrief
+
+On a Sunday evening the server reads the week back: what it cost against what
+it was allowed, weekdays and the weekend judged separately because they are
+budgeted separately, the one thing worth curbing, and one concrete thing to do
+differently. The phone gets the headline; the rest waits in the app.
+
+It is its own route rather than part of the reminder run, because it calls
+Claude and that takes tens of seconds while the reminder run has to stay quick
+enough to be called every quarter of an hour. The reminder run only ever
+announces what the debrief route already wrote, so **a week that failed to
+generate makes no notification rather than a notification about nothing** --
+which is the whole reason the two are separate.
+
+Written once per week, on the reader's own Sunday evening, and announced that
+evening and into the Monday morning for anybody who was out. A fortnight on,
+the card takes itself away.
 
 ### Notifications while the app is closed
 

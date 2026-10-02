@@ -2529,6 +2529,83 @@ function adoptMoneySettings(held) {
   return true;
 }
 
+/* ---------- The week, read back ---------- */
+
+/*
+  Written on the server on a Sunday evening and fetched here, rather than
+  generated when the page opens: a notification that says the week is ready
+  has to be telling the truth. What arrives is the last few weeks, and the
+  newest one is shown.
+*/
+
+const MONEY_DEBRIEF_KEY = "remembre.debrief.v1";
+
+function debriefs() {
+  const held = readStore(MONEY_DEBRIEF_KEY, []);
+  return Array.isArray(held) ? held : [];
+}
+
+async function fetchDebrief() {
+  const code = bankPhrase();
+  if (!code) return;
+  try {
+    const res = await fetch(`/api/debrief?code=${encodeURIComponent(code)}`, { cache: "no-store" });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || !Array.isArray(body.weeks)) return;
+    writeStore(MONEY_DEBRIEF_KEY, body.weeks);
+    renderDebrief();
+  } catch (err) {
+    // The week will still be there next time the page opens.
+  }
+}
+
+const DEBRIEF_PARTS = [
+  ["performance", "How the week went", "is-good"],
+  ["kept", "What went well", "is-good"],
+  ["curb", "What to curb", "is-cut"],
+  ["nextWeek", "One thing for next week", "is-change"],
+];
+
+function renderDebrief() {
+  const wrap = $("money-debrief");
+  if (!wrap) return;
+
+  const held = debriefs();
+  const latest = held.length ? held[held.length - 1] : null;
+  if (!latest || !latest.result) {
+    wrap.hidden = true;
+    wrap.replaceChildren();
+    return;
+  }
+
+  // A fortnight on, last week's debrief is history rather than news.
+  const age = Math.round((Date.parse(todayISO()) - Date.parse(latest.sunday)) / 86400000);
+  if (!Number.isFinite(age) || age > 13) {
+    wrap.hidden = true;
+    wrap.replaceChildren();
+    return;
+  }
+
+  wrap.hidden = false;
+  const { result } = latest;
+
+  show(wrap, [
+    el("div", { class: "card-head" },
+      el("h2", { class: "card-title", text: "Your week" }),
+      el("span", { class: "chart-caption", text: `week to ${latest.sunday}` })),
+    el("p", { class: "insight-headline", text: String(result.headline || "") }),
+    el("div", { class: "reading-grid" }, DEBRIEF_PARTS.map(([key, title, tone]) => {
+      const said = String(result[key] || "").trim();
+      if (!said) return null;
+      return el("div", { class: `reading-part ${tone}` },
+        el("h3", { class: "reading-title", text: title }),
+        el("p", { class: "reading-text", text: said }));
+    }).filter(Boolean)),
+    el("p", { class: "chart-caption", text:
+      `${zloty(-(latest.spent || 0))} spent against ${zloty(latest.allowed || 0)} allowed.` }),
+  ]);
+}
+
 /* ---------- What the months have kept ---------- */
 
 /*
@@ -3065,6 +3142,7 @@ function renderDashboard() {
   classifyIncome();
   renderGreeting();
   renderBalanceCard();
+  renderDebrief();
   renderSaved();
   renderOutside();
   renderBudgetMap();
@@ -3577,6 +3655,7 @@ function watchWidth() {
 function setupInsight() {
   if (!$("money-reading")) return;
   setupOutside();
+  fetchDebrief();
   if ($("map-rebalance")) {
     $("map-rebalance").addEventListener("click", () => {
       showMoneyNotice("Working out where the money actually goes…", { tone: "plain", keep: false });

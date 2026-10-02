@@ -1,6 +1,7 @@
 import { cors, json, notConfigured, store } from "./_store.js";
 import { forgetSubscription, listSubscriptions, saveSubscription, sendPush, vapidKeys } from "./_push.js";
-import { dayBudget, NEARLY, unbudgeted, weekendPurse } from "./_budget.js";
+import { dayBudget, NEARLY, shiftISO, unbudgeted, weekendPurse } from "./_budget.js";
+import { debriefKey } from "./debrief.js";
 
 /**
  * The run that sends notifications to devices that are not running the app.
@@ -61,6 +62,7 @@ export default async function handler(req, res) {
   try {
     const devices = await listSubscriptions(live);
     const vaults = new Map();
+    const debriefs = new Map();
     const report = [];
     let sentCount = 0;
 
@@ -69,8 +71,13 @@ export default async function handler(req, res) {
       if (!vaults.has(device.vault)) vaults.set(device.vault, await readVault(live, device.vault));
       const vault = vaults.get(device.vault);
 
+      if (!debriefs.has(device.vault)) {
+        debriefs.set(device.vault, await readDebriefs(live, device.vault));
+      }
+
       const sent = typeof device.sent === "object" && device.sent ? { ...device.sent } : migrate(device);
-      const waiting = dueReminders(vault, clock).filter((item) => !sent[item.key]);
+      const waiting = dueReminders(vault, clock, debriefs.get(device.vault))
+        .filter((item) => !sent[item.key]);
 
       if (waiting.length === 0) {
         report.push({ device: device.id, zone: device.zone, at: clock.time, sent: 0 });
@@ -158,6 +165,17 @@ function addDays(date, days) {
 
 /* ---------- What is there to say? ---------- */
 
+async function readDebriefs(live, vault) {
+  const raw = await live.get(debriefKey(vault));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return [];
+  }
+}
+
 async function readVault(live, key) {
   const empty = { tasks: [], coursework: [], sessions: [], transactions: [], moneySettings: {} };
   const raw = await live.get(key);
@@ -177,8 +195,8 @@ const alive = (list) => (Array.isArray(list) ? list : []).filter((r) => r && !r.
  * moment that passed more than WINDOW_MINUTES ago is left alone: a reminder for
  * a session that started this morning is worse than no reminder at all.
  */
-export function dueReminders(vault, clock) {
-  const due = [...moneyAlerts(vault, clock)];
+export function dueReminders(vault, clock, debriefs = null) {
+  const due = [...moneyAlerts(vault, clock), ...debriefReady(debriefs, clock)];
 
   const digestMessage = digest(vault, clock.tomorrow);
   if (clock.hour >= REMINDER_HOUR && digestMessage) {
@@ -227,6 +245,35 @@ export function dueReminders(vault, clock) {
     });
 
   return due;
+}
+
+/*
+  The Sunday debrief, once it exists.
+  
+  This only ever reads what /api/debrief left behind, so a week that failed to
+  generate makes no notification at all rather than a notification about
+  nothing. The headline is the model's own, written to be read on a lock
+  screen; the rest of it waits in the app.
+*/
+export function debriefReady(debriefs, clock) {
+  const weeks = Array.isArray(debriefs) ? debriefs : [];
+  if (weeks.length === 0) return [];
+
+  const held = weeks[weeks.length - 1];
+  if (!held || !held.result || !held.result.headline) return [];
+
+  /*
+    The evening it was written, and the morning after for anybody who was out.
+    Keyed to the debrief's own Sunday rather than to today's week, because by
+    Monday today's week is a different one and the week being announced has
+    just ended.
+  */
+  const thisEvening = clock.today === held.sunday && clock.hour >= 18;
+  const nextMorning = clock.today === shiftISO(held.sunday, 1);
+  if (!thisEvening && !nextMorning) return [];
+
+  return [alert(`debrief:${held.week}`, "Your week is ready",
+    String(held.result.headline).slice(0, 160), clock)];
 }
 
 /* ---------- The money alerts ---------- */

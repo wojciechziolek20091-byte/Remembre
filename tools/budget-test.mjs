@@ -195,6 +195,44 @@ console.log("\nand the rules themselves");
   check("and spending that has one is not", loose.length, 1);
 }
 
+console.log("\nthe week, looked back on");
+
+{
+  // A week that straddles two months, because October and November do not
+  // have the same count of weekend days and the rates differ with it.
+  const rows = [
+    { id: "a", date: "2026-10-27", amount: -3000, category: "food", branch: "", deleted: false },
+    { id: "b", date: "2026-10-31", amount: -9000, category: "fun", branch: "", deleted: false },
+    { id: "c", date: "2026-11-01", amount: -2000, category: "food", branch: "", deleted: false },
+    { id: "d", date: "2026-10-20", amount: -4000, category: "food", branch: "", deleted: false },
+    { id: "e", date: "2026-10-28", amount: 60000, category: "income", branch: "", deleted: false },
+    { id: "f", date: "2026-10-29", amount: -50000, category: "fun", branch: "external", deleted: false },
+  ];
+  const review = server.weekReview(rows, SETTINGS, "2026-11-01");
+
+  check("the week runs Monday to Sunday", [review.monday, review.sunday], ["2026-10-26", "2026-11-01"]);
+  check("and holds seven days", review.now.days.length, 7);
+  check("what was spent in it", review.now.out, 14000);
+  check("the week before is there to compare with", review.before.out, 4000);
+  check("money in is counted", review.in, 60000);
+  check("money outside the plan is not", review.now.count, 3);
+
+  // Friday and the weekend are budgeted higher, and judged separately.
+  check("weekdays and the weekend are kept apart",
+    review.weekdaySpent + review.weekendSpent, review.now.out);
+  check("the weekend has three days of the higher rate",
+    review.now.days.filter((day) => day.weekend).length, 3);
+
+  // Each day is rated by its own month, which is the point of the fixture.
+  const october = review.now.days.find((day) => day.date === "2026-10-31");
+  const november = review.now.days.find((day) => day.date === "2026-11-01");
+  check("a day in the next month is rated by the next month",
+    october.limit !== november.limit, true, `${october.limit} vs ${november.limit}`);
+
+  check("a day over its limit is named", review.daysOver.includes("2026-10-31"), true);
+  check("and a day inside it is not", review.daysOver.includes("2026-10-26"), false);
+}
+
 check("no page errors", problems, []);
 
 await browser.close();

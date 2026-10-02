@@ -593,8 +593,14 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
 
 {
   const bars = await page.evaluate(() => {
-    // The dashboard opens on the month the data ends in, as the report does.
-    state.moneyMonth = latestMonth();
+    /*
+      The month holding most of the fixture, which is not always the one it
+      ends in: the statement runs back three weeks from yesterday, so on the
+      2nd of a month "the month the data ends in" is a single day of it. The
+      app's own default is still latestMonth(); this is the test choosing
+      which month it means.
+    */
+    state.moneyMonth = monthOf(shiftISO(todayISO(), -14));
     renderCategoryBars();
     return [...document.querySelectorAll(".bar-row")].map((row) => ({
       name: row.querySelector(".bar-name").textContent,
@@ -750,6 +756,7 @@ console.log("\nthe income plan");
     const add = (date, amount, who) => state.transactions.push(normaliseTransaction({
       id: `${date}-${amount}`, date, amount, counterparty: who, category: amount > 0 ? "income" : "food",
     }));
+    state.moneyMonth = key;
     add(`${key}-01`, 70000, "MAMA");
     add(`${key}-10`, 60000, "MAMA");          // two days late
     add(`${key}-15`, 60000, "MAMA");
@@ -1076,7 +1083,9 @@ const CANNED = {
     titles: [...document.querySelectorAll(".reading-title")].map((n) => n.textContent),
     texts: [...document.querySelectorAll(".reading-text")].map((n) => n.textContent),
     headline: (document.querySelector(".insight-headline") || {}).textContent || "",
-    brief: (document.querySelector(".greeting-brief") || {}).textContent || "",
+    // Read on a Wednesday: Friday to Sunday the line is the weekend purse,
+    // which is its own thing and has its own tests.
+    brief: briefNow(new Date("2026-10-07T09:00:00")),
     watch: document.querySelectorAll(".watch-list li").length,
   }));
 
@@ -1127,6 +1136,9 @@ console.log("\nmoney from outside the plan");
     state.transactions = [];
     const when = (back) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - back); return d.toISOString().slice(0, 10); };
 
+    // Looking at the month the wire lands in, which on the 1st or 2nd is not
+    // the month the app happens to be showing.
+    state.moneyMonth = monthOf(when(2));
     addExpectation({ amount: 50000, date: when(2), what: "concert ticket" });
     const waiting = document.querySelectorAll(".outside-row.is-waiting").length;
 
@@ -1164,7 +1176,10 @@ console.log("\nopening a transaction");
     state.transactions = [];
     writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 150");
     writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
-    const when = todayISO();
+    // A fortnight back, so the five of them are in one month whatever day of
+    // the month this runs on: a fixture that straddles the first of a month
+    // puts half of itself in a report the other half is not in.
+    const when = shiftISO(todayISO(), -14);
 
     // The month, and the one big thing in it that somebody else covered.
     for (let i = 0; i < 4; i += 1) {
@@ -1178,6 +1193,7 @@ console.log("\nopening a transaction");
       counterparty: "BILETY NA KONCERT", title: "EBILET", category: "fun", source: "api",
     }));
     saveTransactions();
+    state.moneyMonth = monthOf(when);
     moneyChanged();
 
     openTransaction("the-big-one");
@@ -1210,12 +1226,13 @@ console.log("\nopening a transaction");
 {
   // The whole point: the one-off goes out and the day-to-day stops reading wrong.
   const moved = await page.evaluate(() => {
-    const before = { spent: monthReport(latestMonth()).spent, rate: sustainability().perDay };
+    const month = monthOf(shiftISO(todayISO(), -14));
+    const before = { spent: monthReport(month).spent, rate: sustainability().perDay };
     document.querySelector(".dialog-tx .btn-primary").click();
     const entry = liveTransactions().find((e) => e.id === "the-big-one");
     return {
       before,
-      after: { spent: monthReport(latestMonth()).spent, rate: sustainability().perDay },
+      after: { spent: monthReport(month).spent, rate: sustainability().perDay },
       branch: entry.branch,
       action: document.querySelector(".dialog-tx .dialog-actions .btn").textContent,
       where: [...document.querySelectorAll(".tx-facts dd")].find((n) => /Outside the plan/.test(n.textContent)),
@@ -1232,7 +1249,10 @@ console.log("\nopening a transaction");
     document.querySelector(".dialog-tx .dialog-actions .btn").click();
     const entry = liveTransactions().find((e) => e.id === "the-big-one");
     classifyIncome();
-    return { branch: entry.branch, counted: entry.counted, spent: monthReport(latestMonth()).spent };
+    return {
+      branch: entry.branch, counted: entry.counted,
+      spent: monthReport(monthOf(shiftISO(todayISO(), -14))).spent,
+    };
   });
   check("counting it back in puts it back", back.branch, "");
   check("and it stays back", back.counted, true);
@@ -1269,6 +1289,71 @@ console.log("\nopening a transaction");
   });
   check("the whole list opens", everywhere.list > 0, true);
   check("and so does the biggest-of-the-month list", everywhere.biggest > 0, true);
+}
+
+/* ---------- The week, read back ---------- */
+
+console.log("\nthe Sunday debrief, in the page");
+
+{
+  const shown = await page.evaluate(() => {
+    const sunday = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - ((d.getDay() + 7) % 7 || 7));   // the Sunday just gone
+      return d.toISOString().slice(0, 10);
+    })();
+
+    writeStore("remembre.debrief.v1", [{
+      week: shiftISO(sunday, -6),
+      sunday,
+      at: new Date().toISOString(),
+      spent: 31800,
+      allowed: 42000,
+      result: {
+        headline: "A quiet week: 318,00 zł of 420,00 zł.",
+        performance: "Weekdays came to 121 zł of 170 allowed. The weekend took 197 zł of 250.",
+        kept: "Four days under their limit, which is the best run since the 12th.",
+        curb: "Thursday lunches: four of them, 96 zł. Two would save about 190 zł a month.",
+        nextWeek: "Take Thursday's lunch from home.",
+      },
+    }]);
+    renderDebrief();
+
+    return {
+      shown: !document.querySelector("#money-debrief").hidden,
+      headline: (document.querySelector("#money-debrief .insight-headline") || {}).textContent || "",
+      titles: [...document.querySelectorAll("#money-debrief .reading-title")].map((n) => n.textContent),
+      curb: [...document.querySelectorAll("#money-debrief .reading-text")][2].textContent,
+      figures: [...document.querySelectorAll("#money-debrief .chart-caption")].pop().textContent,
+    };
+  });
+
+  check("the week is shown when there is one", shown.shown, true);
+  check("its headline leads", /A quiet week/.test(shown.headline), true, shown.headline);
+  check("with the four parts in order", shown.titles,
+    ["How the week went", "What went well", "What to curb", "One thing for next week"]);
+  check("what to curb is named precisely", /Thursday lunches/.test(shown.curb), true, shown.curb);
+  check("and the figures are under it", /318,00 zł spent against 420,00 zł allowed/.test(shown.figures), true,
+    shown.figures);
+}
+
+{
+  // A fortnight on it is history rather than news, and takes itself away.
+  const gone = await page.evaluate(() => {
+    const old = readStore("remembre.debrief.v1", []);
+    old[0].sunday = shiftISO(todayISO(), -20);
+    writeStore("remembre.debrief.v1", old);
+    renderDebrief();
+    return document.querySelector("#money-debrief").hidden;
+  });
+  check("a fortnight on, it puts itself away", gone, true);
+
+  const none = await page.evaluate(() => {
+    writeStore("remembre.debrief.v1", []);
+    renderDebrief();
+    return document.querySelector("#money-debrief").hidden;
+  });
+  check("and with none written, there is no empty card", none, true);
 }
 
 /* ---------- The cap, and what the months kept ---------- */
@@ -1558,7 +1643,7 @@ console.log("\nthe budget map");
     writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
     writeStore("remembre.budgetmoves.v1", null);
     await importCsvText(csv, { label: "for the map" });
-    state.moneyMonth = latestMonth();
+    state.moneyMonth = monthOf(shiftISO(todayISO(), -14));
     renderBudgetMap();
 
     const svg = document.querySelector(".budget-map");

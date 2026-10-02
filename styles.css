@@ -3264,3 +3264,7 @@ body.on-money .dialog-tx .dialog-title { font-family: var(--font-body); font-wei
 .today-line.is-close .today-figure { color: var(--now); }
 .today-line.is-over .today-figure { color: var(--danger); }
 .today-note { flex-basis: 100%; font-size: .8rem; }
+
+/* ---------- The week, read back ---------- */
+
+.card-debrief { border-left: 3px solid var(--accent); }

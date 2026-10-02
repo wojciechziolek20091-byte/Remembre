@@ -150,6 +150,36 @@ const callAdvise = async (url, body) => {
   check("and a month with no categories in it", noCategories.body.thin === true, JSON.stringify(noCategories.body));
 }
 
+console.log("\nthe Sunday debrief");
+
+{
+  const debrief = read("debrief.js");
+  const playbook = read("_playbook.js");
+
+  // It is its own route because it calls Claude, which takes tens of seconds,
+  // and the reminder run is called every quarter of an hour.
+  check("it is allowed the time the model takes", /export const maxDuration = 60/.test(debrief));
+  check("and generating happens in one place", (debrief.match(/messages\.create/g) || []).length === 1);
+  check("the answer's shape is the tool's", /input_schema: SHAPE/.test(debrief));
+  check("a half-answer is refused rather than stored",
+    /SHAPE\.required\.every/.test(debrief) && /came back as prose/.test(debrief));
+
+  // Only on a Sunday evening where the reader is, and never twice.
+  check("it is gated on the reader's own Sunday",
+    /getUTCDay\(\) === 0/.test(debrief) && /clock\.hour < EVENING/.test(debrief));
+  check("and never writes the same week twice",
+    /weeks\.some\(\(one\) => one\.week === week\)/.test(debrief));
+  check("a run with no secret writes nothing",
+    /dryRun: true, message: "No secret/.test(debrief));
+
+  check("the prompt knows the week has two halves",
+    /Weekdays are Monday to Thursday/.test(playbook) && /weekend is Friday to Sunday/.test(playbook));
+  check("and that finding a problem every week is how it gets ignored",
+    /gets ignored/.test(playbook) && /Nothing needs curbing/.test(playbook));
+  check("the headline is written for a lock screen",
+    /readable on a lock screen/.test(playbook));
+}
+
 console.log("\nan answer that arrives the wrong way round");
 
 {
