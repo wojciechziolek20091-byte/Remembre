@@ -196,6 +196,99 @@ console.log("\nwhen the browser refuses things");
 
 /* ---------- Done ---------- */
 
+/* ---------- Choosing a half ---------- */
+
+console.log("\nchoosing one of the two");
+
+const { context: chooseContext, page } = await launch();
+await page.waitForSelector("#chooser", { state: "visible", timeout: 8000 });
+
+{
+  const chooser = await page.evaluate(() => {
+    setArea("");
+    const tiles = [...document.querySelectorAll(".chooser-tiles .tile")];
+    return {
+      count: tiles.length,
+      // Staggered, so the eye is led across them in the order they are read.
+      delays: tiles.map((tile) => getComputedStyle(tile).animationDelay),
+      named: tiles.map((tile) => getComputedStyle(tile).animationName),
+      title: getComputedStyle(document.querySelector(".chooser-title")).animationName,
+    };
+  });
+
+  check("both tiles arrive rather than appear", chooser.named, ["tile-arrive", "tile-arrive"]);
+  check("the second a beat behind the first", chooser.delays, ["0.07s", "0.15s"]);
+  check("and the title comes up with them", chooser.title, "chooser-rise");
+}
+
+{
+  // The state changes at once; what animates is a copy. Nothing downstream
+  // waits on it, and nothing can be caught half-switched.
+  await page.click('[data-area="money"]');
+  const during = await page.evaluate(() => ({
+    money: !document.getElementById("money-area").hidden,
+    chooser: !document.getElementById("chooser").hidden,
+    ghosts: document.querySelectorAll(".tile-ghost").length,
+    arriving: document.querySelectorAll(".area-arriving").length,
+    inert: [...document.querySelectorAll(".tile-ghost")].every((one) =>
+      one.getAttribute("aria-hidden") === "true"
+      && one.getAttribute("tabindex") === "-1"
+      && !one.id
+      && !one.dataset.area),
+  }));
+
+  check("the half is open on the same tick as the tap", during.money, true);
+  check("and the chooser is already gone", during.chooser, false);
+  check("a copy of the tile is left to animate", during.ghosts, 1);
+  check("the half it opened into comes up to meet it", during.arriving, 1);
+  check("and the copy is inert: no id, no focus, nothing to read", during.inert, true);
+
+  await page.waitForFunction(() => document.querySelectorAll(".tile-ghost").length === 0, null,
+    { timeout: 2000 });
+  check("the copy takes itself away", await page.evaluate(() =>
+    document.querySelectorAll(".tile-ghost").length), 0);
+  check("leaving the half it opened", await page.evaluate(() =>
+    !document.getElementById("money-area").hidden), true);
+}
+
+{
+  // Choosing the same half twice in a row still animates: the class is taken
+  // off and put back with a reflow between, or the second arrival is silent.
+  await page.evaluate(() => setArea(""));
+  await page.click('[data-area="money"]');
+  check("choosing it again animates again",
+    await page.evaluate(() => document.querySelectorAll(".area-arriving").length), 1);
+  await page.waitForFunction(() => document.querySelectorAll(".tile-ghost").length === 0, null,
+    { timeout: 2000 });
+}
+
+{
+  // Asked to stay still, it is a change of state and nothing else.
+  const still = await browser.newContext({
+    viewport: { width: 900, height: 700 }, reducedMotion: "reduce",
+  });
+  const quiet = await still.newPage();
+  await quiet.addInitScript(() => {
+    try { sessionStorage.setItem("getagrip.welcomed", "yes"); } catch (err) { /* no storage, no matter */ }
+  });
+  await quiet.goto(base);
+  await quiet.waitForSelector("#chooser");
+  await quiet.click('[data-area="school"]');
+
+  check("with motion turned down, no copy is made",
+    await quiet.evaluate(() => document.querySelectorAll(".tile-ghost").length), 0);
+  check("and the half is open all the same",
+    await quiet.evaluate(() => !document.getElementById("school-area").hidden), true);
+  check("with the tiles not animated",
+    await quiet.evaluate(() => {
+      setArea("");
+      return getComputedStyle(document.querySelector(".chooser-tiles .tile")).animationName;
+    }), "none");
+  await still.close();
+}
+
+await chooseContext.close();
+
 check("no page errors throughout", problems, []);
 
 await browser.close();

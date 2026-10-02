@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.02-64";
+const APP_VERSION = "2026.10.02-65";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1430,12 +1430,65 @@ function restoreArea() {
   setArea(held, { remember: false });
 }
 
+/*
+  Choosing a half, with the choice visible.
+
+  The state changes at once -- the chooser is hidden and the half is shown on
+  the same tick, so nothing downstream has to wait on an animation and nothing
+  can be caught half-switched. What animates is a copy: the chosen tile is
+  cloned where it stood, lifted onto the page, and grown and faded out over
+  the half that is now underneath it, which reads as the tile opening into the
+  page rather than as one thing being swapped for another.
+
+  The copy is inert -- no id, aria-hidden, not in the tab order -- and takes
+  itself away when it is done. If anything goes wrong it is one element on top
+  of a page that is already correct.
+*/
+const CHOOSE_MS = 420;
+
+function chooseArea(area, tile) {
+  announce(area === "money" ? "Money opened." : "Schoolwork opened.");
+
+  if (!tile || stillness()) {
+    setArea(area);
+    return;
+  }
+
+  const box = tile.getBoundingClientRect();
+  const ghost = tile.cloneNode(true);
+  ghost.removeAttribute("id");
+  ghost.removeAttribute("data-area");
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.setAttribute("tabindex", "-1");
+  ghost.disabled = true;
+  ghost.className = `${tile.className} tile-ghost`;
+  ghost.style.cssText =
+    `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;`;
+
+  document.body.append(ghost);
+  setArea(area);
+
+  const shown = $(area === "money" ? "money-area" : "school-area");
+  if (shown) {
+    shown.classList.remove("area-arriving");
+    // Reading offsetWidth restarts the animation when the same half is chosen
+    // twice in a row; without it the second choice arrives without one.
+    void shown.offsetWidth;
+    shown.classList.add("area-arriving");
+    window.setTimeout(() => shown.classList.remove("area-arriving"), CHOOSE_MS + 120);
+  }
+
+  window.requestAnimationFrame(() => ghost.classList.add("is-opening"));
+  window.setTimeout(() => ghost.remove(), CHOOSE_MS);
+}
+
+/** Whether the reader has asked for things to stay still. */
+const stillness = () => window.matchMedia
+  && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 function setupAreas() {
   document.querySelectorAll("[data-area]").forEach((tile) => {
-    tile.addEventListener("click", () => {
-      setArea(tile.dataset.area);
-      announce(tile.dataset.area === "money" ? "Money opened." : "Schoolwork opened.");
-    });
+    tile.addEventListener("click", () => chooseArea(tile.dataset.area, tile));
   });
   $("area-back").addEventListener("click", () => {
     setArea("");

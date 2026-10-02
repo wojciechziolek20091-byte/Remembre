@@ -2015,15 +2015,99 @@ body.is-booting { overflow: hidden; }
   border-top: 4px solid var(--accent);
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: border-color .12s ease, transform .12s ease;
+  transition:
+    border-color .18s ease,
+    transform .18s cubic-bezier(.22, .9, .3, 1),
+    box-shadow .18s ease;
 }
 
-.tile:hover { border-color: var(--line-strong); }
-.tile:active { transform: translateY(1px); }
+.tile:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-3px);
+  box-shadow: 0 14px 30px -18px rgba(0, 0, 0, .45);
+}
 
+.tile:hover .tile-icon { transform: scale(1.06) rotate(-2deg); }
+
+/* Pressed, it gives: the only part of this that is felt rather than seen. */
+.tile:active {
+  transform: translateY(0) scale(.985);
+  transition-duration: .06s;
+}
+
+/*
+  The two of them arrive rather than appear. A short rise with a little
+  overshoot, the second a beat behind the first, so the eye is led across them
+  in the order they are meant to be read. `backwards` keeps them at the start
+  of the animation during the delay, which is the difference between a stagger
+  and a flicker.
+*/
+.chooser-title { animation: chooser-rise .45s cubic-bezier(.22, .9, .3, 1) backwards; }
+.chooser-tiles .tile {
+  animation: tile-arrive .52s cubic-bezier(.22, 1.2, .36, 1) backwards;
+}
+
+.chooser-tiles .tile:nth-child(1) { animation-delay: .07s; }
+.chooser-tiles .tile:nth-child(2) { animation-delay: .15s; }
+
+@keyframes chooser-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tile-arrive {
+  from { opacity: 0; transform: translateY(18px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/*
+  The copy of the tile that is left behind when one is chosen. It grows a
+  little and fades over the half that is already underneath it, so the tile
+  reads as opening into the page.
+*/
+.tile-ghost {
+  position: fixed;
+  z-index: 60;
+  margin: 0;
+  pointer-events: none;
+  transform-origin: center;
+  /*
+    Measured rather than guessed: the first curve here was 90% done in the
+    first fifth of its time, which is a jump followed by a crawl rather than
+    a movement. This one eases out across the whole 420ms, and the fade is
+    held back 60ms so the tile is seen growing before it starts to go.
+  */
+  transition:
+    transform .42s cubic-bezier(.22, .61, .36, 1),
+    opacity .34s cubic-bezier(.4, 0, .7, .65);
+  will-change: transform, opacity;
+}
+
+.tile-ghost.is-opening {
+  transform: scale(1.16);
+  opacity: 0;
+}
+
+/* And the half it opened into comes up to meet it. */
+.area-arriving {
+  animation: area-arrive .36s cubic-bezier(.22, .9, .3, 1) both;
+}
+
+@keyframes area-arrive {
+  from { opacity: 0; transform: translateY(10px) scale(.994); }
+  to { opacity: 1; transform: none; }
+}
+
+/*
+  Asked to stay still, everything here is a change of state and nothing else:
+  no rise, no stagger, no ghost (the script does not make one), no arrival.
+*/
 @media (prefers-reduced-motion: reduce) {
   .tile { transition: none; }
-  .tile:active { transform: none; }
+  .tile:hover, .tile:active { transform: none; box-shadow: none; }
+  .tile:hover .tile-icon { transform: none; }
+  .chooser-title, .chooser-tiles .tile, .area-arriving { animation: none; }
+  .tile-ghost { display: none; }
 }
 
 .tile-icon {
@@ -2031,6 +2115,7 @@ body.is-booting { overflow: hidden; }
   height: 2rem;
   color: var(--accent);
   margin-bottom: .35rem;
+  transition: transform .18s cubic-bezier(.22, .9, .3, 1);
 }
 
 .tile-name {
