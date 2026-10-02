@@ -97,8 +97,15 @@ overwritten by them on the next import.
 Saved, here, means money that came in and did not go out again. It is not a
 separate account and the app will not pretend it is one -- the proof is the
 balance, which is why the two sit on the same page. The box adds the shape of
-it: a figure for the whole run, a row per month, and which months kept
-something. External money is on neither side of it.
+it: a figure for the run, a row per month, and which months kept something.
+External money is on neither side of it.
+
+The count starts at the month it was first asked for and runs from there.
+Months before it are neither counted nor shown: what was spent before there
+was a plan to spend it against is history, and a running total carrying it
+forward is a running total nobody can read. The start month is remembered, so
+the figure keeps growing rather than resetting every time the calendar turns
+over.
 
 ### Today, and the carry
 

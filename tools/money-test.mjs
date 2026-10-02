@@ -1403,6 +1403,9 @@ console.log("\nmoney saved");
   const saved = await page.evaluate(async () => {
     state.transactions = [];
     writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
+    // The count starts where it was asked to start; this fixture is about the
+    // months before that, so it says where.
+    writeStore("remembre.savedfrom.v1", "2026-08");
     const add = (date, amount, category) => state.transactions.push(normaliseTransaction({
       id: `${date}-${amount}`, date, amount, category, counterparty: amount > 0 ? "MAMA" : "ZABKA",
     }));
@@ -1436,11 +1439,43 @@ console.log("\nmoney saved");
   check("with a row per month", saved.rows, 2);
   check("the best month is named", saved.best, "2026-08");
   check("and it says how many months kept anything", /1 of 2 finished months/.test(saved.note), true, saved.note);
+  check("naming where the count starts", /Since August 2026/.test(saved.note), true, saved.note);
+}
+
+{
+  // Months before the start are not counted and not shown.
+  const later = await page.evaluate(() => {
+    writeStore("remembre.savedfrom.v1", "2026-09");
+    renderSaved();
+    const standing = savingsStanding();
+    return {
+      months: standing.months.map((row) => row.key),
+      total: standing.total,
+      rows: document.querySelectorAll(".saved-month").length,
+    };
+  });
+  check("an earlier month is left out of the rows", later.months, ["2026-09"]);
+  check("and out of the total", later.total, -10000);
+  check("with the card showing only what it counts", later.rows, 1);
+
+  const fresh = await page.evaluate(() => {
+    writeStore("remembre.savedfrom.v1", "2026-12");
+    renderSaved();
+    return {
+      figure: document.querySelector(".saved-figure").textContent,
+      note: document.querySelector("#money-saved .kpi-note").textContent,
+    };
+  });
+  check("a start month with nothing in it yet reads as zero", /0,00 zł/.test(fresh.figure), true, fresh.figure);
+  check("and says what it is waiting for", /Counting from December 2026/.test(fresh.note), true, fresh.note);
 }
 
 {
   // A month that went backwards is not dressed up as a saving.
   const negative = await page.evaluate(() => {
+    // Back to the start month this section built its fixture around.
+    writeStore("remembre.savedfrom.v1", "2026-08");
+    renderSaved();
     const row = [...document.querySelectorAll(".saved-month")]
       .find((n) => /Sep/.test(n.textContent));
     return { marked: row.className, sum: row.querySelector(".saved-sum").textContent };

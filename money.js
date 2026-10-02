@@ -2620,8 +2620,30 @@ function renderDebrief() {
   saving.
 */
 
+/*
+  Where the count starts.
+
+  Months before it are not counted and not shown: what was spent before there
+  was a plan to spend it against is history, and a running total that carries
+  it forward is a running total that cannot be read. The month this was first
+  asked for is remembered, so the figure keeps growing from there rather than
+  resetting itself every time the calendar turns over.
+*/
+const MONEY_SAVED_FROM = "remembre.savedfrom.v1";
+
+function savedFrom() {
+  const held = readStore(MONEY_SAVED_FROM, "");
+  if (/^\d{4}-\d{2}$/.test(held)) return held;
+  const now = monthOf(todayISO());
+  writeStore(MONEY_SAVED_FROM, now);
+  return now;
+}
+
 function savingsByMonth() {
-  const months = [...new Set(liveTransactions().map((entry) => monthOf(entry.date)))].sort();
+  const from = savedFrom();
+  const months = [...new Set(liveTransactions().map((entry) => monthOf(entry.date)))]
+    .filter((key) => key >= from)
+    .sort();
   return months.map((key) => {
     const month = monthReport(key);
     return {
@@ -2640,6 +2662,7 @@ function savingsStanding() {
   const now = months.find((row) => row.key === thisMonth) || null;
 
   return {
+    from: savedFrom(),
     months,
     done,
     now,
@@ -2654,10 +2677,13 @@ function renderSaved() {
   if (!wrap) return;
 
   const standing = savingsStanding();
+  const since = monthName(standing.from);
+
   if (standing.months.length === 0) {
     show(wrap, [
       el("p", { class: "card-title", text: "Money saved" }),
-      el("p", { class: "empty", text: "Nothing imported yet." }),
+      el("p", { class: "saved-figure", text: zloty(0) }),
+      el("p", { class: "kpi-note", text: `Counting from ${since}. Nothing in it yet.` }),
     ]);
     return;
   }
@@ -2668,8 +2694,8 @@ function renderSaved() {
     el("p", { class: "card-title", text: "Money saved" }),
     el("p", { class: `saved-figure${standing.total < 0 ? " is-negative" : ""}`, text: zloty(standing.total) }),
     el("p", { class: "kpi-note", text: standing.done.length === 0
-      ? "This month so far. A month that ends with money left is a month saved."
-      : `Across ${standing.months.length} months — ${standing.kept} of ${standing.done.length} finished months kept something.` }),
+      ? `Since ${since}. A month that ends with money left is a month saved.`
+      : `Since ${since} — ${standing.kept} of ${standing.done.length} finished months kept something.` }),
 
     el("ul", { class: "saved-months" }, standing.months.slice(-6).map((row) => {
       const share = Math.round((Math.abs(row.saved) / biggest) * 100);
