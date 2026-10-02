@@ -250,8 +250,33 @@ await page.waitForSelector("#chooser", { state: "visible", timeout: 8000 });
   // of paper on the way in.
   check("it takes the colour of the half arriving", during.ground, during.bodyGround);
 
-  await page.waitForFunction(() => document.querySelectorAll(".area-curtain").length === 0, null,
-    { timeout: 4000 });
+  /*
+    It has to be seen to go, not merely to stop existing. An earlier version
+    faded in with animation-fill-mode: both, which pinned its opacity at 1 for
+    ever -- an animation's value beats a transition's -- so the class that was
+    meant to dissolve it did nothing and the curtain was simply removed.
+  */
+  const leaving = await page.evaluate(() => new Promise((done) => {
+    const seen = { ring: [], curtain: [] };
+    const tick = () => {
+      const c = document.querySelector(".area-curtain");
+      const inner = document.querySelector(".curtain-inner");
+      if (!c) return done(seen);
+      if (inner) seen.ring.push(Number(getComputedStyle(inner).opacity));
+      seen.curtain.push(Number(getComputedStyle(c).opacity));
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }));
+
+  check("the ring goes before the curtain does",
+    Math.min(...leaving.ring) < 0.05, true, `ring reached ${Math.min(...leaving.ring).toFixed(2)}`);
+  check("and the curtain is seen to dissolve rather than vanish",
+    leaving.curtain.some((o) => o > 0.1 && o < 0.9), true,
+    `curtain went ${leaving.curtain.map((o) => o.toFixed(1)).filter((v, i, a) => v !== a[i - 1]).join(" ")}`);
+  check("reaching nothing before it is taken away",
+    Math.min(...leaving.curtain) < 0.1, true, `lowest ${Math.min(...leaving.curtain).toFixed(2)}`);
+
   check("the curtain lifts by itself", await page.evaluate(() =>
     document.querySelectorAll(".area-curtain").length), 0);
   check("leaving the half it covered", await page.evaluate(() =>

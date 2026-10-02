@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.02-66";
+const APP_VERSION = "2026.10.02-67";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1448,7 +1448,18 @@ function restoreArea() {
 */
 const CURTAIN_FLOOR = 520;    // Long enough to read as deliberate.
 const CURTAIN_CEILING = 1400; // And never long enough to feel stuck.
-const CURTAIN_OUT = 300;
+
+/*
+  Leaving happens in two parts rather than one.
+
+  The ring and the word go first, quickly, which is what "done" looks like.
+  Only then does the curtain itself dissolve, and the half settles forward
+  behind it. Doing both at once was the whole of what felt abrupt: a spinner
+  disappearing mid-turn reads as an interruption, and two things moving in the
+  same a quarter-second reads as one thing jumping.
+*/
+const CURTAIN_SETTLE = 160;
+const CURTAIN_LIFT = 460;
 
 function chooseArea(area, tile) {
   announce(area === "money" ? "Money opened." : "Schoolwork opened.");
@@ -1477,17 +1488,25 @@ function chooseArea(area, tile) {
   const ceiling = new Promise((done) => window.setTimeout(done, CURTAIN_CEILING));
 
   Promise.race([Promise.all([painted, floor]), ceiling]).then(() => {
-    curtain.classList.add("is-lifting");
-    const shown = $(area === "money" ? "money-area" : "school-area");
-    if (shown) {
-      shown.classList.remove("area-arriving");
-      // Reading offsetWidth restarts the animation when the same half is
-      // chosen twice; without it the second arrival is silent.
-      void shown.offsetWidth;
-      shown.classList.add("area-arriving");
-      window.setTimeout(() => shown.classList.remove("area-arriving"), CURTAIN_OUT + 200);
-    }
-    window.setTimeout(() => curtain.remove(), CURTAIN_OUT);
+    // One: the ring finishes its turn and the word goes.
+    curtain.classList.add("is-settling");
+
+    window.setTimeout(() => {
+      // Two: the curtain dissolves, and the half comes forward behind it.
+      curtain.classList.add("is-lifting");
+
+      const shown = $(area === "money" ? "money-area" : "school-area");
+      if (shown) {
+        shown.classList.remove("area-arriving");
+        // Reading offsetWidth restarts the animation when the same half is
+        // chosen twice; without it the second arrival is silent.
+        void shown.offsetWidth;
+        shown.classList.add("area-arriving");
+        window.setTimeout(() => shown.classList.remove("area-arriving"), CURTAIN_LIFT + 220);
+      }
+
+      window.setTimeout(() => curtain.remove(), CURTAIN_LIFT);
+    }, CURTAIN_SETTLE);
   });
 }
 

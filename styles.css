@@ -2074,13 +2074,38 @@ body.is-booting { overflow: hidden; }
   display: grid;
   place-items: center;
   background: var(--ground);
-  animation: curtain-in .16s ease-out both;
-  transition: opacity .3s ease, transform .3s cubic-bezier(.3, .7, .4, 1);
+  /*
+    No fill mode. "both" keeps the last keyframe applying for ever, and an
+    animation's value beats a transition's: the curtain faded in, then sat at
+    opacity 1 while the class that was supposed to dissolve it did nothing at
+    all. It was only ever removed, never seen to go.
+  */
+  animation: curtain-in .16s ease-out;
+  transition:
+    opacity .46s cubic-bezier(.4, 0, .25, 1),
+    transform .46s cubic-bezier(.22, .61, .36, 1);
+}
+
+/*
+  Leaving, in two parts. The ring and the word go first -- that is what "done"
+  looks like -- and the curtain follows a beat later, receding towards the
+  reader as it dissolves so the half behind it is arriving rather than being
+  uncovered.
+*/
+.area-curtain .curtain-inner {
+  transition:
+    opacity .16s ease-in,
+    transform .22s cubic-bezier(.4, 0, .6, 1);
+}
+
+.area-curtain.is-settling .curtain-inner {
+  opacity: 0;
+  transform: scale(.92);
 }
 
 .area-curtain.is-lifting {
   opacity: 0;
-  transform: scale(1.03);
+  transform: scale(1.06);
   pointer-events: none;
 }
 
@@ -2114,14 +2139,21 @@ body.is-booting { overflow: hidden; }
   animation: chooser-rise .3s .1s ease-out backwards;
 }
 
-/* And the half it opened into comes up to meet it. */
+/*
+  And the half comes forward to meet it.
+
+  No fade: the page is whole and already behind the curtain, and fading it in
+  under a curtain that is itself fading leaves both of them half there at
+  once, which is the washed-out moment this was trying to avoid. It only
+  settles -- a little nearer, a little straighter -- while the curtain goes.
+*/
 .area-arriving {
-  animation: area-arrive .36s cubic-bezier(.22, .9, .3, 1) both;
+  animation: area-arrive .52s cubic-bezier(.19, .78, .28, 1) both;
 }
 
 @keyframes area-arrive {
-  from { opacity: 0; transform: translateY(10px) scale(.994); }
-  to { opacity: 1; transform: none; }
+  from { transform: translateY(7px) scale(.991); }
+  to { transform: none; }
 }
 
 /*
