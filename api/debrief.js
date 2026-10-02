@@ -1,7 +1,7 @@
 import { checkCode, cors, json, notConfigured, store, vaultKey } from "./_store.js";
 import { aiClient, aiReport, MODEL } from "./_ai.js";
 import { DEBRIEF_SYSTEM } from "./_playbook.js";
-import { monthOf, parseBudgets, weekReview, weekStart } from "./_budget.js";
+import { monthOf, parseBudgets, shiftISO, weekReview, weekStart } from "./_budget.js";
 import { listSubscriptions } from "./_push.js";
 
 /**
@@ -38,13 +38,21 @@ export default async function handler(req, res) {
     return json(res, 200, { ok: true, dryRun: true, message: "No secret, so nothing was written." });
   }
 
+  /*
+    Without force, a knock on this route can cost at most one reading per
+    vault per week, whoever knocks: the Sunday gate and the already-written
+    check between them see to that. With force it could cost one per knock,
+    so force needs the secret -- and where no secret is set, there is nothing
+    to prove, so force is simply ignored.
+  */
+  const asked = new URL(req.url, "http://localhost").searchParams.get("force") === "1";
+  const force = asked && Boolean(secret) && offered === secret;
+
   const live = store();
   if (!live) return notConfigured(res);
   if (!aiReport().configured) {
     return json(res, 503, { ok: false, message: "No API key, so nothing can be read." });
   }
-
-  const force = new URL(req.url, "http://localhost").searchParams.get("force") === "1";
 
   try {
     const vaults = new Map();
@@ -82,6 +90,9 @@ async function read(req, res) {
 async function writeFor(live, vault, zone, force) {
   const clock = localDate(zone);
   const sunday = clock.date;
+  // The week's own Sunday, which is the day it is written on and is not, when
+  // a run is forced out of hours for testing.
+  const weekEnd = shiftISO(weekStart(sunday), 6);
 
   // Sunday, and late enough in it to be looking back rather than forward.
   const isSunday = new Date(`${sunday}T12:00:00Z`).getUTCDay() === 0;
@@ -109,7 +120,8 @@ async function writeFor(live, vault, zone, force) {
   const answer = await ask(digestOf(review, settings));
   const record = {
     week,
-    sunday,
+    sunday: weekEnd,
+    writtenOn: sunday,
     at: new Date().toISOString(),
     spent: review.now.out,
     allowed: review.allowed,

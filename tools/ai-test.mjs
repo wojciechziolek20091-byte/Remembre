@@ -171,6 +171,12 @@ console.log("\nthe Sunday debrief");
     /weeks\.some\(\(one\) => one\.week === week\)/.test(debrief));
   check("a run with no secret writes nothing",
     /dryRun: true, message: "No secret/.test(debrief));
+  // Without force the worst a knock can cost is one reading per vault per
+  // week; with it, one per knock. So force needs the secret.
+  check("and forcing one needs the secret",
+    /const force = asked && Boolean\(secret\) && offered === secret/.test(debrief));
+  check("the week's Sunday is the week's, not the day it was written",
+    /sunday: weekEnd/.test(debrief) && /writtenOn: sunday/.test(debrief));
 
   check("the prompt knows the week has two halves",
     /Weekdays are Monday to Thursday/.test(playbook) && /weekend is Friday to Sunday/.test(playbook));
