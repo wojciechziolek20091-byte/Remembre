@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.02-65";
+const APP_VERSION = "2026.10.02-66";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1431,55 +1431,89 @@ function restoreArea() {
 }
 
 /*
-  Choosing a half, with the choice visible.
+  Choosing a half, with a beat in between.
 
   The state changes at once -- the chooser is hidden and the half is shown on
-  the same tick, so nothing downstream has to wait on an animation and nothing
-  can be caught half-switched. What animates is a copy: the chosen tile is
-  cloned where it stood, lifted onto the page, and grown and faded out over
-  the half that is now underneath it, which reads as the tile opening into the
-  page rather than as one thing being swapped for another.
+  the same tick, so nothing downstream waits on an animation and nothing can
+  be caught half-switched. What stands in front of it is a curtain: the app's
+  own ring, turning, over the ground colour of the half that is arriving.
 
-  The copy is inert -- no id, aria-hidden, not in the tab order -- and takes
-  itself away when it is done. If anything goes wrong it is one element on top
-  of a page that is already correct.
+  The beat is not decoration pretending to be work. Opening the money half
+  renders a dashboard, asks the bank where it stands, asks for the week and
+  starts the reading; opening schoolwork lays out a term. The curtain lifts
+  when that first paint has happened, with a floor under it so it cannot
+  flicker and a ceiling over it so it cannot hang. The ground colour is read
+  after the switch, so the dark half arrives from its own dark rather than
+  through a flash of paper.
 */
-const CHOOSE_MS = 420;
+const CURTAIN_FLOOR = 520;    // Long enough to read as deliberate.
+const CURTAIN_CEILING = 1400; // And never long enough to feel stuck.
+const CURTAIN_OUT = 300;
 
 function chooseArea(area, tile) {
   announce(area === "money" ? "Money opened." : "Schoolwork opened.");
 
-  if (!tile || stillness()) {
+  if (stillness()) {
     setArea(area);
     return;
   }
 
-  const box = tile.getBoundingClientRect();
-  const ghost = tile.cloneNode(true);
-  ghost.removeAttribute("id");
-  ghost.removeAttribute("data-area");
-  ghost.setAttribute("aria-hidden", "true");
-  ghost.setAttribute("tabindex", "-1");
-  ghost.disabled = true;
-  ghost.className = `${tile.className} tile-ghost`;
-  ghost.style.cssText =
-    `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;`;
+  const curtain = el(
+    "div",
+    { class: "area-curtain", "aria-hidden": "true" },
+    el("div", { class: "curtain-inner" },
+      ringMark(),
+      el("p", { class: "curtain-what", text: area === "money" ? "Money" : "Schoolwork" }))
+  );
+  document.body.append(curtain);
 
-  document.body.append(ghost);
+  // The switch happens behind it, including the class that decides the ground.
   setArea(area);
 
-  const shown = $(area === "money" ? "money-area" : "school-area");
-  if (shown) {
-    shown.classList.remove("area-arriving");
-    // Reading offsetWidth restarts the animation when the same half is chosen
-    // twice in a row; without it the second choice arrives without one.
-    void shown.offsetWidth;
-    shown.classList.add("area-arriving");
-    window.setTimeout(() => shown.classList.remove("area-arriving"), CHOOSE_MS + 120);
-  }
+  const painted = new Promise((done) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(done));
+  });
+  const floor = new Promise((done) => window.setTimeout(done, CURTAIN_FLOOR));
+  const ceiling = new Promise((done) => window.setTimeout(done, CURTAIN_CEILING));
 
-  window.requestAnimationFrame(() => ghost.classList.add("is-opening"));
-  window.setTimeout(() => ghost.remove(), CHOOSE_MS);
+  Promise.race([Promise.all([painted, floor]), ceiling]).then(() => {
+    curtain.classList.add("is-lifting");
+    const shown = $(area === "money" ? "money-area" : "school-area");
+    if (shown) {
+      shown.classList.remove("area-arriving");
+      // Reading offsetWidth restarts the animation when the same half is
+      // chosen twice; without it the second arrival is silent.
+      void shown.offsetWidth;
+      shown.classList.add("area-arriving");
+      window.setTimeout(() => shown.classList.remove("area-arriving"), CURTAIN_OUT + 200);
+    }
+    window.setTimeout(() => curtain.remove(), CURTAIN_OUT);
+  });
+}
+
+/** The wordmark's ring, on its own, for the curtain to turn. */
+function ringMark() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "curtain-ring");
+  svg.setAttribute("viewBox", "0 0 64 64");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+
+  const node = (name, attrs) => {
+    const made = document.createElementNS("http://www.w3.org/2000/svg", name);
+    Object.entries(attrs).forEach(([key, value]) => made.setAttribute(key, String(value)));
+    return made;
+  };
+
+  const group = node("g", { class: "curtain-arcs", fill: "none", "stroke-width": 6.5, "stroke-linecap": "round" });
+  [
+    "M36.84 12.59A20 20 0 0 1 51.23 37.51",
+    "M46.39 45.89A20 20 0 0 1 17.61 45.89",
+    "M12.77 37.51A20 20 0 0 1 27.16 12.59",
+  ].forEach((d) => group.append(node("path", { d })));
+
+  svg.append(group, node("circle", { class: "curtain-dot", cx: 32, cy: 32, r: 5.5 }));
+  return svg;
 }
 
 /** Whether the reader has asked for things to stay still. */

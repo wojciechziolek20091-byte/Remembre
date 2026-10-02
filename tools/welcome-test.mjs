@@ -222,33 +222,59 @@ await page.waitForSelector("#chooser", { state: "visible", timeout: 8000 });
 }
 
 {
-  // The state changes at once; what animates is a copy. Nothing downstream
-  // waits on it, and nothing can be caught half-switched.
+  // The state changes at once; what stands in front of it is a curtain.
+  // Nothing downstream waits on it, and nothing can be caught half-switched.
   await page.click('[data-area="money"]');
-  const during = await page.evaluate(() => ({
-    money: !document.getElementById("money-area").hidden,
-    chooser: !document.getElementById("chooser").hidden,
-    ghosts: document.querySelectorAll(".tile-ghost").length,
-    arriving: document.querySelectorAll(".area-arriving").length,
-    inert: [...document.querySelectorAll(".tile-ghost")].every((one) =>
-      one.getAttribute("aria-hidden") === "true"
-      && one.getAttribute("tabindex") === "-1"
-      && !one.id
-      && !one.dataset.area),
-  }));
+  const during = await page.evaluate(() => {
+    const curtain = document.querySelector(".area-curtain");
+    return {
+      money: !document.getElementById("money-area").hidden,
+      chooser: !document.getElementById("chooser").hidden,
+      curtains: document.querySelectorAll(".area-curtain").length,
+      named: (document.querySelector(".curtain-what") || {}).textContent,
+      ring: Boolean(document.querySelector(".curtain-arcs")),
+      hidden: curtain ? curtain.getAttribute("aria-hidden") : "",
+      // The curtain takes the colour of the half arriving behind it.
+      ground: curtain ? getComputedStyle(curtain).backgroundColor : "",
+      bodyGround: getComputedStyle(document.body).backgroundColor,
+    };
+  });
 
   check("the half is open on the same tick as the tap", during.money, true);
   check("and the chooser is already gone", during.chooser, false);
-  check("a copy of the tile is left to animate", during.ghosts, 1);
-  check("the half it opened into comes up to meet it", during.arriving, 1);
-  check("and the copy is inert: no id, no focus, nothing to read", during.inert, true);
+  check("a curtain stands in front of it", during.curtains, 1);
+  check("saying which half is coming", during.named, "Money");
+  check("with the app's own ring turning on it", during.ring, true);
+  check("and nothing on it for a screen reader", during.hidden, "true");
+  // The money half is dark; the curtain is dark with it, so there is no flash
+  // of paper on the way in.
+  check("it takes the colour of the half arriving", during.ground, during.bodyGround);
 
-  await page.waitForFunction(() => document.querySelectorAll(".tile-ghost").length === 0, null,
-    { timeout: 2000 });
-  check("the copy takes itself away", await page.evaluate(() =>
-    document.querySelectorAll(".tile-ghost").length), 0);
-  check("leaving the half it opened", await page.evaluate(() =>
+  await page.waitForFunction(() => document.querySelectorAll(".area-curtain").length === 0, null,
+    { timeout: 4000 });
+  check("the curtain lifts by itself", await page.evaluate(() =>
+    document.querySelectorAll(".area-curtain").length), 0);
+  check("leaving the half it covered", await page.evaluate(() =>
     !document.getElementById("money-area").hidden), true);
+}
+
+{
+  // Long enough to read as deliberate, never long enough to feel stuck.
+  await page.evaluate(() => setArea(""));
+  await page.waitForTimeout(200);
+  const held = await page.evaluate(async () => {
+    const started = performance.now();
+    document.querySelector('[data-area="school"]').click();
+    await new Promise((done) => {
+      const watch = new MutationObserver(() => {
+        if (!document.querySelector(".area-curtain")) { watch.disconnect(); done(); }
+      });
+      watch.observe(document.body, { childList: true });
+    });
+    return Math.round(performance.now() - started);
+  });
+  check("the beat is long enough to be read", held >= 500, true, `${held}ms`);
+  check("and short enough not to be waited on", held <= 2200, true, `${held}ms`);
 }
 
 {
@@ -256,10 +282,10 @@ await page.waitForSelector("#chooser", { state: "visible", timeout: 8000 });
   // off and put back with a reflow between, or the second arrival is silent.
   await page.evaluate(() => setArea(""));
   await page.click('[data-area="money"]');
+  await page.waitForFunction(() => document.querySelectorAll(".area-curtain").length === 0, null,
+    { timeout: 4000 });
   check("choosing it again animates again",
     await page.evaluate(() => document.querySelectorAll(".area-arriving").length), 1);
-  await page.waitForFunction(() => document.querySelectorAll(".tile-ghost").length === 0, null,
-    { timeout: 2000 });
 }
 
 {
@@ -275,8 +301,8 @@ await page.waitForSelector("#chooser", { state: "visible", timeout: 8000 });
   await quiet.waitForSelector("#chooser");
   await quiet.click('[data-area="school"]');
 
-  check("with motion turned down, no copy is made",
-    await quiet.evaluate(() => document.querySelectorAll(".tile-ghost").length), 0);
+  check("with motion turned down, no curtain is made",
+    await quiet.evaluate(() => document.querySelectorAll(".area-curtain").length), 0);
   check("and the half is open all the same",
     await quiet.evaluate(() => !document.getElementById("school-area").hidden), true);
   check("with the tiles not animated",
