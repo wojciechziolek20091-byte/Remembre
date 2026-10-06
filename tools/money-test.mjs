@@ -592,7 +592,7 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
 }
 
 {
-  const bars = await page.evaluate(() => {
+  const shown = await page.evaluate(() => {
     /*
       The month holding most of the fixture, which is not always the one it
       ends in: the statement runs back three weeks from yesterday, so on the
@@ -600,17 +600,30 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
       app's own default is still latestMonth(); this is the test choosing
       which month it means.
     */
-    state.moneyMonth = monthOf(shiftISO(todayISO(), -14));
+    const monthKey = monthOf(shiftISO(todayISO(), -14));
+    state.moneyMonth = monthKey;
+    /*
+      And a limit the fixture is certainly past, worked out from the fixture
+      rather than written in. How much of a three-week statement lands in that
+      month depends on where in the calendar today is, so a fixed 400 was a
+      budget the data went past in some weeks of the year and not in others.
+    */
+    const food = Math.abs(transactionsIn("food", monthKey)
+      .reduce((sum, entry) => sum + entry.amount, 0));
+    const limit = Math.floor(food / 100) - 50;
+    writeStore("remembre.moneybudgets.v1", `food = ${limit}\ntransport = 100`);
     renderCategoryBars();
-    return [...document.querySelectorAll(".bar-row")].map((row) => ({
+    const rows = [...document.querySelectorAll(".bar-row")].map((row) => ({
       name: row.querySelector(".bar-name").textContent,
       value: row.querySelector(".bar-value").textContent,
       width: row.querySelector(".bar-fill").style.width,
       step: [...row.querySelector(".bar-fill").classList].find((c) => c.startsWith("seq-")),
       note: row.querySelector(".bar-note").textContent,
     }));
+    return { rows, limit };
   });
 
+  const bars = shown.rows;
   check("the categories are a chart, biggest first", bars[0].name, "food");
   check("the biggest bar is full width", bars[0].width, "100%");
   check("and the darkest step of the one hue", bars[0].step, "seq-5");
@@ -619,7 +632,8 @@ function statement({ days = 21, perDay = 20, income = 1000, closing = 1000 } = {
     bars.every((bar) => /\d,\d\d zł$/.test(bar.value)), true);
   check("and its share of the month", /% of the month/.test(bars[0].note), true);
   check("a budget it has gone past is said in words",
-    /over the 400,00 zł limit/.test(bars[0].note), true);
+    new RegExp(`over the ${shown.limit},00 zł limit`).test(bars[0].note), true,
+    bars[0].note);
 
   // Tapping a bar is how you find out which single payment it was.
   await page.click(".bar-row:first-child .bar-open");
@@ -1804,6 +1818,156 @@ console.log("\nthe analysis moving the budgets");
   check("and are marked as applied", always.applied, true);
   check("what is offered is the way back", always.button, "Put them back");
   check("and there is no switch to argue with", always.switches, 0);
+}
+
+console.log("\nopening the half is the refresh");
+
+{
+  /*
+    What the bank is asked, and when. The stub answers for the three routes a
+    refresh touches -- the consent, the fetch, and the sync that carries what
+    the fetch wrote -- and keeps a list, because the point of all this is which
+    calls happen on their own.
+  */
+  const setup = async () => page.evaluate(() => {
+    writeStore("remembre.cloud.v1", { code: "vault-phrase-here", enabled: true, feed: "" });
+    localStorage.removeItem("remembre.bankasked.v1");
+    window.__asked = [];
+    window.__arrival = {
+      id: "from-the-bank", date: todayISO(), amount: -1900, counterparty: "ZABKA",
+      note: "ZABKA Z1", category: "", source: "api", deleted: false,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    window.__failFetch = false;
+    window.fetch = async (url) => {
+      const at = String(url);
+      window.__asked.push(at);
+      if (at.includes("action=status")) {
+        return { ok: true, json: async () => ({
+          ok: true, connected: true, expired: false,
+          accounts: [{ name: "eKonto", iban: "\u20268067" }],
+          validUntil: "2027-01-01T00:00:00.000Z",
+          fetchedTo: todayISO(), lastFetchAt: new Date().toISOString(),
+          balance: null,
+        }) };
+      }
+      if (at.includes("action=fetch")) {
+        if (window.__failFetch) {
+          return { ok: false, json: async () => ({ ok: false, message: "mBank is having a morning." }) };
+        }
+        return { ok: true, json: async () => ({ ok: true, read: 9, added: 1, from: shiftISO(todayISO(), -5) }) };
+      }
+      if (at.includes("/api/sync")) {
+        return { ok: true, json: async () => ({
+          ok: true, feed: "", vault: { tasks: [], coursework: [], sessions: [], transactions: [window.__arrival] },
+        }) };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+    setArea("school");
+  });
+
+  await setup();
+  await page.evaluate(() => setArea("money"));
+  await page.waitForFunction(() => window.__asked.some((u) => u.includes("action=fetch")));
+
+  const first = await page.evaluate(() => ({
+    status: window.__asked.filter((u) => u.includes("action=status")).length,
+    fetched: window.__asked.filter((u) => u.includes("action=fetch")).length,
+    arrived: state.transactions.some((entry) => entry.id === "from-the-bank"),
+  }));
+  check("opening the half asks the bank for anything new", first.fetched, 1);
+  check("not only whether the consent is alive", first.status > 0, true);
+  check("and what it hands back is on the page without asking again", first.arrived, true);
+
+  // Flicking between the halves is not a reason to call a bank.
+  const again = await page.evaluate(async () => {
+    setArea("school");
+    await moneyOpened();
+    await moneyOpened();
+    return window.__asked.filter((u) => u.includes("action=fetch")).length;
+  });
+  check("opening it again straight away does not ask twice", again, 1);
+
+  const byHand = await page.evaluate(async () => {
+    await pullBank({ force: true, loud: true });
+    return {
+      fetched: window.__asked.filter((u) => u.includes("action=fetch")).length,
+      said: (document.querySelector("#money-notice") || {}).textContent || "",
+    };
+  });
+  check("the button is not held to the cooldown", byHand.fetched, 2);
+  check("and says what it found", /1 new transaction from mBank/.test(byHand.said), true, byHand.said);
+
+  // How long ago, in the units a refresh-on-opening actually moves in.
+  const words = await page.evaluate(() => {
+    const now = Date.now();
+    return [
+      freshness(new Date(now - 20 * 1000).toISOString()),
+      freshness(new Date(now - 60 * 1000).toISOString()),
+      freshness(new Date(now - 14 * 60 * 1000).toISOString()),
+      freshness(new Date(now - 2 * 3600 * 1000).toISOString()),
+      freshness(""),
+    ];
+  });
+  check("the reading is dated in minutes, not days",
+    words, ["just now", "a minute ago", "14 minutes ago", "2 hours ago", ""]);
+  check("and the card says when the bank was last heard from",
+    /last checked just now/.test(await page.evaluate(() => document.querySelector(".kpi-bank").textContent)),
+    true, await page.evaluate(() => document.querySelector(".kpi-bank").textContent));
+
+  // A bank that will not answer is not worth a banner over a page you have
+  // only just opened. The status line is where that belongs.
+  const quiet = await page.evaluate(async () => {
+    window.__failFetch = true;
+    localStorage.removeItem("remembre.bankasked.v1");
+    showMoneyNotice("", { tone: "plain" });
+    const before = (document.querySelector("#money-notice") || {}).textContent || "";
+    await pullBank();
+    return {
+      before,
+      after: (document.querySelector("#money-notice") || {}).textContent || "",
+      figure: (document.querySelector(".kpi-figure") || {}).textContent || "",
+    };
+  });
+  check("an automatic pull that fails says nothing", quiet.after, quiet.before);
+  check("and leaves the figures standing", quiet.figure.length > 0, true);
+
+  const loud = await page.evaluate(async () => {
+    localStorage.removeItem("remembre.bankasked.v1");
+    await pullBank({ force: true, loud: true });
+    return (document.querySelector("#money-notice") || {}).textContent || "";
+  });
+  check("asked for by hand, the same failure is reported",
+    /mBank would not hand anything over/.test(loud), true, loud);
+
+  await page.evaluate(() => { window.__failFetch = false; });
+}
+
+{
+  // Midnight. Every figure here is relative to today, so a page left open
+  // overnight is a page of yesterday's arithmetic.
+  const rolled = await page.evaluate(() => {
+    const today = todayISO();
+    const lastMonth = monthOf(shiftISO(today, -40));
+    // As if the app had been open since the previous month.
+    moneySeenDay = shiftISO(today, -40);
+    state.moneyMonth = lastMonth;
+    const moved = moneyDayRolled();
+    const followed = state.moneyMonth;
+
+    // And somebody who stepped back to look at an older month on purpose is
+    // left where they put themselves.
+    moneySeenDay = shiftISO(today, -40);
+    state.moneyMonth = monthOf(shiftISO(today, -200));
+    moneyDayRolled();
+    return { moved, followed, today: monthOf(today), kept: state.moneyMonth,
+      picked: monthOf(shiftISO(today, -200)), nothing: moneyDayRolled() };
+  });
+  check("the day turning over redraws the half", rolled.moved, true);
+  check("and a new month moves the month with it", rolled.followed, rolled.today);
+  check("a month you stepped back to is left alone", rolled.kept, rolled.picked);
+  check("and a day that has not turned over redraws nothing", rolled.nothing, false);
 }
 
 check("no console or page errors", problems, []);

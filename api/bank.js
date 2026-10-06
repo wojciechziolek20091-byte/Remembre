@@ -166,6 +166,9 @@ async function connectionStatus(req, res) {
     validUntil: held.validUntil || "",
     connectedAt: held.connectedAt || "",
     fetchedTo: held.fetchedTo || "",
+    // The moment of the last fetch, not just its date: the page checks the
+    // bank every time it is opened and wants to say so in minutes.
+    lastFetchAt: held.lastFetchAt || "",
     expired: Boolean(held.validUntil) && held.validUntil < new Date().toISOString(),
     // What the bank last said was in the account. Stored rather than fetched
     // here: status is called whenever the half is opened, and a balance call

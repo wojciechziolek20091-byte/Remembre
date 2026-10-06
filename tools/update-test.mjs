@@ -149,6 +149,25 @@ await page2.waitForSelector(".tt-lesson");
 check("one reload is enough to see a change",
   await page2.evaluate(() => document.querySelector(".footer-signature .signature").textContent), "by Second Release");
 
+console.log("\ncoming back to the app looks for a new one");
+
+// An installed app is resumed rather than launched, and a resume navigates
+// nowhere -- so nothing would ever ask. This is that ask, without the manual
+// update() the earlier section used.
+await writeFile(join(site, "sw.js"),
+  (await readFile(join(site, "sw.js"), "utf8"))
+    .replace(/const CACHE = "[^"]+"/, 'const CACHE = "test-build-3"'));
+await writeFile(join(site, "index.html"),
+  (await readFile(join(site, "index.html"), "utf8")).replaceAll("by Second Release", "by Third Release"));
+
+check("nothing is on offer before the app is come back to",
+  await page2.locator("#update-bar").isVisible(), false);
+await page2.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+const offered = await page2
+  .waitForSelector("#update-bar:visible", { timeout: 20000 })
+  .then(() => true, () => false);
+check("resuming it finds the release on its own", offered, true);
+
 console.log("\nstill works with no network");
 await fresh.setOffline(true);
 await page2.reload();

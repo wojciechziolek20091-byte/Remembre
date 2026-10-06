@@ -445,6 +445,18 @@ function setupMoney() {
   setupBank();
   setupInsight();
   setupTransactionDialog();
+
+  /*
+    An installed app is resumed far more often than it is launched, and a
+    resume runs nothing: no startup code, no reload, no fetch. Coming back to
+    a visible money half is therefore treated as opening it, which is what
+    somebody picking the iPad up to check a number means by it.
+  */
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (state.area !== "money" || !$("money-area") || $("money-area").hidden) return;
+    moneyOpened();
+  });
   // Rules may have been edited on a visit when nothing was imported yet, and
   // transactions may have arrived from the other device since.
   recategorise();
@@ -1015,6 +1027,9 @@ function renderBank(connection) {
   if (connection.expired) {
     status.textContent = `${accounts} — mBank wants you to approve again.`;
     status.classList.add("is-stale");
+  } else if (bankChecking) {
+    status.textContent = `${accounts} — asking mBank for anything new…`;
+    status.classList.remove("is-stale");
   } else {
     const until = connection.validUntil ? connection.validUntil.slice(0, 10) : "";
     status.textContent = `Connected to ${accounts}${until ? `, approved until ${until}` : ""}.`;
@@ -1039,6 +1054,134 @@ async function refreshBank() {
     renderBank(null);
     return null;
   }
+}
+
+/*
+  Opening the half is the refresh.
+
+  Asking the bank used to be a button, because the schedule is only allowed
+  four unattended fetches a day and spending one per visit would have emptied
+  the allowance by lunchtime. But that limit is about fetches made while
+  nobody is there: with the reader on the page, art. 36(5)(b) puts no cap on
+  it at all, and the server already marks those trips as attended. So the
+  visit itself can be the fetch, and the numbers are the bank's as of a few
+  seconds ago rather than as of the last scheduled run.
+
+  Two guards. One pull at a time, and a cooldown, because on an iPad "opening
+  the app" happens several times an hour -- every glance at it, every switch
+  back from Safari -- and mBank does not need telling about all of them.
+*/
+
+const BANK_ASKED_KEY = "remembre.bankasked.v1";
+const BANK_COOLDOWN_MS = 3 * 60 * 1000;
+
+let bankPulling = false;    // A pull in flight, so a second open does not start one.
+let bankChecking = false;   // What the status line says while it is happening.
+
+function bankLastAsked() {
+  const held = readStore(BANK_ASKED_KEY, null);
+  const at = held && held.at ? Date.parse(held.at) : 0;
+  return Number.isFinite(at) ? at : 0;
+}
+
+/**
+ * Asks mBank for anything new and folds it in.
+ *
+ * Quiet by default: an automatic pull that fails must not throw a notice over
+ * a page somebody just opened -- the status line under the balance already
+ * says when the bank was last heard from, and that is the honest place for it.
+ */
+async function pullBank({ force = false, loud = false } = {}) {
+  if (bankPulling || !bankPhrase()) return null;
+  if (!bankConnection || !bankConnection.connected || bankConnection.expired) return null;
+  if (!force && Date.now() - bankLastAsked() < BANK_COOLDOWN_MS) return null;
+
+  bankPulling = true;
+  bankChecking = true;
+  writeStore(BANK_ASKED_KEY, { at: new Date().toISOString() });
+  renderBank(bankConnection);
+  const button = $("bank-fetch");
+  if (button) button.disabled = true;
+
+  try {
+    const result = await bankCall("fetch");
+    bankNote = "";
+    if (result.balance) bankBalance = result.balance;
+    // The server wrote them into the vault, so the way to see them is the
+    // same sync that carries everything else.
+    await runCloud(() => cloudPull({ quiet: true }));
+    bankChecking = false;
+    moneyChanged();
+    const said = result.added === 0
+      ? `Nothing new at the bank. It read ${result.read} ${result.read === 1 ? "transaction" : "transactions"} back to ${result.from}, and had them all already.`
+      : `${result.added} new ${result.added === 1 ? "transaction" : "transactions"} from mBank.`;
+    if (loud) {
+      announce(said);
+      showMoneyNotice(said, { tone: result.added === 0 ? "plain" : "good" });
+    } else if (result.added > 0) {
+      // Worth saying even unasked -- the figures just moved under them.
+      announce(said);
+    }
+    await refreshBank();
+    return result;
+  } catch (err) {
+    bankChecking = false;
+    if (loud) {
+      bankNote = err.message;
+      showMoneyNotice(`mBank would not hand anything over: ${err.message}`, { tone: "warn" });
+      renderBank(null);
+    } else {
+      console.warn("Could not check the bank on opening:", err.message);
+      renderBank(bankConnection);
+    }
+    return null;
+  } finally {
+    bankPulling = false;
+    bankChecking = false;
+    const again = $("bank-fetch");
+    if (again) again.disabled = false;
+  }
+}
+
+/*
+  Everything that belongs to arriving at the money half, in one place, so that
+  arriving at it means the same thing however it happened: chosen from the
+  chooser, reloaded, or -- much the commonest -- an installed app resumed from
+  the background, which runs no startup code at all and used to leave you
+  looking at whatever was on screen when you last put the iPad down.
+*/
+async function moneyOpened() {
+  // Resuming after midnight is much the commonest way to end up looking at
+  // yesterday's arithmetic, so the day is checked before anything is drawn.
+  if (!moneyDayRolled()) moneyChanged();
+  // The consent and the last known balance, which cost the bank nothing.
+  await refreshBank();
+  // And then the bank itself, if it has not just been asked.
+  pullBank();
+  if (typeof runInsight === "function") runInsight();
+  if (typeof fetchDebrief === "function") fetchDebrief();
+}
+
+/*
+  Midnight. Nearly every figure on this half is relative to today -- the day's
+  limit, what is left of it, the carry from yesterday, the weekend purse -- so
+  a page left open overnight is a page of yesterday's arithmetic.
+*/
+let moneySeenDay = todayISO();
+
+function moneyDayRolled() {
+  const today = todayISO();
+  if (moneySeenDay === today) return false;
+  const was = moneySeenDay;
+  moneySeenDay = today;
+  // A new month is a new page, not last month's page with one day on it. The
+  // month only follows the clock if it was following it already: somebody who
+  // had stepped back to look at August is left where they put themselves.
+  if (monthOf(was) !== monthOf(today) && state.moneyMonth === monthOf(was)) {
+    state.moneyMonth = monthOf(today);
+  }
+  moneyChanged();
+  return true;
 }
 
 /*
@@ -1091,29 +1234,9 @@ function setupBank() {
     }
   });
 
-  $("bank-fetch").addEventListener("click", async () => {
-    $("bank-fetch").disabled = true;
-    try {
-      const result = await bankCall("fetch");
-      bankNote = "";
-      if (result.balance) bankBalance = result.balance;
-      // The server wrote them into the vault, so the way to see them is the
-      // same sync that carries everything else.
-      await runCloud(() => cloudPull({ quiet: true }));
-      moneyChanged();
-      const said = result.added === 0
-        ? `Nothing new at the bank. It read ${result.read} ${result.read === 1 ? "transaction" : "transactions"} back to ${result.from}, and had them all already.`
-        : `${result.added} new ${result.added === 1 ? "transaction" : "transactions"} from mBank.`;
-      announce(said);
-      showMoneyNotice(said, { tone: result.added === 0 ? "plain" : "good" });
-      await refreshBank();
-    } catch (err) {
-      bankNote = err.message;
-      showMoneyNotice(`mBank would not hand anything over: ${err.message}`, { tone: "warn" });
-      renderBank(null);
-    } finally {
-      $("bank-fetch").disabled = false;
-    }
+  $("bank-fetch").addEventListener("click", () => {
+    // Asked for by hand: no cooldown, and it says what it found.
+    pullBank({ force: true, loud: true });
   });
 
   const outcome = readBankOutcome();
@@ -2751,6 +2874,24 @@ function ageInWords(iso) {
   return `${Math.round(days / 30)} months ago`;
 }
 
+/*
+  ageInWords counts days, which is right for a statement and useless for a
+  reading taken forty seconds ago. This one counts from the clock and hands
+  over to the other once the hours stop being worth naming.
+*/
+function freshness(iso) {
+  if (!iso) return "";
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (!Number.isFinite(minutes) || minutes < 0) return "";
+  if (minutes < 1) return "just now";
+  if (minutes === 1) return "a minute ago";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours === 1) return "an hour ago";
+  if (hours < 10) return `${hours} hours ago`;
+  return ageInWords(iso);
+}
+
 function renderBalanceCard() {
   const card = $("money-balance");
   if (!card) return;
@@ -2776,7 +2917,7 @@ function renderBalanceCard() {
   const when = monthName(monthKey).split(" ")[0];
 
   const provenance = balance.source === "bank"
-    ? `Straight from mBank${balance.readAt ? `, read ${ageInWords(balance.readAt)}` : ""}.`
+    ? `Straight from mBank${balance.readAt ? `, read ${freshness(balance.readAt)}` : ""}.`
     : `From the statement that closed on ${balance.at}${
         balance.since ? `, plus ${balance.since} ${balance.since === 1 ? "transaction" : "transactions"} since (${zloty(balance.pending)})` : ""
       }.`;
@@ -2894,7 +3035,16 @@ function bankLine() {
       }));
   }
 
-  const checked = bankConnection.fetchedTo ? `, last checked ${ageInWords(bankConnection.fetchedTo)}` : "";
+  if (bankChecking) {
+    return el("p", { class: "kpi-bank" },
+      el("span", { class: "kpi-dot is-on", "aria-hidden": "true" }),
+      el("span", { text: `Asking mBank for anything new — ${where}.` }));
+  }
+
+  // lastFetchAt is a moment, fetchedTo only a date: on a half that refreshes
+  // itself on opening, "today" is not a useful answer to "when was this read".
+  const when = freshness(bankConnection.lastFetchAt) || ageInWords(bankConnection.fetchedTo);
+  const checked = when ? `, last checked ${when}` : "";
   return el("p", { class: "kpi-bank" },
     el("span", { class: "kpi-dot is-on", "aria-hidden": "true" }),
     el("span", { text: `mBank connected — ${where}${checked}.` }));

@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.02-67";
+const APP_VERSION = "2026.10.06-68";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1407,16 +1407,12 @@ function setArea(area, { remember = true } = {}) {
   }
 
   if (state.area === "money") {
-    if (typeof moneyChanged === "function") moneyChanged();
+    // Everything that belongs to arriving here -- the render, the bank, the
+    // reading, the debrief -- is moneyOpened's business, so that arriving by
+    // any route does the same thing.
+    if (typeof moneyOpened === "function") moneyOpened();
+    else if (typeof moneyChanged === "function") moneyChanged();
     else if (typeof renderMoney === "function") renderMoney();
-    // The bank is only asked about when it is being looked at: there is no
-    // reason to call it while the reader is on their timetable.
-    if (typeof refreshBank === "function") refreshBank();
-    // And the reading runs on opening rather than on a button, because the
-    // whole point of it is to be there before you ask.
-    if (typeof runInsight === "function") runInsight();
-    // And whatever Sunday evening left behind.
-    if (typeof fetchDebrief === "function") fetchDebrief();
   }
 }
 
@@ -2905,6 +2901,9 @@ function setupReminders() {
       state.focusDate = today;
       const cleared = sweepPastTasks(today);
       renderAll();
+      // renderAll is the schoolwork half. Nearly every figure on the money
+      // half is relative to today as well, so midnight has to reach it too.
+      if (typeof moneyDayRolled === "function") moneyDayRolled();
       if (cleared > 0) {
         announce(`${cleared} past ${cleared === 1 ? "task has" : "tasks have"} been cleared.`);
       }
@@ -4507,6 +4506,10 @@ function init() {
 let hadController = false;
 let reloadingForUpdate = false;
 
+/* How often coming back to the app may ask whether there is a new one. */
+const UPDATE_CHECK_MS = 15 * 60 * 1000;
+let lastUpdateCheck = 0;
+
 function showUpdateBar(worker) {
   const bar = $("update-bar");
   if (!bar.hidden) return;
@@ -4545,6 +4548,23 @@ function registerServiceWorker() {
     if (registration.waiting && navigator.serviceWorker.controller) {
       showUpdateBar(registration.waiting);
     }
+
+    /*
+      An installed app is resumed, not launched. The browser only goes looking
+      for a new worker on a navigation, so an app that is never navigated --
+      which is to say, an app that is used -- can sit on a release for days
+      without ever being told there is another one. Coming back to it is the
+      moment to ask, throttled so that putting the iPad down and picking it up
+      again does not turn into a poll.
+    */
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastUpdateCheck < UPDATE_CHECK_MS) return;
+      lastUpdateCheck = Date.now();
+      registration.update().catch((err) => {
+        console.warn("Could not check for a new version:", err);
+      });
+    });
 
     registration.addEventListener("updatefound", () => {
       const installing = registration.installing;
