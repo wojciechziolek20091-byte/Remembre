@@ -89,7 +89,13 @@ export default async function handler(req, res) {
         .filter((item) => !sent[item.key]);
 
       if (waiting.length === 0) {
-        report.push({ device: device.id, zone: device.zone, at: clock.time, sent: 0 });
+        report.push({
+          device: device.id, zone: device.zone, at: clock.time, sent: 0,
+          /* On a dry run, say why. "Nothing was sent" and "nothing could ever
+             be sent" look identical from outside, and the difference is the
+             whole question when somebody says the alerts never arrive. */
+          ...(dryRun ? { why: whyNothing(vault, clock) } : {}),
+        });
         continue;
       }
       if (dryRun) {
@@ -302,6 +308,27 @@ export function debriefReady(debriefs, clock) {
   every quarter of an hour. Opening the app fetches again, with the reader
   present, and that one does not count against the four.
 */
+/*
+  Why a device has nothing waiting.
+
+  Every condition the money alerts stand on, read back in order, so a dry run
+  answers the only question worth asking when they never arrive: is it that
+  nothing is due, or that nothing could ever be due.
+*/
+export function whyNothing(vault, clock) {
+  const settings = vault && typeof vault.moneySettings === "object" ? vault.moneySettings : null;
+  if (!settings) return "this vault has no money settings in it, so no money alert can be worked out";
+  if (!(settings.budgets || settings.income)) return "the money settings carry neither budgets nor an income plan";
+
+  const rows = alive(vault.transactions);
+  if (rows.length === 0) return "this vault has no transactions in it";
+
+  const today = dayBudget(rows, settings, clock.today);
+  if (!today.plan.spendable) return "the income plan leaves nothing spendable, so there is no daily figure";
+
+  return `nothing is due at ${clock.time}`;
+}
+
 export function moneyAlerts(vault, clock) {
   const settings = vault && typeof vault.moneySettings === "object" ? vault.moneySettings : null;
   if (!settings || !(settings.budgets || settings.income)) return [];
