@@ -201,9 +201,9 @@ console.log("\nstudy session reminders");
 
 {
   /*
-    dueReminders is given a clock rather than reading one, so these are exact:
-    a session at 16:00 should produce the hour-before nudge at 15:00 and the
-    time-to-study one at 16:00, and neither of them at 14:30.
+    dueReminders is given a clock rather than reading one, so these are exact.
+    The two moments are fixed hours now, not an offset from the sitting: the
+    heads-up at 17:00 and the sitting itself at the hour it was planned for.
   */
   const at = (minutes) => {
     const hour = Math.floor(minutes / 60);
@@ -217,48 +217,64 @@ console.log("\nstudy session reminders");
   const vault = {
     tasks: [],
     coursework: [{ id: "ee", title: "Extended essay" }],
-    sessions: [{ id: "s1", courseworkId: "ee", date: "2026-09-08", time: "16:00", minutes: 60 }],
+    sessions: [{ id: "s1", courseworkId: "ee", date: "2026-09-08", time: "19:00", minutes: 60 }],
   };
 
   const keysAt = (minutes) => dueReminders(vault, at(minutes)).map((item) => item.key);
 
-  check("nothing is due two hours ahead", keysAt(14 * 60).length === 0, JSON.stringify(keysAt(14 * 60)));
-  check("nothing is due at half past two", keysAt(14 * 60 + 30).length === 0);
-  check("the hour-before nudge arrives at 15:00", keysAt(15 * 60).join() === "session-soon:s1", keysAt(15 * 60).join());
-  check("and still stands at 15:30, for a scheduler running late", keysAt(15 * 60 + 30).includes("session-soon:s1"));
-  check("time to study arrives at 16:00", keysAt(16 * 60).includes("session-now:s1"));
-  check("and the stale hour-before is not sent with it", keysAt(16 * 60 + 40).join() === "session-now:s1", keysAt(16 * 60 + 40).join());
-  check("a reminder more than 90 minutes late is dropped", keysAt(17 * 60 + 45).length === 0, JSON.stringify(keysAt(17 * 60 + 45)));
+  check("nothing is due at lunchtime", keysAt(13 * 60).length === 0, JSON.stringify(keysAt(13 * 60)));
+  check("nor at half past four", keysAt(16 * 60 + 30).length === 0);
+  check("the heads-up arrives at 17:00", keysAt(17 * 60).join() === "session-soon:s1", keysAt(17 * 60).join());
+  check("and still stands at 17:30, for a scheduler running late", keysAt(17 * 60 + 30).includes("session-soon:s1"));
+  check("time to start arrives at 19:00", keysAt(19 * 60).includes("session-now:s1"));
+  check("and the stale heads-up is not sent with it", keysAt(19 * 60).join() === "session-now:s1", keysAt(19 * 60).join());
+  check("a reminder more than 90 minutes late is dropped", keysAt(20 * 60 + 45).length === 0, JSON.stringify(keysAt(20 * 60 + 45)));
+
+  // Pushed back from the dialog, the start moves with it and the heads-up
+  // still names the hour it was moved to.
+  const moved = { ...vault, sessions: [{ ...vault.sessions[0], deferredTo: "21:00" }] };
+  const movedKeys = (minutes) => dueReminders(moved, at(minutes)).map((item) => item.key);
+  check("a sitting moved to later today is started at the time it was moved to",
+    movedKeys(21 * 60).includes("session-now:s1"), movedKeys(21 * 60).join());
+  check("and not at the hour it was planned for", movedKeys(19 * 60).includes("session-now:s1") === false);
+  check("while the heads-up names the new hour",
+    dueReminders(moved, at(17 * 60))[0].message.body === "60 minutes at 21:00",
+    dueReminders(moved, at(17 * 60))[0].message.body);
 
   /*
     A lock screen shows the title beside the app's name and cuts the body
     short, so the title has to carry the work itself rather than leaving it to
     the second line.
   */
-  const named = dueReminders(vault, at(15 * 60))[0];
-  check("the nudge names the coursework in its title",
-    named.message.title === "Study Extended essay in an hour", named.message.title);
+  const named = dueReminders(vault, at(17 * 60))[0];
+  check("the heads-up names the coursework in its title",
+    named.message.title === "Tonight: Extended essay", named.message.title);
   check("and leaves the detail to the body",
-    named.message.body === "At 16:00 · 60 minutes", named.message.body);
+    named.message.body === "60 minutes at 19:00", named.message.body);
 
-  const starting = dueReminders(vault, at(16 * 60)).find((item) => item.key.startsWith("session-now"));
-  check("and the one at the hour says it is time",
-    starting.message.title === "It’s time to study Extended essay", starting.message.title);
-  check("with the length underneath",
-    starting.message.body === "60 minutes, starting now", starting.message.body);
+  const starting = dueReminders(vault, at(19 * 60)).find((item) => item.key.startsWith("session-now"));
+  check("and the one at the hour says to start",
+    starting.message.title === "Time to start: Extended essay", starting.message.title);
+  check("and says where the clock is",
+    starting.message.body === "60 minutes. Open Get a grip to run the clock.", starting.message.body);
 
   const done = { ...vault, sessions: [{ ...vault.sessions[0], done: true }] };
-  check("a session already done is not reminded about", dueReminders(done, at(16 * 60)).length === 0);
+  check("a session already done is not reminded about", dueReminders(done, at(19 * 60)).length === 0);
+  // Seven in the evening is also after the hour the next day's digest goes
+  // out, and tomorrow's session belongs in that digest. What must not be there
+  // is a reminder to sit down tonight for something that is not tonight.
   const other = { ...vault, sessions: [{ ...vault.sessions[0], date: "2026-09-09" }] };
-  check("nor is one on another day", dueReminders(other, at(16 * 60)).length === 0);
+  const tomorrowKeys = dueReminders(other, at(19 * 60)).map((item) => item.key);
+  check("nor is one on another day",
+    tomorrowKeys.some((key) => key.startsWith("session-")) === false, tomorrowKeys.join());
 
   // At 16:00 the hour-before is still inside its window, so both are due; this
   // is about the one that has just come round.
   const orphan = { ...vault, coursework: [] };
-  const unnamed = dueReminders(orphan, at(16 * 60)).find((item) => item.key.startsWith("session-now"));
+  const unnamed = dueReminders(orphan, at(19 * 60)).find((item) => item.key.startsWith("session-now"));
   check(
     "a session with no coursework still reads sensibly",
-    unnamed.message.title === "It’s time to study your coursework",
+    unnamed.message.title === "Time to start: your coursework",
     unnamed.message.title,
   );
 

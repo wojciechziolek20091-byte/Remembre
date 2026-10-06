@@ -19,7 +19,16 @@ import { debriefKey } from "./debrief.js";
  */
 
 const REMINDER_HOUR = 17;        // "Remember this" the evening before.
-const SESSION_LEAD_MINUTES = 60; // "In an hour" before a study session.
+/*
+  Five in the afternoon: the evening has something in it, and there is still
+  time to arrange the rest of the day around it. The sitting itself is at the
+  hour it was planned for, which the app puts at seven unless the planner
+  moved it or the reader pushed it back.
+
+  Fixed hours rather than an offset from the sitting, because a habit is
+  built on a time of day and not on a moving target.
+*/
+const HEADS_UP_MINUTES = 17 * 60;
 const WINDOW_MINUTES = 90;       // How late a reminder may be and still be worth sending.
 const KEEP_DAYS = 3;             // How long to remember what was already sent.
 
@@ -221,15 +230,15 @@ export function dueReminders(vault, clock, debriefs = null) {
       const moments = [
         {
           key: `session-soon:${session.id}`,
-          at: at - SESSION_LEAD_MINUTES,
-          title: `Study ${name} in an hour`,
-          body: `At ${session.time} · ${session.minutes} minutes`,
+          at: Math.min(HEADS_UP_MINUTES, at - 30),
+          title: `Tonight: ${name}`,
+          body: `${session.minutes} minutes at ${session.deferredTo || session.time}`,
         },
         {
           key: `session-now:${session.id}`,
-          at,
-          title: `It’s time to study ${name}`,
-          body: `${session.minutes} minutes, starting now`,
+          at: minutesOf(session.deferredTo) === null ? at : minutesOf(session.deferredTo),
+          title: `Time to start: ${name}`,
+          body: `${session.minutes} minutes. Open Get a grip to run the clock.`,
         },
       ];
 

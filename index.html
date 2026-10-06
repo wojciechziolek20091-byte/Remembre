@@ -650,6 +650,81 @@
   </div>
 </dialog>
 
+<!--
+  The sitting.
+
+  Three surfaces, in the order they are met: a dialog that offers the evening
+  the planner set aside, a screen that is nothing but the clock while it runs,
+  and a bar that stays on the page afterwards if the reader navigates away from
+  the clock. A fourth lives on the lock screen as a notification the worker
+  replaces every few minutes, which is as close to a live activity as a web app
+  on an iPad is allowed to get.
+-->
+<dialog class="dialog dialog-start" id="session-dialog" aria-labelledby="session-dialog-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="session-dialog-title">Tonight</h2>
+    <button type="button" class="btn btn-icon dialog-close" data-close="session-dialog">
+      <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+    </button>
+  </div>
+  <div id="session-dialog-body"></div>
+  <div class="dialog-actions session-actions">
+    <div class="later-row">
+      <label class="field-label" for="session-later">Later today, at</label>
+      <input type="time" id="session-later" class="input" step="900">
+      <button type="button" class="btn btn-quiet" id="session-defer">Schedule it</button>
+    </div>
+    <button type="button" class="btn btn-primary" id="session-start">Start now</button>
+  </div>
+</dialog>
+
+<dialog class="dialog dialog-checkin" id="checkin-dialog" aria-labelledby="checkin-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="checkin-title">Today</h2>
+    <button type="button" class="btn btn-icon dialog-close" data-close="checkin-dialog">
+      <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+    </button>
+  </div>
+  <div id="checkin-body"></div>
+  <div class="dialog-actions">
+    <span class="dialog-actions-spacer"></span>
+    <button type="button" class="btn btn-primary" id="checkin-save">Save</button>
+  </div>
+</dialog>
+
+<section class="timer" id="timer" hidden aria-label="Study session">
+  <div class="timer-inner">
+    <p class="timer-what" id="timer-what"></p>
+    <h2 class="timer-title" id="timer-title"></h2>
+    <div class="timer-clock" id="timer-clock" role="timer" aria-live="off">00:00</div>
+    <svg class="timer-ring" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+      <circle class="timer-ring-track" cx="60" cy="60" r="54" fill="none" stroke-width="4"/>
+      <circle class="timer-ring-run" id="timer-ring-run" cx="60" cy="60" r="54" fill="none" stroke-width="4"
+              stroke-linecap="round" transform="rotate(-90 60 60)"/>
+    </svg>
+    <p class="timer-note" id="timer-note"></p>
+    <div class="timer-acts">
+      <button type="button" class="btn btn-quiet" id="timer-pause">Pause</button>
+      <button type="button" class="btn btn-quiet" id="timer-stop">Finish early</button>
+    </div>
+    <p class="timer-left" id="timer-left" role="status"></p>
+  </div>
+</section>
+
+<div class="live" id="live-bar" hidden>
+  <button type="button" class="live-inner" id="live-open">
+    <span class="live-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </span>
+    <span class="live-words">
+      <span class="live-title" id="live-title">Studying</span>
+      <span class="live-note" id="live-note"></span>
+    </span>
+    <span class="live-clock" id="live-clock">00:00</span>
+  </button>
+  <div class="live-track" aria-hidden="true"><span class="live-fill" id="live-fill"></span></div>
+</div>
+
 <script src="app.js"></script>
 <script src="money.js"></script>
 </body>

@@ -84,8 +84,8 @@ for (const theme of ["light", "dark"]) {
     await page.waitForSelector("#chooser");
     await page.evaluate(() => document.fonts.ready);
 
-    const shot = async (label) => page.screenshot({
-      path: join(out, `${label}-${name}-${theme}.png`), fullPage: true,
+    const shot = async (label, { full = true } = {}) => page.screenshot({
+      path: join(out, `${label}-${name}-${theme}.png`), fullPage: full,
     });
 
     await shot("1-chooser");
@@ -107,6 +107,49 @@ for (const theme of ["light", "dark"]) {
     await page.evaluate(() => setArea(""));
     await page.waitForTimeout(600);
     await shot("4-chooser-live");
+
+    // The sitting: offered, run, and reported back.
+    await page.evaluate(() => {
+      const today = todayISO();
+      state.coursework = [normaliseCoursework({
+        id: "ia", title: "Economics IA", kind: "ia", subject: "economics",
+        due: addDays(today, 18), stage: "in-progress",
+        steps: [{ id: "s2", title: "Write the commentary", due: addDays(today, 16), done: false, hours: 9 }],
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      })];
+      state.sessions = [normaliseSession({
+        id: "tonight", courseworkId: "ia", stepId: "s2", date: today, time: "19:00", minutes: 90,
+        why: "Long enough to get a section drafted", by: "ai",
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      })];
+      saveCoursework(); saveSessions();
+      try { sessionStorage.removeItem("getagrip.offered"); } catch (err) { /* nothing */ }
+      setArea("school");
+      offerSession({ force: true });
+    });
+    await page.waitForTimeout(400);
+    await shot("5-offered", { full: false });
+
+    await page.evaluate(() => {
+      closeDialog(document.getElementById("session-dialog"));
+      startSession("tonight", { now: new Date(Date.now() - 37 * 60000) });
+    });
+    await page.waitForTimeout(400);
+    // The clock covers the screen rather than the document, so a full-page
+    // shot of it would be a picture of the page it is covering.
+    await shot("6-timer", { full: false });
+
+    // Leaving the clock leaves the bar, which is the live one.
+    await page.evaluate(() => { hideTimer(); drawTimer(); });
+    await page.waitForTimeout(300);
+    await shot("7-live", { full: false });
+
+    await page.evaluate(() => {
+      endSession({ finished: false });
+      openCheckin({ because: "finished" });
+    });
+    await page.waitForTimeout(300);
+    await shot("8-checkin", { full: false });
 
     await context.close();
   }

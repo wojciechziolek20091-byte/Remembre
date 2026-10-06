@@ -8,7 +8,7 @@
     "serve": "python3 -m http.server 8000",
     "build": "node tools/build-single-file.mjs",
     "vapid": "node tools/vapid-keys.mjs",
-    "test": "node tools/check-contrast.mjs && node tools/api-test.mjs && node tools/push-test.mjs && node tools/bank-test.mjs && node tools/ai-test.mjs && node tools/notify-test.mjs && node tools/budget-test.mjs && node tools/welcome-test.mjs && node tools/money-test.mjs && node tools/smoke-test.mjs && node tools/sync-test.mjs && node tools/update-test.mjs",
+    "test": "node tools/check-contrast.mjs && node tools/api-test.mjs && node tools/push-test.mjs && node tools/bank-test.mjs && node tools/ai-test.mjs && node tools/study-test.mjs && node tools/notify-test.mjs && node tools/budget-test.mjs && node tools/welcome-test.mjs && node tools/money-test.mjs && node tools/smoke-test.mjs && node tools/sync-test.mjs && node tools/update-test.mjs",
     "icons": "node tools/make-icons.mjs"
   },
   "devDependencies": {

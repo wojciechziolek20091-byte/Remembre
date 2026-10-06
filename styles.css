@@ -1370,39 +1370,37 @@ kbd {
   border-radius: var(--radius);
 }
 
-/* The slider gets a line of its own under the step it belongs to. */
-.step-effort {
+/* Hours, the button that offers to work them out, and what it said. */
+.step-hours {
   grid-column: 1 / -1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: .5rem;
   padding: 0 .1rem .15rem;
 }
 
-.step-effort-label {
+.step-hours-label {
   font-size: .8rem;
   color: var(--ink-2);
   flex-shrink: 0;
 }
 
-.step-effort input[type="range"] {
-  flex: 1;
-  min-width: 0;
-  /* Comfortably bigger than the 44px touch target guidance once the thumb's
-     own height is counted. */
-  height: 1.75rem;
-  accent-color: var(--accent);
-  cursor: pointer;
+.step-hours-field {
+  width: 5.5rem;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.step-effort-value {
+.step-estimate-note {
+  flex-basis: 100%;
+  margin: 0;
   font-size: .8rem;
-  font-weight: 600;
-  /* Wide enough for "Very heavy", so the row does not jump as it is dragged. */
-  min-width: 5.5rem;
-  text-align: right;
-  flex-shrink: 0;
+  line-height: 1.5;
+  color: var(--ink-2);
 }
+
+.step-estimate-note:empty { display: none; }
 
 .cw-next-effort {
   font-size: .78rem;
@@ -3620,3 +3618,248 @@ body.on-money .dialog-tx .dialog-title { font-family: var(--font-body); font-wei
 /* ---------- The week, read back ---------- */
 
 .card-debrief { border-left: 3px solid var(--accent); }
+
+/* ---------- Sitting down ---------- */
+
+/*
+  The clock, and nothing else.
+
+  For the length of a sitting the app is one screen: the work, the time left,
+  and two buttons. Everything underneath is still in the document and still has
+  its state -- this covers it rather than unmounting it -- so finishing puts
+  the reader back exactly where they were, mid-scroll and all.
+*/
+.timer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: calc(2rem + env(safe-area-inset-top, 0px)) 1.25rem
+           calc(2rem + env(safe-area-inset-bottom, 0px));
+  background: var(--ground);
+  animation: timer-in .32s cubic-bezier(.19, .78, .28, 1);
+}
+
+@keyframes timer-in {
+  from { opacity: 0; transform: scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The rest of the app keeps its scroll position under the clock. */
+body.is-sitting { overflow: hidden; }
+
+.timer-inner {
+  position: relative;
+  width: min(100%, 26rem);
+  display: grid;
+  justify-items: center;
+  gap: .5rem;
+  text-align: center;
+}
+
+.timer-what {
+  margin: 0;
+  font-size: .85rem;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.timer-title {
+  margin: 0 0 1rem;
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 36;
+  font-size: clamp(1.3rem, 4.5vw, 1.7rem);
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+/*
+  The figure sits inside the ring rather than above it: one object to look at,
+  and the ring reads as the figure draining rather than as a second indicator
+  that happens to agree with it.
+*/
+.timer-clock {
+  grid-area: 1 / 1;
+  align-self: center;
+  margin-top: 5.6rem;
+  font-size: clamp(3rem, 13vw, 4.4rem);
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.timer-ring {
+  grid-area: 1 / 1;
+  align-self: center;
+  margin-top: 5.6rem;
+  width: min(72vw, 17rem);
+  height: min(72vw, 17rem);
+}
+
+.timer-ring-track { stroke: var(--line); }
+.timer-ring-run {
+  stroke: var(--accent);
+  transition: stroke-dashoffset 1s linear;
+}
+
+.timer-note {
+  margin: 1rem 0 0;
+  max-width: 24rem;
+  font-size: .9rem;
+  color: var(--ink-2);
+}
+
+.timer-acts { display: flex; gap: .6rem; margin-top: 1.25rem; }
+
+.timer-left {
+  margin: .4rem 0 0;
+  font-size: .82rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  The live bar.
+
+  A web app cannot put a countdown in the Dynamic Island -- that is a native
+  API and it is not open to us -- so this is the honest version of it: a bar
+  pinned to the bottom of the app that counts down wherever the reader goes,
+  and a notification the worker replaces under one tag for the lock screen.
+*/
+.live {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(.75rem + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  width: min(100% - 1.5rem, 26rem);
+  border-radius: 1.4rem;
+  background: var(--ink);
+  color: var(--surface);
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .5);
+  overflow: hidden;
+  animation: live-in .3s cubic-bezier(.19, .78, .28, 1);
+}
+
+@keyframes live-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(.96); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+
+.live-inner {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  width: 100%;
+  padding: .6rem .9rem .55rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.live-mark {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .12);
+}
+
+.live-mark svg { width: 1.1rem; height: 1.1rem; }
+
+.live-words { display: grid; gap: .05rem; min-width: 0; }
+.live-title { font-size: .78rem; font-weight: 650; opacity: .72; }
+.live-note {
+  font-size: .9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-clock {
+  margin-left: auto;
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.live-track { height: 3px; background: rgba(255, 255, 255, .16); }
+.live-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 1s linear;
+}
+
+/* ---------- Being offered the evening, and reporting it back ---------- */
+
+.session-actions { flex-wrap: wrap; gap: .75rem; }
+
+.later-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-right: auto;
+  flex-wrap: wrap;
+}
+
+.later-row .field-label { margin: 0; }
+.later-row .input { width: 7.5rem; }
+
+.start-when {
+  margin: 0;
+  font-size: .85rem;
+  font-weight: 650;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.start-what {
+  margin: .1rem 0 .2rem;
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 30;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.start-step { margin: 0; font-size: .95rem; }
+.start-why, .start-due { margin: .35rem 0 0; font-size: .88rem; color: var(--ink-2); }
+
+.checkin-lead { margin: 0 0 .8rem; font-size: .95rem; }
+.checkin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+
+.checkin-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.checkin-what { display: grid; gap: .1rem; min-width: 0; }
+.checkin-title { font-size: .92rem; font-weight: 600; }
+.checkin-plan { font-size: .78rem; color: var(--ink-2); }
+.checkin-minutes {
+  margin-left: auto;
+  width: 5rem;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timer, .live { animation: none; }
+  .timer-ring-run, .live-fill { transition: none; }
+}

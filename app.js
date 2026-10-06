@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.06-70";
+const APP_VERSION = "2026.10.06-71";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -35,6 +35,12 @@ const REMINDERS_KEY = "remembre.reminders.v1";
 const COURSEWORK_KEY = "remembre.coursework.v1";
 const SESSIONS_KEY = "remembre.sessions.v1";
 const ALERTS_KEY = "remembre.alerts.v1";
+/* What was actually done each day, which is the only progress there is. */
+const CHECKIN_KEY = "remembre.checkins.v1";
+/* The planner's last answer: its note, its warnings, and when it ran. */
+const PLAN_KEY = "remembre.studyplan.v1";
+/* A sitting in progress, so closing the app mid-session does not lose it. */
+const RUNNING_KEY = "remembre.running.v1";
 
 /* A reminder is due at this hour on the day before the task. */
 const REMINDER_HOUR = 17;
@@ -110,8 +116,16 @@ const COURSEWORK_STAGE_KEYS = COURSEWORK_STAGES.map((stage) => stage.id);
   hand, so replanning refines the schedule rather than resetting it.
 */
 const SESSION_MINUTES = 60;
-/* After school on a weekday; late morning when there is no school. */
-const SESSION_TIME_WEEKDAY = "16:00";
+/* Nothing shorter is worth starting; nothing longer gets finished. */
+const SESSION_MIN_MINUTES = 30;
+const SESSION_MAX_MINUTES = 180;
+/*
+  Seven in the evening, every day. That is the hour the reminder names and the
+  hour the start dialog offers, and a plan whose sittings wander around the
+  afternoon is a plan nobody builds a habit on. A free day may start earlier,
+  which the planner decides for itself.
+*/
+const SESSION_TIME_EVENING = "19:00";
 const SESSION_TIME_WEEKEND = "11:00";
 /* Aim for a sitting roughly this often, then clamp to something sane. */
 const SESSION_SPACING_DAYS = 5;
@@ -456,34 +470,65 @@ function normaliseStep(raw) {
     title,
     due: isValidISO(due) ? due : "",
     done: raw.done === true,
-    effort: clampEffort(raw.effort),
+    hours: clampHours(raw.hours === undefined ? hoursFromEffort(raw.effort) : raw.hours),
+    /* What the model said when it was asked, kept so the figure can say where
+       it came from and so a second opinion is never silently the first. */
+    estimate: normaliseEstimate(raw.estimate),
   };
 }
 
 /*
-  How much work a step is. The planner reads it as how often to sit down with
-  the thing: a heavy step wants sittings every other day, a light one can be
-  left a week between visits. Normal is deliberately the middle and deliberately
-  the old fixed spacing, so a step nobody has thought about is planned exactly
-  as it was before there was a slider.
+  How long a step is meant to take, in hours, given by the person doing it.
+
+  This used to be a slider from one to five called effort, which the planner
+  read as how often to sit down. It was the wrong question twice over: it asked
+  somebody to rate work they had not started, and it gave the planner a number
+  that could not distinguish an essay from a vocabulary list. The question is
+  now the one with an answer -- how many hours do you intend to spend on this --
+  and the model estimates it for you if you would rather be told.
 */
-const EFFORT_LEVELS = [
-  { value: 1, label: "Very light", spacing: 8 },
-  { value: 2, label: "Light", spacing: 6 },
-  { value: 3, label: "Normal", spacing: SESSION_SPACING_DAYS },
-  { value: 4, label: "Heavy", spacing: 3 },
-  { value: 5, label: "Very heavy", spacing: 2 },
-];
+const HOURS_DEFAULT = 4;
+const HOURS_MIN = 0.5;
+const HOURS_MAX = 80;
 
-const EFFORT_DEFAULT = 3;
-
-function clampEffort(value) {
-  const number = Math.round(Number(value));
-  return Number.isFinite(number) ? Math.max(1, Math.min(5, number)) : EFFORT_DEFAULT;
+function clampHours(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return HOURS_DEFAULT;
+  // Half-hour steps: nobody plans a piece of work to seven minutes.
+  return Math.max(HOURS_MIN, Math.min(HOURS_MAX, Math.round(number * 2) / 2));
 }
 
-const effortLevel = (value) =>
-  EFFORT_LEVELS.find((level) => level.value === clampEffort(value)) || EFFORT_LEVELS[2];
+/* An old step carries an effort from one to five and nothing else. */
+const EFFORT_HOURS = { 1: 1, 2: 2, 3: 4, 4: 8, 5: 15 };
+
+function hoursFromEffort(effort) {
+  const level = Math.round(Number(effort));
+  return EFFORT_HOURS[level] || HOURS_DEFAULT;
+}
+
+function normaliseEstimate(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const hours = Number(raw.hours);
+  if (!Number.isFinite(hours)) return null;
+  return {
+    hours: clampHours(hours),
+    low: Number.isFinite(Number(raw.low)) ? Number(raw.low) : hours,
+    high: Number.isFinite(Number(raw.high)) ? Number(raw.high) : hours,
+    confidence: ["high", "medium", "low"].includes(raw.confidence) ? raw.confidence : "medium",
+    shape: ["long", "short", "mixed"].includes(raw.shape) ? raw.shape : "mixed",
+    sessionMinutes: clampMinutes(raw.sessionMinutes),
+    why: String(raw.why || "").slice(0, 600),
+    assumed: String(raw.assumed || "").slice(0, 300),
+    sources: Array.isArray(raw.sources) ? raw.sources.slice(0, 3).map((s) => String(s).slice(0, 120)) : [],
+    at: typeof raw.at === "string" ? raw.at : new Date().toISOString(),
+  };
+}
+
+function clampMinutes(value) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return SESSION_MINUTES;
+  return Math.max(SESSION_MIN_MINUTES, Math.min(SESSION_MAX_MINUTES, number));
+}
 
 /*
   Past work clears itself out.
@@ -1407,6 +1452,19 @@ function setArea(area, { remember = true } = {}) {
     }
   }
 
+  if (state.area === "school") {
+    /*
+      Arriving at the half is when the evening gets offered. It waits a beat so
+      the dialog does not open on top of the curtain still lifting off the
+      page, which reads as two things happening at once.
+    */
+    window.setTimeout(() => {
+      if (state.area !== "school") return;
+      if (offerSession()) return;
+      if (checkinDue()) openCheckin();
+    }, 700);
+  }
+
   if (state.area === "money") {
     // Everything that belongs to arriving here -- the render, the bank, the
     // reading, the debrief -- is moneyOpened's business, so that arriving by
@@ -2305,7 +2363,7 @@ function buildCourseworkCard(item, today) {
       " ",
       el("span", { class: `cw-step-due${stepDueClass(step, item, today)}`, text: when }),
       " ",
-      el("span", { class: "cw-next-effort", text: `${effortLevel(step.effort).label} effort` })
+      el("span", { class: "cw-next-effort", text: `${clampHours(step.hours)} h` })
     ));
   }
 
@@ -2377,7 +2435,7 @@ function renderStepEditor({ focusLast = false } = {}) {
   wrap.replaceChildren(...state.formSteps.map((step, index) => {
     const titleId = `cw-step-title-${index}`;
     const dueId = `cw-step-due-${index}`;
-    const effortId = `cw-step-effort-${index}`;
+    const hoursId = `cw-step-hours-${index}`;
     return el(
       "div",
       { class: "step-row" },
@@ -2398,21 +2456,32 @@ function renderStepEditor({ focusLast = false } = {}) {
         text: "Remove",
         dataset: { removeStep: String(index) },
       }),
+      /*
+        Hours, not a rating. The slider that used to be here asked somebody to
+        score work they had not started, on a scale whose middle meant nothing
+        in particular. This asks the question that has an answer, and offers to
+        answer it: the model reads the title, looks the component up where it
+        is a real one, and fills the box in.
+      */
       el(
         "div",
-        { class: "step-effort" },
-        el("label", { for: effortId, class: "step-effort-label", text: "Effort" }),
+        { class: "step-hours" },
+        el("label", { for: hoursId, class: "step-hours-label", text: "Hours" }),
         el("input", {
-          type: "range", id: effortId, min: "1", max: "5", step: "1",
-          value: String(clampEffort(step.effort)),
-          "aria-describedby": `${effortId}-value`,
-          dataset: { stepField: "effort", stepIndex: String(index) },
+          type: "number", id: hoursId, class: "input step-hours-field",
+          inputmode: "decimal", min: "0.5", max: "80", step: "0.5",
+          value: String(clampHours(step.hours)),
+          dataset: { stepField: "hours", stepIndex: String(index) },
         }),
-        // The number a slider is on means nothing on its own, and a screen
-        // reader would otherwise announce "3" with nothing to compare it to.
-        el("output", {
-          id: `${effortId}-value`, class: "step-effort-value",
-          for: effortId, text: effortLevel(step.effort).label,
+        el("button", {
+          type: "button", class: "btn btn-quiet btn-tiny step-estimate",
+          text: "Estimate",
+          "aria-label": `Estimate the hours for step ${index + 1}`,
+          dataset: { estimateStep: String(index) },
+        }),
+        el("p", {
+          class: "step-estimate-note", id: `${hoursId}-note`, role: "status",
+          text: step.estimate ? estimateWords(step.estimate) : "",
         })
       )
     );
@@ -2424,6 +2493,82 @@ function renderStepEditor({ focusLast = false } = {}) {
   if (focusLast) {
     const inputs = wrap.querySelectorAll('[data-step-field="title"]');
     if (inputs.length) inputs[inputs.length - 1].focus();
+  }
+}
+
+/** A line under the box saying where the number came from. */
+function estimateWords(estimate) {
+  if (!estimate) return "";
+  const range = estimate.low === estimate.high
+    ? ""
+    : ` (${estimate.low} to ${estimate.high})`;
+  const shape = estimate.shape === "long" ? "long evenings"
+    : estimate.shape === "short" ? "short sittings"
+    : "a mix of long and short";
+  return `Estimated ${estimate.hours} h${range}, in ${shape} of about ${estimate.sessionMinutes} minutes.`;
+}
+
+/*
+  The estimate is an offer, never an answer. It fills the box in, says what it
+  assumed, and leaves the number editable: the hours are the student's to set,
+  and a figure they cannot overrule is a figure they will stop reading.
+*/
+async function estimateStep(index, button) {
+  const step = state.formSteps[index];
+  if (!step) return;
+  const title = String(step.title || "").trim();
+  const note = $(`cw-step-hours-${index}-note`);
+
+  if (title.length < 3) {
+    if (note) note.textContent = "Give the step a name first.";
+    return;
+  }
+
+  button.disabled = true;
+  if (note) note.textContent = "Reading it, and looking it up\u2026";
+
+  try {
+    const res = await fetch("/api/study?action=estimate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        subject: $("cw-subject") ? $("cw-subject").value : "",
+        kind: $("cw-kind") ? $("cw-kind").value : "",
+        due: step.due || ($("cw-due") ? $("cw-due").value : ""),
+        notes: $("cw-title") ? $("cw-title").value : "",
+        steps: state.formSteps.map((entry) => entry.title).filter(Boolean),
+      }),
+      cache: "no-store",
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || body.ok !== true) {
+      throw new Error((body && body.message) || `The server answered ${res.status}.`);
+    }
+    if (body.thin) {
+      if (note) note.textContent = body.message;
+      return;
+    }
+    const estimate = normaliseEstimate({ ...body.result, at: new Date().toISOString() });
+    if (!estimate) throw new Error("That came back without a number in it.");
+
+    step.hours = estimate.hours;
+    step.estimate = estimate;
+    const field = $(`cw-step-hours-${index}`);
+    if (field) field.value = String(estimate.hours);
+    if (note) {
+      note.textContent = [
+        estimateWords(estimate),
+        estimate.why,
+        estimate.assumed ? `Assumed: ${estimate.assumed}` : "",
+        estimate.sources.length ? `Read: ${estimate.sources.join("; ")}.` : "",
+      ].filter(Boolean).join(" ");
+    }
+    announce(`Estimated ${estimate.hours} hours.`);
+  } catch (err) {
+    if (note) note.textContent = `Could not estimate it: ${err.message}`;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2581,9 +2726,76 @@ function setCourseworkStage(id, stage) {
   announce(`"${item.title}" is now ${label}.`);
 }
 
+/*
+  The button asks the model, and falls back to the arithmetic when it cannot be
+  reached. A plan laid out by a formula is worse than one laid out by something
+  that has read the titles, and both are better than a blank calendar on a
+  train with no signal.
+*/
+async function planNow() {
+  const button = $("plan-sessions");
+  const was = button ? button.textContent : "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Working it out\u2026";
+  }
+  try {
+    const { planned, note } = await aiPlan();
+    if (planned > 0 && note) announce(note);
+  } catch (err) {
+    console.warn("The planner could not be reached:", err.message);
+    const plan = applyPlan();
+    announce(plan.length === 0
+      ? `The planner could not be reached: ${err.message}`
+      : `The planner could not be reached, so these ${plan.length} sittings were laid out here instead.`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = was;
+    }
+  }
+}
+
+function setupSitting() {
+  const dialog = $("session-dialog");
+  if (!dialog) return;
+
+  $("session-start").addEventListener("click", () => {
+    const id = dialog.dataset.sessionId;
+    closeDialog(dialog);
+    if (id) startSession(id);
+  });
+  $("session-defer").addEventListener("click", deferSession);
+
+  $("timer-pause").addEventListener("click", () => {
+    const run = running();
+    if (!run) return;
+    if (run.pausedAt) resumeSession();
+    else pauseSession();
+  });
+
+  $("timer-stop").addEventListener("click", () => {
+    const ended = endSession({ finished: false });
+    if (ended) openCheckin({ because: "finished" });
+  });
+
+  $("live-open").addEventListener("click", () => {
+    if (running()) showTimer();
+  });
+
+  $("checkin-save").addEventListener("click", saveCheckinFromDialog);
+
+  /*
+    A sitting that was running when the app was last closed is still running:
+    the clock is the wall clock, not a counter, so the only thing to restore is
+    the screen that shows it.
+  */
+  if (running()) showTimer();
+}
+
 function setupCoursework() {
   $("add-coursework").addEventListener("click", () => openCourseworkDialog());
-  $("plan-sessions").addEventListener("click", () => applyPlan());
+  $("plan-sessions").addEventListener("click", () => planNow());
   $("coursework-form").addEventListener("submit", submitCourseworkForm);
   $("delete-coursework").addEventListener("click", deleteCurrentCoursework);
 
@@ -2634,7 +2846,7 @@ function setupCoursework() {
   });
 
   $("cw-add-step").addEventListener("click", () => {
-    state.formSteps.push({ id: newId(), title: "", due: "", done: false, effort: EFFORT_DEFAULT });
+    state.formSteps.push({ id: newId(), title: "", due: "", done: false, hours: HOURS_DEFAULT, estimate: null });
     renderStepEditor({ focusLast: true });
   });
 
@@ -2642,14 +2854,18 @@ function setupCoursework() {
     const field = event.target.closest("[data-step-field]");
     if (!field) return;
     const step = state.formSteps[Number(field.dataset.stepIndex)];
-    if (field.dataset.stepField === "effort") {
-      step.effort = clampEffort(field.value);
-      // Re-rendering here would end the drag, so only the reading changes.
-      const readout = $(`${field.id}-value`);
-      if (readout) readout.textContent = effortLevel(step.effort).label;
+    if (field.dataset.stepField === "hours") {
+      // Kept raw while it is being typed: clamping mid-keystroke turns "1" on
+      // the way to "12" into "1" for ever.
+      step.hours = field.value;
       return;
     }
     step[field.dataset.stepField] = field.value;
+  });
+
+  $("cw-steps").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-estimate-step]");
+    if (button) estimateStep(Number(button.dataset.estimateStep), button);
   });
 
   $("cw-steps").addEventListener("click", (event) => {
@@ -2721,7 +2937,7 @@ function dueReminders(now = Date.now()) {
 
 /** The moment a sitting starts, as a real instant in local time. */
 function sessionInstant(session) {
-  const [hour, minute] = (session.time || SESSION_TIME_WEEKDAY).split(":").map(Number);
+  const [hour, minute] = (session.time || SESSION_TIME_EVENING).split(":").map(Number);
   const when = fromISO(session.date);
   when.setHours(hour, minute, 0, 0);
   return when;
@@ -2978,9 +3194,23 @@ function normaliseSession(raw) {
     courseworkId: String(raw.courseworkId == null ? "" : raw.courseworkId),
     stepId: String(raw.stepId == null ? "" : raw.stepId),
     date,
-    time: /^\d{2}:\d{2}$/.test(raw.time || "") ? raw.time : SESSION_TIME_WEEKDAY,
+    time: /^\d{2}:\d{2}$/.test(raw.time || "") ? raw.time : SESSION_TIME_EVENING,
     minutes: Number.isFinite(Number(raw.minutes)) ? Math.max(15, Math.min(240, Number(raw.minutes))) : SESSION_MINUTES,
     done: raw.done === true,
+    /*
+      A sitting has a life, not just a date. It is planned, then it is either
+      run or it is not, and the difference is the whole point: an evening that
+      did not happen still owes its hours, and the next plan has to be told.
+    */
+    startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
+    endedAt: typeof raw.endedAt === "string" ? raw.endedAt : "",
+    /* Minutes actually sat, which is not the minutes planned. */
+    ranMinutes: Number.isFinite(Number(raw.ranMinutes)) ? Math.max(0, Math.round(Number(raw.ranMinutes))) : 0,
+    /* Moved to later today rather than started when it was offered. */
+    deferredTo: /^\d{2}:\d{2}$/.test(raw.deferredTo || "") ? raw.deferredTo : "",
+    /* What the planner said this evening was for, in its own words. */
+    why: String(raw.why == null ? "" : raw.why).slice(0, 160),
+    by: raw.by === "ai" || raw.by === "hand" ? raw.by : "hand",
     /* A session the reader moved or made themselves is left alone by the
        planner; only its own untouched output is replaced. */
     pinned: raw.pinned === true,
@@ -3055,7 +3285,7 @@ function dayLoad(iso, plannedByDate) {
 }
 
 function sessionTimeFor(iso) {
-  return weekdayIndex(fromISO(iso)) >= 5 ? SESSION_TIME_WEEKEND : SESSION_TIME_WEEKDAY;
+  return weekdayIndex(fromISO(iso)) >= 5 ? SESSION_TIME_WEEKEND : SESSION_TIME_EVENING;
 }
 
 /*
@@ -3067,13 +3297,9 @@ function sessionTimeFor(iso) {
   is labelled with; replanning after ticking one relabels the rest.
 */
 /*
-  How many sittings a piece of coursework wants, and by when.
-
-  The effort on the step being worked towards decides how close together they
-  sit: a very heavy step is visited every second day, a very light one barely
-  once a week. So effort does not lengthen a sitting, it multiplies how many
-  fit before the deadline, which is what "more study sessions" means. A piece
-  with no steps yet keeps the middle spacing.
+  How many sittings a piece of coursework wants, and by when, when nobody can
+  be asked. The hours on the step are cut into roughly hour-long sittings and
+  spread over the days left before the deadline.
 */
 function sessionTarget(item, today) {
   const step = currentStep(item);
@@ -3083,10 +3309,18 @@ function sessionTarget(item, today) {
     .pop();
   const horizon = deadline || addDays(today, SESSION_HORIZON_DAYS);
   const days = Math.max(1, daysBetween(today, horizon));
-  const effort = step ? clampEffort(step.effort) : EFFORT_DEFAULT;
-  const spacing = effortLevel(effort).spacing;
-  const wanted = Math.max(SESSION_MIN, Math.min(SESSION_MAX, Math.ceil(days / spacing)));
-  return { step, horizon, days, effort, spacing, wanted };
+  /*
+    The hours the student set, cut into hour-long sittings and spread over the
+    days available. This is the fallback planner, used only when there is no
+    key and no signal, so it is deliberately the simplest thing that is not
+    wrong: enough sittings to carry the hours, spaced as evenly as the days
+    allow.
+  */
+  const hours = step ? clampHours(step.hours) : HOURS_DEFAULT;
+  const sittings = Math.max(1, Math.round(hours));
+  const wanted = Math.max(SESSION_MIN, Math.min(SESSION_MAX, Math.min(sittings, days)));
+  const spacing = Math.max(1, Math.floor(days / wanted));
+  return { step, horizon, days, hours, spacing, wanted };
 }
 
 /*
@@ -3146,6 +3380,711 @@ function planSessions(today = todayISO()) {
   });
 
   return plan;
+}
+
+/* ---------- What was actually done ---------- */
+
+/*
+  Every evening has one question behind it: did it happen.
+
+  A session marked done is not the same as a session that ran. The app asks
+  once a day, in plain words, how much actually got done -- and an evening that
+  did not happen is not progress, so its hours go back into the plan rather
+  than quietly vanishing. That is the whole mechanism: nothing here punishes a
+  missed evening, it just refuses to pretend.
+*/
+
+function checkins() {
+  const raw = readStore(CHECKIN_KEY, []);
+  return Array.isArray(raw) ? raw.filter((row) => row && isValidISO(row.date)) : [];
+}
+
+function checkinFor(date) {
+  return checkins().find((row) => row.date === date) || null;
+}
+
+/** Records the day, replacing any earlier answer for it. */
+function saveCheckin(date, { items, minutes, line = "", owed = 0 }) {
+  const rest = checkins().filter((row) => row.date !== date);
+  const row = {
+    date,
+    at: new Date().toISOString(),
+    minutes: Math.max(0, Math.round(Number(minutes) || 0)),
+    items: Array.isArray(items) ? items : [],
+    line: String(line || "").slice(0, 300),
+    owed: Math.max(0, Number(owed) || 0),
+  };
+  /* Eight weeks is as far back as any of this is asked about. */
+  const kept = [...rest, row].sort((a, b) => a.date.localeCompare(b.date)).slice(-56);
+  writeStore(CHECKIN_KEY, kept);
+  return row;
+}
+
+/**
+ * Hours a piece still owes: what it is meant to take, less what has actually
+ * been sat. Sessions that were planned and missed count for nothing, which is
+ * the point.
+ */
+function hoursOwed(item) {
+  const intended = (item.steps || [])
+    .filter((step) => !step.done)
+    .reduce((sum, step) => sum + clampHours(step.hours), 0);
+  const ran = liveSessions()
+    .filter((session) => session.courseworkId === item.id)
+    .reduce((sum, session) => sum + (session.ranMinutes || 0), 0);
+  return Math.max(0, Math.round((intended - ran / 60) * 2) / 2);
+}
+
+/* ---------- The planner ---------- */
+
+/*
+  The schedule is the model's, not an algorithm's.
+
+  What was here before placed sittings by arithmetic: a spacing taken from an
+  effort slider, days chosen by a load score counting clashes. It was tidy and
+  it was blind. It could not know that "Economics IA draft" wants three long
+  evenings and "Polish vocabulary, chapter 4" wants six short ones, because the
+  only thing it had ever been told about the work was a number from one to five.
+
+  So the titles go to the model, with the deadlines, the hours intended, and
+  what has actually been done, and it lays out the evenings. The arithmetic
+  stays underneath as the answer for a device with no key and no signal: a
+  worse plan is better than no plan.
+*/
+
+function planState() {
+  const held = readStore(PLAN_KEY, null);
+  return held && typeof held === "object" ? held : { at: "", note: "", warnings: [], by: "" };
+}
+
+/** Everything the planner is given, and nothing it is not. */
+function planPayload(today = todayISO(), horizonDays = 28) {
+  const until = addDays(today, horizonDays);
+
+  const work = liveCoursework()
+    .filter((item) => item.stage !== "submitted")
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      subject: item.subject || "",
+      kind: item.kind || "",
+      due: item.due || "",
+      stage: item.stage,
+      hoursOwed: hoursOwed(item),
+      steps: (item.steps || []).filter((step) => !step.done).map((step) => ({
+        id: step.id,
+        title: step.title,
+        due: step.due || "",
+        hours: clampHours(step.hours),
+        shape: step.estimate ? step.estimate.shape : "",
+        sessionMinutes: step.estimate ? step.estimate.sessionMinutes : 0,
+      })),
+    }))
+    .filter((item) => item.steps.length > 0 || item.hoursOwed > 0);
+
+  /* What the evenings already have on them, so nothing is double-booked. */
+  const busy = liveTasks()
+    .filter((task) => !task.done && task.date >= today && task.date <= until)
+    .map((task) => ({ date: task.date, type: task.type, title: task.title, subject: task.subject || "" }));
+
+  const kept = liveSessions()
+    .filter((session) => session.pinned && session.date >= today)
+    .map((session) => ({ date: session.date, time: session.time, minutes: session.minutes }));
+
+  const done = checkins().slice(-14).map((row) => ({
+    date: row.date, minutes: row.minutes,
+    missed: (row.items || []).filter((item) => !item.done).length,
+  }));
+
+  return { today, horizonDays, work, busy, kept, done };
+}
+
+/** Asks the model for a schedule and puts it on the calendar. */
+async function aiPlan({ today = todayISO(), quiet = false } = {}) {
+  const payload = planPayload(today);
+  if (payload.work.length === 0) {
+    if (!quiet) announce("Nothing to plan: add coursework with a deadline first.");
+    return { planned: 0, note: "" };
+  }
+
+  const res = await fetch("/api/study?action=schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || body.ok !== true) {
+    const err = new Error((body && body.message) || `The server answered ${res.status}.`);
+    err.status = res.status;
+    throw err;
+  }
+  if (body.thin) return { planned: 0, note: body.message || "" };
+
+  const result = body.result;
+  if (!result || !Array.isArray(result.sessions)) {
+    throw new Error("The plan came back in a shape nothing can read. Try again.");
+  }
+
+  const laid = layPlan(result.sessions, today);
+  writeStore(PLAN_KEY, {
+    at: new Date().toISOString(),
+    note: String(result.note || "").slice(0, 400),
+    warnings: Array.isArray(result.warnings) ? result.warnings.slice(0, 3).map(String) : [],
+    by: "ai",
+  });
+  renderAll();
+  if (!quiet) {
+    announce(laid === 0
+      ? "The plan came back empty."
+      : `Planned ${laid} study ${laid === 1 ? "session" : "sessions"}.`);
+  }
+  return { planned: laid, note: result.note || "" };
+}
+
+/*
+  The model's answer, checked before it is believed.
+
+  Everything here is a bound the schedule has to respect whatever comes back:
+  a date in the past, a sitting of four hours, an id for a piece that does not
+  exist. A planner that cannot be wrong is not being checked.
+*/
+function layPlan(proposed, today = todayISO()) {
+  const known = new Set(liveCoursework().map((item) => item.id));
+  const horizon = addDays(today, 60);
+
+  const fresh = proposed
+    .map((entry) => {
+      if (!entry || !known.has(String(entry.courseworkId))) return null;
+      const date = String(entry.date || "");
+      if (!isValidISO(date) || date <= today || date > horizon) return null;
+      return normaliseSession({
+        id: newId(),
+        courseworkId: String(entry.courseworkId),
+        stepId: String(entry.stepId || ""),
+        date,
+        time: /^\d{2}:\d{2}$/.test(entry.time || "") ? entry.time : SESSION_TIME_EVENING,
+        minutes: clampMinutes(entry.minutes),
+        why: String(entry.why || ""),
+        by: "ai",
+        createdAt: new Date().toISOString(),
+      });
+    })
+    .filter(Boolean);
+
+  /* The planner's own untouched future output is what it may replace. */
+  state.sessions.forEach((session) => {
+    if (session.deleted || session.done || session.pinned || session.date <= today) return;
+    if (session.startedAt) return;
+    session.deleted = true;
+    touch(session);
+  });
+
+  fresh.forEach((session) => state.sessions.push(session));
+  saveSessions();
+  return fresh.length;
+}
+
+/* ---------- Sitting down ---------- */
+
+/*
+  A planned session is an intention. This is the part that turns it into an
+  hour that actually happened.
+
+  Opening the schoolwork half offers tonight's sitting: start it, or move it
+  to a time later today. Starting it hides the app. Not some of the app -- all
+  of it: for the length of the sitting the screen is a clock and two buttons,
+  because an app that offers you your timetable while you are meant to be
+  writing an essay is the thing you will look at instead of writing the essay.
+
+  The run survives a reload and a closed tab, because it is kept by its start
+  time rather than by a counter ticking in memory: how much is left is always
+  worked out from the clock, never accumulated.
+*/
+
+/* How often the clock redraws, and how often the lock screen is told. */
+const TIMER_TICK_MS = 1000;
+const LIVE_NOTIFY_MS = 5 * 60 * 1000;
+
+let timerHandle = null;
+let liveNotifiedAt = 0;
+
+function running() {
+  const held = readStore(RUNNING_KEY, null);
+  if (!held || typeof held !== "object" || !held.sessionId || !held.startedAt) return null;
+  const session = liveSessions().find((entry) => entry.id === held.sessionId);
+  if (!session) return null;
+  return {
+    sessionId: held.sessionId,
+    startedAt: held.startedAt,
+    minutes: clampMinutes(held.minutes || session.minutes),
+    pausedAt: held.pausedAt || "",
+    /* Time already banked before the current pause, in milliseconds. */
+    banked: Math.max(0, Number(held.banked) || 0),
+    session,
+  };
+}
+
+/** Milliseconds sat so far, which is the clock's business and nobody else's. */
+function ranMs(run, now = Date.now()) {
+  if (!run) return 0;
+  if (run.pausedAt) return run.banked;
+  const since = now - Date.parse(run.startedAt);
+  return run.banked + Math.max(0, since);
+}
+
+function startSession(id, { now = new Date() } = {}) {
+  const session = liveSessions().find((entry) => entry.id === id);
+  if (!session) return null;
+
+  writeStore(RUNNING_KEY, {
+    sessionId: session.id,
+    startedAt: now.toISOString(),
+    minutes: session.minutes,
+    banked: 0,
+    pausedAt: "",
+  });
+  session.startedAt = now.toISOString();
+  touch(session);
+  saveSessions();
+
+  showTimer();
+  announce(`Started. ${session.minutes} minutes on ${sessionName(session)}.`);
+  return session;
+}
+
+function pauseSession() {
+  const run = running();
+  if (!run || run.pausedAt) return;
+  writeStore(RUNNING_KEY, {
+    sessionId: run.sessionId,
+    startedAt: run.startedAt,
+    minutes: run.minutes,
+    banked: ranMs(run),
+    pausedAt: new Date().toISOString(),
+  });
+  drawTimer();
+  announce("Paused.");
+}
+
+function resumeSession() {
+  const run = running();
+  if (!run || !run.pausedAt) return;
+  writeStore(RUNNING_KEY, {
+    sessionId: run.sessionId,
+    startedAt: new Date().toISOString(),
+    minutes: run.minutes,
+    banked: run.banked,
+    pausedAt: "",
+  });
+  drawTimer();
+  announce("Going again.");
+}
+
+/**
+ * Ends the sitting and records what it actually was.
+ *
+ * `ranMinutes` is the measured time, not the planned time. A sitting stopped
+ * after twenty minutes of a ninety-minute evening owes seventy, and the next
+ * plan is told so.
+ */
+function endSession({ finished = false } = {}) {
+  const run = running();
+  if (!run) return null;
+
+  const minutes = Math.max(0, Math.round(ranMs(run) / 60000));
+  const session = run.session;
+  session.ranMinutes = (session.ranMinutes || 0) + minutes;
+  session.endedAt = new Date().toISOString();
+  /* Done means the evening was seen through, not that the clock was opened. */
+  session.done = finished || session.ranMinutes >= session.minutes * 0.9;
+  touch(session);
+  saveSessions();
+
+  writeStore(RUNNING_KEY, null);
+  clearLive();
+  hideTimer();
+  renderAll();
+
+  announce(session.done
+    ? `Finished. ${minutes} minutes on ${sessionName(session)}.`
+    : `Stopped after ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`);
+  return { session, minutes };
+}
+
+function sessionName(session) {
+  const item = sessionCoursework(session);
+  if (!item) return "your work";
+  const step = item.steps && item.steps.find((entry) => entry.id === session.stepId);
+  return step ? `${item.title}: ${step.title}` : item.title;
+}
+
+/* ---------- Being offered the evening ---------- */
+
+/*
+  Opening the schoolwork half asks the one question the evening turns on: are
+  you doing this now, or at a time you will name. There is no third button,
+  because "not today" is answered by closing the dialog and is recorded by the
+  check-in rather than by a button that makes skipping feel official.
+*/
+
+const OFFERED_KEY = "getagrip.offered";
+
+/** The sitting tonight is about: the first one today that has not run. */
+function tonight(today = todayISO()) {
+  return sessionsOn(today)
+    .filter((session) => !session.done && !session.endedAt)
+    .sort((a, b) => (a.deferredTo || a.time).localeCompare(b.deferredTo || b.time))[0] || null;
+}
+
+/** Once per session per day: being asked twice is being nagged. */
+function alreadyOffered(session) {
+  try {
+    return window.sessionStorage.getItem(OFFERED_KEY) === session.id;
+  } catch (err) {
+    return false;
+  }
+}
+
+function markOffered(session) {
+  try {
+    window.sessionStorage.setItem(OFFERED_KEY, session.id);
+  } catch (err) {
+    /* A browser refusing storage just means the question is asked again. */
+  }
+}
+
+function offerSession({ force = false } = {}) {
+  /*
+    A sitting already running is the answer to the question this dialog asks,
+    so it answers it: the clock comes up and nothing else is offered. Returning
+    false here put the daily check-in on top of a running timer, which is the
+    one moment the app has promised to show nothing but the clock.
+  */
+  if (running()) {
+    showTimer();
+    return true;
+  }
+  const session = tonight();
+  if (!session) return false;
+  if (!force && alreadyOffered(session)) return false;
+
+  const dialog = $("session-dialog");
+  const body = $("session-dialog-body");
+  if (!dialog || !body) return false;
+
+  const item = sessionCoursework(session);
+  const step = item && item.steps ? item.steps.find((entry) => entry.id === session.stepId) : null;
+  const at = session.deferredTo || session.time;
+
+  body.replaceChildren(
+    el("p", { class: "start-when", text: `${at}, ${session.minutes} minutes` }),
+    el("h3", { class: "start-what", text: item ? item.title : "Study" }),
+    step ? el("p", { class: "start-step", text: step.title }) : null,
+    session.why ? el("p", { class: "start-why", text: session.why }) : null,
+    item && item.due ? el("p", { class: "start-due", text: `Due ${whenInWords(item.due)}.` }) : null
+  );
+
+  const later = $("session-later");
+  if (later) later.value = laterToday(at);
+
+  markOffered(session);
+  dialog.dataset.sessionId = session.id;
+  openDialog(dialog);
+  /* On the answer, not on the way out of the question. */
+  const start = $("session-start");
+  if (start) start.focus();
+  return true;
+}
+
+/** A sensible default for "later": the next half hour from now, or the plan. */
+function laterToday(planned) {
+  const now = new Date();
+  const next = new Date(now.getTime() + 30 * 60000);
+  next.setMinutes(next.getMinutes() >= 30 ? 30 : 0, 0, 0);
+  const soon = `${twoDigits(next.getHours())}:${twoDigits(next.getMinutes())}`;
+  return soon > planned ? soon : planned;
+}
+
+function deferSession() {
+  const dialog = $("session-dialog");
+  const at = ($("session-later") || {}).value || "";
+  if (!dialog || !/^\d{2}:\d{2}$/.test(at)) return;
+  const session = liveSessions().find((entry) => entry.id === dialog.dataset.sessionId);
+  if (!session) return;
+
+  session.deferredTo = at;
+  session.pinned = true;
+  touch(session);
+  saveSessions();
+  closeDialog(dialog);
+  renderAll();
+  announce(`Moved to ${at} today.`);
+}
+
+/* ---------- The daily check-in ---------- */
+
+/*
+  One question at the end of the day, and it is deliberately not "did you tick
+  the box". A session is only progress if it ran, so what is asked is how many
+  minutes actually happened -- and whatever is left over is owed, goes back
+  into the plan, and buys more evenings rather than disappearing.
+*/
+
+function checkinDue(today = todayISO(), now = new Date()) {
+  if (checkinFor(today)) return false;
+  /* Not in the middle of the thing it is asking about. */
+  if (running()) return false;
+  const planned = sessionsOn(today);
+  if (planned.length === 0) return false;
+  /* Not before the evening is over: asking at four o'clock asks about nothing. */
+  return now.getHours() >= 20 || planned.every((session) => session.endedAt || session.done);
+}
+
+function openCheckin({ because = "evening", today = todayISO() } = {}) {
+  const dialog = $("checkin-dialog");
+  const body = $("checkin-body");
+  if (!dialog || !body) return false;
+
+  const planned = sessionsOn(today);
+  if (planned.length === 0) return false;
+
+  body.replaceChildren(
+    el("p", {
+      class: "checkin-lead",
+      text: because === "finished"
+        ? "That is the evening done. How much of it actually got done?"
+        : "How much of today actually got done?",
+    }),
+    el("ul", { class: "checkin-list" }, planned.map((session) => {
+      const ran = Math.round(session.ranMinutes || 0);
+      return el(
+        "li",
+        { class: "checkin-row" },
+        el("span", { class: "checkin-what" },
+          el("span", { class: "checkin-title", text: sessionName(session) }),
+          el("span", { class: "checkin-plan", text: `${session.minutes} min planned` })),
+        el("label", { class: "sr-only", for: `checkin-${session.id}`, text: `Minutes done on ${sessionName(session)}` }),
+        el("input", {
+          type: "number", class: "input checkin-minutes", id: `checkin-${session.id}`,
+          inputmode: "numeric", min: "0", max: "600", step: "5",
+          value: String(ran || 0), dataset: { sessionId: session.id },
+        })
+      );
+    }))
+  );
+
+  dialog.dataset.day = today;
+  openDialog(dialog);
+  return true;
+}
+
+/** Writes the day down, then asks the model what it means. */
+async function saveCheckinFromDialog() {
+  const dialog = $("checkin-dialog");
+  if (!dialog) return;
+  const today = dialog.dataset.day || todayISO();
+
+  const items = [...document.querySelectorAll(".checkin-minutes")].map((field) => {
+    const session = liveSessions().find((entry) => entry.id === field.dataset.sessionId);
+    const minutes = Math.max(0, Math.min(600, Math.round(Number(field.value) || 0)));
+    if (session) {
+      session.ranMinutes = minutes;
+      session.done = minutes >= session.minutes * 0.9;
+      touch(session);
+    }
+    return {
+      sessionId: field.dataset.sessionId,
+      planned: session ? session.minutes : 0,
+      minutes,
+      done: session ? session.done : false,
+    };
+  });
+  saveSessions();
+
+  const total = items.reduce((sum, item) => sum + item.minutes, 0);
+  const owed = items.reduce((sum, item) => sum + Math.max(0, item.planned - item.minutes), 0) / 60;
+  const row = saveCheckin(today, { items, minutes: total, owed });
+
+  closeDialog(dialog);
+  renderAll();
+  announce(`Noted: ${total} ${total === 1 ? "minute" : "minutes"} today.`);
+
+  /* The read-back and any replanning are the model's, and neither of them is
+     allowed to make saving the day fail. */
+  try {
+    const read = await readTheDayBack(today, items);
+    if (read && read.line) {
+      saveCheckin(today, { ...row, line: read.line, owed: read.owed });
+      renderAll();
+    }
+    if (read && read.replan) await aiPlan({ quiet: true });
+  } catch (err) {
+    console.warn("Could not read the day back:", err.message);
+  }
+}
+
+async function readTheDayBack(today, items) {
+  const res = await fetch("/api/study?action=checkin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      today,
+      planned: sessionsOn(today).map((session) => ({
+        what: sessionName(session), minutes: session.minutes, time: session.time,
+      })),
+      reported: items,
+      recent: checkins().slice(-7).map((row) => ({ date: row.date, minutes: row.minutes })),
+    }),
+    cache: "no-store",
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || body.ok !== true || !body.result) return null;
+  return body.result;
+}
+
+/* ---------- The clock ---------- */
+
+function showTimer() {
+  const timer = $("timer");
+  if (!timer) return;
+  timer.hidden = false;
+  document.body.classList.add("is-sitting");
+  drawTimer();
+  if (timerHandle === null) timerHandle = window.setInterval(tickTimer, TIMER_TICK_MS);
+  const pause = $("timer-pause");
+  if (pause) pause.focus();
+}
+
+function hideTimer() {
+  const timer = $("timer");
+  if (timer) timer.hidden = true;
+  document.body.classList.remove("is-sitting");
+  if (timerHandle !== null) {
+    window.clearInterval(timerHandle);
+    timerHandle = null;
+  }
+}
+
+function tickTimer() {
+  const run = running();
+  if (!run) {
+    hideTimer();
+    return;
+  }
+  drawTimer(run);
+
+  const left = run.minutes * 60000 - ranMs(run);
+  if (left <= 0) {
+    endSession({ finished: true });
+    openCheckin({ because: "finished" });
+    return;
+  }
+  if (!run.pausedAt && Date.now() - liveNotifiedAt > LIVE_NOTIFY_MS) {
+    liveNotifiedAt = Date.now();
+    tellTheLockScreen(run, left);
+  }
+}
+
+const twoDigits = (n) => String(Math.floor(n)).padStart(2, "0");
+
+function clockWords(ms) {
+  const whole = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const seconds = whole % 60;
+  return hours > 0
+    ? `${hours}:${twoDigits(minutes)}:${twoDigits(seconds)}`
+    : `${twoDigits(minutes)}:${twoDigits(seconds)}`;
+}
+
+/** Minutes, rounded up, for anywhere a second-by-second count would be noise. */
+function minutesLeftWords(ms) {
+  const minutes = Math.max(0, Math.ceil(ms / 60000));
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest === 0 ? `${hours} h left` : `${hours} h ${rest} min left`;
+  }
+  return `${minutes} min left`;
+}
+
+function drawTimer(run = running()) {
+  if (!run) return;
+  const total = run.minutes * 60000;
+  const left = Math.max(0, total - ranMs(run));
+  const share = total > 0 ? Math.min(1, (total - left) / total) : 0;
+
+  const clock = $("timer-clock");
+  if (clock) clock.textContent = clockWords(left);
+
+  const ring = $("timer-ring-run");
+  if (ring) {
+    const circumference = 2 * Math.PI * 54;
+    ring.style.strokeDasharray = String(circumference);
+    ring.style.strokeDashoffset = String(circumference * (1 - share));
+  }
+
+  const what = $("timer-what");
+  if (what) what.textContent = run.pausedAt ? "Paused" : "Studying";
+  const title = $("timer-title");
+  if (title) title.textContent = sessionName(run.session);
+  const note = $("timer-note");
+  if (note) note.textContent = run.session.why || "";
+  const pause = $("timer-pause");
+  if (pause) pause.textContent = run.pausedAt ? "Resume" : "Pause";
+  const left_ = $("timer-left");
+  if (left_) left_.textContent = `${run.minutes} minutes planned. ${minutesLeftWords(left)}.`;
+
+  drawLive(run, left, share);
+}
+
+/* ---------- The live bar ---------- */
+
+/*
+  The nearest thing a web app on an iPad is allowed to a live activity.
+
+  Inside the app this is a real one: a bar pinned to the bottom of the page
+  that counts down wherever the reader goes. On the lock screen it is a
+  notification the service worker replaces every few minutes under one tag, so
+  it updates in place rather than stacking. A web app cannot put a timer in the
+  Dynamic Island -- that API is not open to us -- and saying otherwise in the
+  interface would be a lie the reader finds out at the worst moment.
+*/
+function drawLive(run, left, share) {
+  const bar = $("live-bar");
+  if (!bar) return;
+  /* While the clock is on screen the bar would be the same thing twice. */
+  bar.hidden = !run || document.body.classList.contains("is-sitting");
+  if (bar.hidden) return;
+
+  const clock = $("live-clock");
+  if (clock) clock.textContent = clockWords(left);
+  const title = $("live-title");
+  if (title) title.textContent = run.pausedAt ? "Paused" : "Studying";
+  const note = $("live-note");
+  if (note) note.textContent = sessionName(run.session);
+  const fill = $("live-fill");
+  if (fill) fill.style.width = `${Math.round(share * 100)}%`;
+}
+
+function clearLive() {
+  const bar = $("live-bar");
+  if (bar) bar.hidden = true;
+  liveNotifiedAt = 0;
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: "SESSION_OVER" });
+  }
+}
+
+function tellTheLockScreen(run, left) {
+  if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  navigator.serviceWorker.controller.postMessage({
+    type: "SESSION_TICK",
+    title: `${minutesLeftWords(left)}`,
+    body: sessionName(run.session),
+  });
 }
 
 /**
@@ -4522,6 +5461,7 @@ function init() {
   restorePrefs();
   setupEvents();
   setupCoursework();
+  setupSitting();
   renderAll();
   setupReminders();
   setupCloud();

@@ -22,7 +22,7 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "getagrip-v29";
+const CACHE = "getagrip-v30";
 
 /* How long to wait for the network before falling back to the cached shell.
    Long enough for a slow connection, short enough not to feel broken. */
@@ -59,8 +59,41 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+  const sent = event.data || {};
+  if (sent.type === "SKIP_WAITING") self.skipWaiting();
+
+  /*
+    The live sitting, on the lock screen.
+
+    A web app cannot own a Live Activity -- that API belongs to native apps --
+    but it can keep one notification up to date. Every few minutes the page
+    sends the time remaining and this replaces the notification under a fixed
+    tag, so it updates in place instead of stacking up a row of them. It is
+    silent and carries no vibration: a countdown that buzzes every five minutes
+    is a countdown that gets permission revoked.
+  */
+  if (sent.type === "SESSION_TICK") {
+    event.waitUntil(self.registration.showNotification(sent.title || "Studying", {
+      body: sent.body || "",
+      tag: SESSION_TAG,
+      renotify: false,
+      silent: true,
+      icon: "icons/icon-192.png",
+      badge: "icons/icon-192.png",
+      data: { kind: "session" },
+    }));
+  }
+
+  if (sent.type === "SESSION_OVER") {
+    event.waitUntil(
+      self.registration.getNotifications({ tag: SESSION_TAG })
+        .then((open) => open.forEach((note) => note.close()))
+    );
+  }
 });
+
+/* One tag, so the countdown replaces itself rather than stacking. */
+const SESSION_TAG = "getagrip-session";
 
 /*
   A notification sent from the server while the app is shut. The browser wakes

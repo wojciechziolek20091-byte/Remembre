@@ -529,8 +529,17 @@ check("they are spread, never two on one day", planned.distinctDays, planned.cou
 check("no two sittings are closer than a couple of days",
   planned.gaps.every((gap) => gap >= 2), true);
 check("and all of them are in the future", planned.allFuture, true);
-check("a weekday sitting is after school, a weekend one late morning",
-  planned.times, ["11:00", "16:00"]);
+check("every sitting is at an hour the planner chose",
+  planned.times.every((time) => ["11:00", "19:00"].includes(time)), true, planned.times.join());
+// Asked of the rule rather than of whichever days this fixture happened to
+// pick: a weekday sitting is the agreed evening hour, a free day starts early.
+const hours = await page.evaluate(() => {
+  const monday = "2026-09-07";
+  const saturday = "2026-09-12";
+  return { monday: sessionTimeFor(monday), saturday: sessionTimeFor(saturday) };
+});
+check("a school night sits down at seven", hours.monday, "19:00");
+check("and a free day late in the morning", hours.saturday, "11:00");
 
 const crammed = await page.evaluate(() => {
   const z = (n) => String(n).padStart(2, "0");
@@ -1082,13 +1091,17 @@ await page.evaluate(() => {
   };
 });
 
-/** Plans one piece of coursework at a given effort and counts the sittings. */
-const planAt = (effort) => page.evaluate((level) => {
+/*
+  The fallback planner, which is the one these exercise. The model lays out the
+  real schedule now; this is what a device with no key and no signal falls back
+  to, and what it has to get right is the only thing it is told: the hours.
+*/
+const planAt = (hours) => page.evaluate((intended) => {
   const today = todayISO();
   state.coursework = [normaliseCoursework({
     id: "solo", title: "Extended essay", kind: "ee",
     due: addDays(today, 30), stage: "in-progress",
-    steps: [{ id: "s1", title: "First draft", due: addDays(today, 28), done: false, effort: level }],
+    steps: [{ id: "s1", title: "First draft", due: addDays(today, 28), done: false, hours: intended }],
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
   })];
   state.sessions = [];
@@ -1099,67 +1112,62 @@ const planAt = (effort) => page.evaluate((level) => {
     dates: plan.map((entry) => entry.date),
     spacing: sessionTarget(findCoursework("solo"), today).spacing,
   };
-}, effort);
+}, hours);
 
 {
-  const light = await planAt(1);
-  const normal = await planAt(3);
-  const heavy = await planAt(5);
+  const small = await planAt(3);
+  const middling = await planAt(6);
+  const big = await planAt(20);
 
-  check("a very light step is visited least often", light.spacing, 8);
-  check("normal keeps the spacing the planner always had", normal.spacing, 5);
-  check("a very heavy step is visited most often", heavy.spacing, 2);
+  check("three hours is three sittings", small.count, 3);
+  check("six hours is six", middling.count, 6);
+  check("twenty hours is twelve, which is as many as a month holds", big.count, 12);
+  check("fewer hours means fewer sittings", small.count < middling.count, true);
+  check("and more hours means more", big.count > middling.count, true);
+  check("a short piece is visited less often than a long one",
+    small.spacing > big.spacing, true);
 
-  check("light effort plans fewer sittings than normal", light.count < normal.count, true);
-  check("heavy effort plans more than normal", heavy.count > normal.count, true);
-  check("over 28 days, very light means four sittings", light.count, 4);
-  check("normal means six", normal.count, 6);
-  check("very heavy means twelve", heavy.count, 12);
-
-  // The point of the spread is that they do not bunch: raising effort should
-  // add sittings across the window, not pile them at one end.
+  // The point of the spread is that they do not bunch: more hours should add
+  // sittings across the window, not pile them at one end.
   const gaps = (dates) => dates.slice(1).map((date, i) =>
     Math.round((Date.parse(date) - Date.parse(dates[i])) / 86400000));
-  const heavyGaps = await page.evaluate((d) => d, gaps(heavy.dates));
-  check("and heavy sittings are still spread out, not bunched",
-    heavyGaps.every((gap) => gap >= 1), true);
+  check("and the long one is still spread out, not bunched",
+    gaps(big.dates).every((gap) => gap >= 1), true);
   check("with none of them doubled up on one day",
-    new Set(heavy.dates).size, heavy.count);
+    new Set(big.dates).size, big.count);
 }
 
 {
-  // A step nobody has touched has to plan exactly as it did before the slider
-  // existed, or adding one silently rewrites everybody's schedule.
-  const unset = await page.evaluate(() => {
+  // A step from before the hours existed carries an effort from one to five
+  // and nothing else, and has to come back as a believable number of hours
+  // rather than as a default that rewrites everybody's plan.
+  const old = await page.evaluate(() => {
     const today = todayISO();
-    state.coursework = [normaliseCoursework({
+    const read = (effort) => normaliseCoursework({
       id: "solo", title: "Extended essay", kind: "ee",
       due: addDays(today, 30), stage: "in-progress",
-      steps: [{ id: "s1", title: "First draft", due: addDays(today, 28), done: false }],
+      steps: [{ id: "s1", title: "First draft", due: addDays(today, 28), done: false, effort }],
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
-    })];
-    state.sessions = [];
-    saveCoursework(); saveSessions();
-    return {
-      stored: findCoursework("solo").steps[0].effort,
-      count: planSessions(today).length,
-    };
+    }).steps[0].hours;
+    return { light: read(1), normal: read(3), heavy: read(5), unset: read(undefined) };
   });
-  check("a step with no effort set defaults to normal", unset.stored, 3);
-  check("and plans as it always did", unset.count, 6);
+  check("a step that was very light becomes an hour", old.light, 1);
+  check("a normal one becomes four", old.normal, 4);
+  check("a very heavy one becomes fifteen", old.heavy, 15);
+  check("and one that never had a number gets the default", old.unset, 4);
 }
 
 {
-  // Effort follows the step being worked towards, so ticking one off hands the
-  // planner the next one's number rather than the first's.
+  // The hours follow the step being worked towards, so ticking one off hands
+  // the planner the next one's number rather than the first's.
   const handover = await page.evaluate(() => {
     const today = todayISO();
     state.coursework = [normaliseCoursework({
       id: "solo", title: "Extended essay", kind: "ee",
       due: addDays(today, 30), stage: "in-progress",
       steps: [
-        { id: "s1", title: "Reading", due: addDays(today, 28), done: false, effort: 1 },
-        { id: "s2", title: "Writing", due: addDays(today, 28), done: false, effort: 5 },
+        { id: "s1", title: "Reading", due: addDays(today, 28), done: false, hours: 2 },
+        { id: "s2", title: "Writing", due: addDays(today, 28), done: false, hours: 10 },
       ],
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
     })];
@@ -1170,8 +1178,8 @@ const planAt = (effort) => page.evaluate((level) => {
     saveCoursework();
     return { before, after: planSessions(today).length };
   });
-  check("the current step's effort is the one that counts", handover.before, 4);
-  check("and ticking it off hands over to the next step's", handover.after, 12);
+  check("the current step's hours are the ones that count", handover.before, 2);
+  check("and ticking it off hands over to the next step's", handover.after, 10);
 }
 
 {
@@ -1179,29 +1187,64 @@ const planAt = (effort) => page.evaluate((level) => {
   await page.evaluate(() => {
     state.coursework = [normaliseCoursework({
       id: "solo", title: "Extended essay", kind: "ee", stage: "in-progress",
-      steps: [{ id: "s1", title: "First draft", due: "", done: false, effort: 2 }],
+      steps: [{ id: "s1", title: "First draft", due: "", done: false, hours: 2 }],
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
     })];
     saveCoursework(); renderAll();
     openCourseworkDialog("solo");
   });
   await page.waitForSelector("#coursework-dialog[open]");
-  check("the slider opens on the step's stored effort",
-    await page.inputValue("#cw-step-effort-0"), "2");
-  check("and reads out in words, not a number",
-    await page.textContent("#cw-step-effort-0-value"), "Light");
+  check("the box opens on the hours the step was given",
+    await page.inputValue("#cw-step-hours-0"), "2");
 
-  await page.locator("#cw-step-effort-0").fill("5");
-  check("dragging it updates the reading straight away",
-    await page.textContent("#cw-step-effort-0-value"), "Very heavy");
-  check("without collapsing the row it lives in",
-    await page.locator("#cw-step-effort-0").count(), 1);
+  await page.locator("#cw-step-hours-0").fill("12");
+  check("typing a longer number is not clamped back mid-keystroke",
+    await page.inputValue("#cw-step-hours-0"), "12");
 
   await page.click("#save-coursework");
   check("and saving keeps it",
-    await page.evaluate(() => findCoursework("solo").steps[0].effort), 5);
+    await page.evaluate(() => findCoursework("solo").steps[0].hours), 12);
   check("which the card then shows without opening the editor",
-    await page.locator(".cw-next-effort").first().innerText(), "Very heavy effort");
+    await page.locator(".cw-next-effort").first().innerText(), "12 h");
+
+  // The estimate is an offer. It fills the box in and says where the number
+  // came from, and the box stays editable afterwards.
+  await page.evaluate(() => {
+    window.__asked = [];
+    window.fetch = async (url, options) => {
+      window.__asked.push(String(url));
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true, action: "estimate",
+          result: {
+            hours: 18, low: 14, high: 25, confidence: "high", shape: "long",
+            sessionMinutes: 120, sittings: 9,
+            why: "A 4000-word extended essay is mostly redrafting.",
+            assumed: "", sources: ["IB Extended Essay guide"],
+          },
+        }),
+      };
+    };
+    openCourseworkDialog("solo");
+  });
+  await page.waitForSelector("#coursework-dialog[open]");
+  await page.click('[data-estimate-step="0"]');
+  await page.waitForFunction(() => document.getElementById("cw-step-hours-0").value === "18");
+
+  check("the estimate asks the study route", await page.evaluate(
+    () => window.__asked.some((url) => url.includes("action=estimate"))), true);
+  check("and fills the hours in", await page.inputValue("#cw-step-hours-0"), "18");
+  check("saying what it read", await page.textContent("#cw-step-hours-0-note"),
+    "Estimated 18 h (14 to 25), in long evenings of about 120 minutes. "
+    + "A 4000-word extended essay is mostly redrafting. Read: IB Extended Essay guide.");
+  check("and leaving the number editable",
+    await page.locator("#cw-step-hours-0").isEditable(), true);
+
+  await page.locator("#cw-step-hours-0").fill("6");
+  await page.click("#save-coursework");
+  check("so the last word is the student's",
+    await page.evaluate(() => findCoursework("solo").steps[0].hours), 6);
 }
 
 await page.evaluate(() => {
@@ -1307,6 +1350,206 @@ const tomb = await page.evaluate(() => {
 });
 check("the row is kept so the deletion can travel", [tomb.rows, tomb.deleted], [1, true]);
 check("but it is gone from the interface", tomb.visible, 0);
+
+console.log("\nthe planner, which is the model's now");
+
+{
+  // What the planner is given. It gets the titles, the hours, the deadlines
+  // and what was actually done -- and nothing else, because everything else is
+  // either noise or somebody's private business.
+  const payload = await page.evaluate(() => {
+    const today = todayISO();
+    state.coursework = [normaliseCoursework({
+      id: "ia", title: "Economics IA", kind: "ia", subject: "economics",
+      due: addDays(today, 20), stage: "in-progress",
+      steps: [
+        { id: "s1", title: "Pick the article", due: addDays(today, 5), done: true, hours: 2 },
+        { id: "s2", title: "Write the commentary", due: addDays(today, 18), done: false, hours: 9 },
+      ],
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    state.tasks = [normaliseTask({
+      id: "t1", title: "Maths test", type: "test", subject: "mathematics",
+      date: addDays(today, 3),
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    state.sessions = [];
+    saveCoursework(); saveTasks(); saveSessions();
+    writeStore("remembre.checkins.v1", [
+      { date: addDays(today, -1), minutes: 0, items: [{ sessionId: "x", minutes: 0, done: false }] },
+    ]);
+    return planPayload(today);
+  });
+
+  check("the planner is given the work by name", payload.work[0].title, "Economics IA");
+  check("with the hours that are still owed on it", payload.work[0].hoursOwed, 9);
+  check("and only the steps still to do", payload.work[0].steps.map((s) => s.title), ["Write the commentary"]);
+  check("it is told what the evenings already have on them",
+    payload.busy.map((b) => b.title), ["Maths test"]);
+  check("and what was actually done on the days behind", payload.done[0].minutes, 0);
+
+  // A session that was planned and not run is not progress, which is the whole
+  // mechanism: the hours it was meant to carry are still owed.
+  const owed = await page.evaluate(() => {
+    const today = todayISO();
+    const item = findCoursework("ia");
+    state.sessions = [
+      normaliseSession({ id: "ran", courseworkId: "ia", date: addDays(today, -2), ranMinutes: 120,
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+      normaliseSession({ id: "missed", courseworkId: "ia", date: addDays(today, -1), ranMinutes: 0,
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    ];
+    saveSessions();
+    return hoursOwed(item);
+  });
+  check("an evening that ran takes its hours off the total", owed, 7);
+
+  // What comes back is checked before it is believed.
+  const laid = await page.evaluate(() => {
+    const today = todayISO();
+    state.sessions = [];
+    saveSessions();
+    const kept = layPlan([
+      { courseworkId: "ia", stepId: "s2", date: addDays(today, 2), time: "19:00", minutes: 90, why: "Long enough to draft" },
+      { courseworkId: "ia", date: addDays(today, 4), time: "19:00", minutes: 600, why: "Too long" },
+      { courseworkId: "nope", date: addDays(today, 3), time: "19:00", minutes: 60, why: "Not a real piece" },
+      { courseworkId: "ia", date: addDays(today, -3), time: "19:00", minutes: 60, why: "In the past" },
+      { courseworkId: "ia", date: "not-a-date", time: "19:00", minutes: 60, why: "Not a date" },
+    ], today);
+    return {
+      kept,
+      minutes: liveSessions().map((s) => s.minutes).sort((a, b) => a - b),
+      why: (liveSessions().find((s) => s.stepId === "s2") || {}).why,
+      by: (liveSessions()[0] || {}).by,
+    };
+  });
+  check("a sitting for a piece that does not exist is dropped", laid.kept, 2);
+  check("one in the past is dropped too", laid.minutes.length, 2);
+  check("and a ten-hour evening is cut to the longest that gets finished",
+    laid.minutes, [90, 180]);
+  check("what the planner said the evening was for is kept with it",
+    laid.why, "Long enough to draft");
+  check("and the sitting knows it was not laid out by hand", laid.by, "ai");
+}
+
+console.log("\nsitting down");
+
+{
+  const sat = await page.evaluate(async () => {
+    const today = todayISO();
+    state.sessions = [normaliseSession({
+      id: "tonight", courseworkId: "ia", stepId: "s2", date: today, time: "19:00", minutes: 60,
+      why: "Draft the commentary",
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    saveSessions();
+    writeStore("remembre.running.v1", null);
+    try { sessionStorage.removeItem("getagrip.offered"); } catch (err) { /* nothing */ }
+
+    const offered = offerSession();
+    const dialogOpen = document.getElementById("session-dialog").open;
+    const asked = document.getElementById("session-dialog-body").textContent;
+    const again = offerSession();
+    return { offered, dialogOpen, asked, again };
+  });
+  check("tonight's sitting is offered on arrival", sat.offered, true);
+  check("in a dialog", sat.dialogOpen, true);
+  check("which says what it is for", /Draft the commentary/.test(sat.asked), true, sat.asked);
+  check("and is not asked twice in one visit", sat.again, false);
+
+  const later = await page.evaluate(() => {
+    document.getElementById("session-later").value = "21:30";
+    deferSession();
+    const session = liveSessions().find((entry) => entry.id === "tonight");
+    return { at: session.deferredTo, pinned: session.pinned, open: document.getElementById("session-dialog").open };
+  });
+  check("scheduling it for later moves it", later.at, "21:30");
+  check("and pins it so the planner leaves it alone", later.pinned, true);
+  check("and closes the dialog", later.open, false);
+
+  const run = await page.evaluate(() => {
+    const started = startSession("tonight", { now: new Date(Date.now() - 20 * 60000) });
+    const timer = document.getElementById("timer");
+    return {
+      started: Boolean(started),
+      shown: timer.hidden === false,
+      coveringEverything: document.body.classList.contains("is-sitting"),
+      clock: document.getElementById("timer-clock").textContent,
+      title: document.getElementById("timer-title").textContent,
+    };
+  });
+  check("starting it runs the clock", run.started, true);
+  check("which is all there is on the screen", run.shown && run.coveringEverything, true);
+  check("counting down from the time already sat", run.clock, "40:00");
+  check("and naming the work", run.title, "Economics IA: Write the commentary");
+
+  const paused = await page.evaluate(() => {
+    pauseSession();
+    const first = document.getElementById("timer-clock").textContent;
+    const held = JSON.parse(localStorage.getItem("remembre.running.v1"));
+    return { first, banked: Math.round(held.banked / 60000), label: document.getElementById("timer-pause").textContent };
+  });
+  check("pausing banks what has been sat so far", paused.banked, 20);
+  check("and the button offers the way back", paused.label, "Resume");
+
+  const ended = await page.evaluate(() => {
+    const result = endSession({ finished: false });
+    const session = liveSessions().find((entry) => entry.id === "tonight");
+    return {
+      minutes: result.minutes,
+      ran: session.ranMinutes,
+      done: session.done,
+      running: localStorage.getItem("remembre.running.v1"),
+      timerHidden: document.getElementById("timer").hidden,
+    };
+  });
+  check("stopping early records the minutes that actually happened", ended.minutes, 20);
+  check("and keeps them on the sitting", ended.ran, 20);
+  check("twenty minutes of an hour is not a sitting done", ended.done, false);
+  check("the clock stops being the screen", ended.timerHidden, true);
+  check("and nothing is left running", ended.running, "null");
+}
+
+console.log("\nthe day, read back");
+
+{
+  const asked = await page.evaluate(() => {
+    const today = todayISO();
+    localStorage.removeItem("remembre.checkins.v1");
+    state.sessions = [normaliseSession({
+      id: "a", courseworkId: "ia", stepId: "s2", date: today, minutes: 90,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    saveSessions();
+    const due = checkinDue(today, new Date(`${today}T21:00:00`));
+    const early = checkinDue(today, new Date(`${today}T16:00:00`));
+    openCheckin({ today });
+    return { due, early, open: document.getElementById("checkin-dialog").open,
+      rows: document.querySelectorAll(".checkin-row").length };
+  });
+  check("the day is asked about once the evening is over", asked.due, true);
+  check("and not at four in the afternoon", asked.early, false);
+  check("every sitting planned for today gets a row", asked.rows, 1);
+  check("in a dialog", asked.open, true);
+
+  const saved = await page.evaluate(async () => {
+    const today = todayISO();
+    window.fetch = async () => ({ ok: true, json: async () => ({
+      ok: true, result: { line: "Half of it, which is half of it.", owed: 0.75, replan: false },
+    }) });
+    document.querySelector(".checkin-minutes").value = "45";
+    await saveCheckinFromDialog();
+    const row = checkinFor(today);
+    const session = liveSessions().find((entry) => entry.id === "a");
+    return { minutes: row.minutes, line: row.line, ran: session.ranMinutes, done: session.done,
+      due: checkinDue(today, new Date(`${today}T21:00:00`)) };
+  });
+  check("what was reported is what is recorded", saved.minutes, 45);
+  check("and it lands on the sitting itself", saved.ran, 45);
+  check("forty-five minutes of ninety is not done", saved.done, false);
+  check("the model's line is kept with the day", saved.line, "Half of it, which is half of it.");
+  check("and the day is not asked about twice", saved.due, false);
+}
 
 console.log("\nwhat the page is made of");
 
