@@ -1597,18 +1597,30 @@ function classifyIncome() {
   return changed;
 }
 
-/** Where this month stands against the plan. */
-function incomeStanding(monthKey) {
+/**
+ * Where this month stands against the plan.
+ *
+ * An instalment that has not arrived is one of two different things, and they
+ * were being called the same thing: money still coming, or money that was due
+ * and did not turn up. On the 6th of a month whose 1st never landed, "next
+ * 700 zl on the 1st" is not a forecast, it is a date in the past wearing the
+ * word next. The two are separated here: `next` is the first one still ahead,
+ * `late` is everything whose day has gone.
+ */
+function incomeStanding(monthKey, today = todayISO()) {
   const filled = matchIncome(monthKey);
   const planned = plannedMonthly();
   const arrived = filled.filter((row) => row.got).reduce((sum, row) => sum + row.got.amount, 0);
-  const next = filled.find((row) => !row.got) || null;
+
+  const waiting = filled.filter((row) => !row.got).map((row) => row.slot);
+  const next = waiting.find((slot) => slot.date >= today) || null;
+  const late = waiting.filter((slot) => slot.date < today);
 
   const external = liveTransactions()
     .filter((entry) => entry.amount > 0 && entry.branch === "external" && monthOf(entry.date) === monthKey)
     .reduce((sum, entry) => sum + entry.amount, 0);
 
-  return { planned, arrived, toCome: planned - arrived, next: next ? next.slot : null, external, filled };
+  return { planned, arrived, toCome: planned - arrived, next, late, external, filled };
 }
 
 /* ---------- How fast it is going ---------- */
@@ -3004,14 +3016,30 @@ function planLine(monthKey) {
   if (plan.length === 0) return null;
 
   const standing = incomeStanding(monthKey);
-  const when = standing.next ? ` · next ${zloty(standing.next.amount)} on the ${ordinal(standing.next.day)}` : "";
+  /* Only money that is genuinely still ahead is money to come. */
+  const when = standing.next
+    ? `, ${zloty(standing.toCome)} to come · next ${zloty(standing.next.amount)} on the ${ordinal(standing.next.day)}`
+    : "";
   const outside = standing.external ? `, ${zloty(standing.external)} from outside the plan` : "";
 
+  const owed = standing.late.reduce((sum, slot) => sum + slot.amount, 0);
+  const days = standing.late.map((slot) => ordinal(slot.day));
+  const over = monthKey < monthOf(todayISO());
+
   return el("p", { class: "kpi-plan" },
-    el("span", {
-      text: `Plan ${zloty(standing.planned)}, ${zloty(standing.arrived)} in${
-        standing.toCome > 0 ? `, ${zloty(standing.toCome)} to come` : ""}${when}${outside}`,
-    }));
+    el("span", { text: `Plan ${zloty(standing.planned)}, ${zloty(standing.arrived)} in${when}${outside}` }),
+    standing.late.length > 0
+      ? el("span", {
+          class: "kpi-late",
+          text: `${zloty(owed)} due on the ${inWords(days)} ${over ? "never arrived" : "has not arrived"}.`,
+        })
+      : null);
+}
+
+/** "the 1st", "the 1st and the 8th", "the 1st, the 8th and the 15th". */
+function inWords(parts) {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
 const ordinal = (n) => {

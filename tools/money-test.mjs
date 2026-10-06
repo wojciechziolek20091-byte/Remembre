@@ -786,6 +786,7 @@ console.log("\nthe income plan");
       arrived: standing.arrived,
       toCome: standing.toCome,
       next: standing.next ? standing.next.day : null,
+      late: standing.late.map((slot) => slot.day),
       external: liveTransactions().filter((e) => e.amount > 0 && e.branch === "external").length,
     };
   }, month);
@@ -799,7 +800,10 @@ console.log("\nthe income plan");
   check("the month is measured against the plan, not against what landed", rows.planned, 250000);
   check("what has arrived is what matched it", rows.arrived, 190000);
   check("the rest is still to come", rows.toCome, 60000);
-  check("and it says which instalment is next", rows.next, 22);
+  // September is behind us, so the instalment that never came is late rather
+  // than next. "Next" wearing a date in the past is not a forecast.
+  check("an instalment whose day has gone is not called next", rows.next, null);
+  check("it is late", rows.late, [22]);
   check("and it is counted apart from the plan", rows.external, 1);
   // With no schedule there is nothing to be outside of, and calling every
   // payment external would empty the month of its income.
@@ -827,8 +831,11 @@ console.log("\nthe income plan");
     };
   });
   check("the card leads with the plan",
-    /Plan 2\u00a0500,00 z\u0142, 1\u00a0900,00 z\u0142 in, 600,00 z\u0142 to come · next 600,00 z\u0142 on the 22nd/.test(card.plan),
-    true, card.plan);
+    /Plan 2\u00a0500,00 z\u0142, 1\u00a0900,00 z\u0142 in/.test(card.plan), true, card.plan);
+  check("and says plainly what never arrived",
+    /600,00 z\u0142 due on the 22nd never arrived/.test(card.plan), true, card.plan);
+  check("without calling a date in the past the next payment",
+    /next/.test(card.plan), false, card.plan);
   check("what came from outside it is listed apart", /BABCIA/.test(card.outside), true, card.outside);
   check("and nothing on the page asks about it", card.asked, 0);
 }
@@ -1830,6 +1837,42 @@ console.log("\nthe analysis moving the budgets");
   check("and are marked as applied", always.applied, true);
   check("what is offered is the way back", always.button, "Put them back");
   check("and there is no switch to argue with", always.switches, 0);
+}
+
+{
+  /*
+    The live case, which is the one that was wrong: a month still running, with
+    an instalment whose day has gone and whose money never came. It is late,
+    and the one after it is next. Both at once, on the same card.
+  */
+  const both = await page.evaluate(() => {
+    const today = todayISO();
+    const month = monthOf(today);
+    const day = Number(today.slice(8));
+    // A plan with one instalment behind today and one ahead of it, whatever
+    // day of the month this test happens to run on.
+    const past = Math.max(1, day - 3);
+    const ahead = Math.min(28, day + 3);
+    writeStore("remembre.incomeplan.v1", `${past} = 700\n${ahead} = 600\n`);
+    state.transactions = [];
+    state.moneyMonth = month;
+    saveTransactions();
+    classifyIncome();
+    renderDashboard();
+    const standing = incomeStanding(month);
+    return {
+      next: standing.next ? standing.next.day : null,
+      late: standing.late.map((slot) => slot.day),
+      line: (document.querySelector(".kpi-plan") || {}).textContent || "",
+      past, ahead,
+    };
+  });
+
+  check("the instalment still ahead is the next one", both.next, both.ahead);
+  check("and the one whose day has gone is late", both.late, [both.past]);
+  check("the card says what has not arrived",
+    /700,00 z\u0142 due on the [0-9]+[a-z]{2} has not arrived/.test(both.line), true, both.line);
+  check("and still says what is coming", /next 600,00 z\u0142/.test(both.line), true, both.line);
 }
 
 console.log("\nopening the half is the refresh");

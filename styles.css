@@ -3863,3 +3863,14 @@ body.is-sitting { overflow: hidden; }
   .timer, .live { animation: none; }
   .timer-ring-run, .live-fill { transition: none; }
 }
+
+/*
+  Money that was due and did not turn up. Not an error and not a warning
+  colour: a fact about the month that belongs next to the plan it belongs to.
+*/
+.kpi-late {
+  display: block;
+  margin-top: .15rem;
+  font-weight: 600;
+  color: var(--now);
+}
