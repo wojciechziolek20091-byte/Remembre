@@ -297,9 +297,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3 { line-height: 1.25; margin: 0; }
+h1, h2, h3 { line-height: 1.25; margin: 0; text-wrap: balance; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
+
+/*
+  This is an app that lives on a touchscreen. Without touch-action a tap on
+  any control waits 300ms to find out whether a second one is coming, which is
+  felt as the whole interface being slightly behind you; and the default grey
+  flash on iOS is not a colour anything else here uses.
+*/
+button, a, label, summary, .tile, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
 
 abbr[title] { text-decoration: none; }
 
@@ -3191,6 +3202,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
 
 .lead-figure {
   margin: 0;
+  text-wrap: balance;
   font-size: clamp(2.6rem, 9vw, 4rem);
   font-weight: 680;
   line-height: 1;

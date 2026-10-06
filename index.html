@@ -50,7 +50,7 @@
       <span class="wordmark-text">Get a grip</span>
     </h1>
 
-    <button type="button" class="btn btn-quiet btn-back" id="area-back" hidden>
+    <button type="button" class="btn btn-quiet btn-back" id="area-back" aria-label="Switch halves" hidden>
       <span aria-hidden="true">&larr;</span> Switch
     </button>
 
@@ -65,7 +65,7 @@
       </div>
     </nav>
 
-    <button type="button" class="btn btn-add app-bar-add school-only" id="add-task-top">
+    <button type="button" class="btn btn-add app-bar-add school-only" id="add-task-top" aria-label="Add task">
       <span class="btn-plus" aria-hidden="true">+</span> Add task
     </button>
   </div>
@@ -410,7 +410,7 @@
           </div>
           <div id="money-paste" hidden>
             <label class="field-label" for="money-paste-text">Paste the contents of the CSV</label>
-            <textarea id="money-paste-text" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none" placeholder="#Data operacji;#Data ksiegowania;..."></textarea>
+            <textarea id="money-paste-text" class="input money-rules" rows="6" spellcheck="false" autocapitalize="none" placeholder="#Data operacji;#Data ksiegowania;&hellip;"></textarea>
             <div class="panel-actions">
               <button type="button" class="btn btn-quiet" id="money-paste-import">Import what I pasted</button>
             </div>
