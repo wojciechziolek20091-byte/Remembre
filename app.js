@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.06-74";
+const APP_VERSION = "2026.10.06-75";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -902,8 +902,8 @@ function weekTitle(start) {
   const dayMonth = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "long" });
   const full = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "long", year: "numeric" });
   return monday.getMonth() === friday.getMonth()
-    ? `${day.format(monday)}\u2013${full.format(friday)}`
-    : `${dayMonth.format(monday)} \u2013 ${full.format(friday)}`;
+    ? `${day.format(monday)}-${full.format(friday)}`
+    : `${dayMonth.format(monday)} to ${full.format(friday)}`;
 }
 
 /** The first lesson at or after a position, searching the whole grid. */
@@ -1717,7 +1717,7 @@ function chapterRange(numbers) {
     if (last && n === last[1] + 1) last[1] = n;
     else runs.push([n, n]);
   });
-  return runs.map(([from, to]) => (from === to ? `${from}` : `${from}\u2013${to}`)).join(", ");
+  return runs.map(([from, to]) => (from === to ? `${from}` : `${from}-${to}`)).join(", ");
 }
 
 /**

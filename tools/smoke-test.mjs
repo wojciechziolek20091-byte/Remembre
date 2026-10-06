@@ -332,17 +332,17 @@ await page.click('label[for="section-core"]');
 check("choosing a part reveals 20 chapters", await page.locator(".chapter-grid label").count(), 20);
 for (const n of [3, 4, 5]) await page.click(`label[for="chapter-core-${n}"]`);
 check("the name is written from the choices",
-  await page.inputValue("#task-title"), "Test Chapters 3\u20135 from Core Topics");
+  await page.inputValue("#task-title"), "Test Chapters 3-5 from Core Topics");
 
 await page.click('label[for="section-hlai"]');
 await page.click('label[for="chapter-hlai-7"]');
 check("both parts of the course can be used at once",
   await page.inputValue("#task-title"),
-  "Test Chapters 3\u20135 from Core Topics; Chapters 7 from HL AI");
+  "Test Chapters 3-5 from Core Topics; Chapters 7 from HL AI");
 await page.click('[data-chapter-action="all"][data-chapter-section="hlai"]');
 check("All selects every chapter",
   await page.inputValue("#task-title"),
-  "Test Chapters 3\u20135 from Core Topics; Chapters 1\u201320 from HL AI");
+  "Test Chapters 3-5 from Core Topics; Chapters 1-20 from HL AI");
 await page.click('[data-chapter-action="none"][data-chapter-section="hlai"]');
 await page.click('label[for="section-hlai"]');
 
@@ -366,7 +366,7 @@ await page.click('label[for="kind-self-study"]');
 check("Self Study does ask for chapters", await page.locator(".chapter-grid label").count(), 20);
 for (const n of [11, 12]) await page.click(`label[for="chapter-all-${n}"]`);
 check("and names itself without a course part",
-  await page.inputValue("#task-title"), "Self Study Chapters 11\u201312");
+  await page.inputValue("#task-title"), "Self Study Chapters 11-12");
 
 await page.click('label[for="subject-history"]');
 check("a subject with no follow-ups asks nothing further",

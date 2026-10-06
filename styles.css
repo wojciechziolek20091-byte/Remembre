@@ -6,9 +6,21 @@
   paper, a slate app bar, and four task colours (terracotta, slate blue,
   garden green, plum) that stay distinguishable in both themes.
 
-  Type is deliberately restrained: Fraunces, a soft optical-size serif, for the
-  wordmark and the month heading only; Inter for every piece of interface text,
-  where legibility beats character.
+  Type is two faces doing two jobs.
+
+  EB Garamond, a book face, appears only where the app signs its own name: the
+  wordmark, the week or month on the calendar, and the title of a dialog. It is
+  a serif because the thing being referenced is a school exercise book, not
+  because a serif looks expensive, and it is a reading face rather than a
+  display one for the same reason. It replaced Fraunces, which is a fine
+  typeface and the single most over-reached-for display serif there is; using
+  it was a decision nobody had made on purpose.
+
+  Geist carries every piece of interface text and every figure. It was chosen
+  over Inter, which is the default sans of everything and which this app had
+  only because it was the obvious pick: Geist has the same legibility at small
+  sizes, better lining figures for a page that is mostly numbers, and it is
+  about forty per cent smaller over the wire.
 
   Accessibility notes that the rest of this file assumes:
   - Colour is never the only signal. Every task type also carries a glyph
@@ -23,22 +35,22 @@
 /* ---------- Fonts ---------- */
 
 @font-face {
-  font-family: "Fraunces";
+  font-family: "EB Garamond";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("fonts/fraunces-var-latin.woff2") format("woff2");
+  src: url("fonts/garamond-var-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
     U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: "Fraunces";
+  font-family: "EB Garamond";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("fonts/fraunces-var-latin-ext.woff2") format("woff2");
+  src: url("fonts/garamond-var-latin-ext.woff2") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
     U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
     U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
@@ -67,22 +79,22 @@
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: "Geist";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("fonts/inter-var-latin.woff2") format("woff2");
+  src: url("fonts/geist-var-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
     U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: "Geist";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("fonts/inter-var-latin-ext.woff2") format("woff2");
+  src: url("fonts/geist-var-latin-ext.woff2") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
     U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
     U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
@@ -93,10 +105,18 @@
 :root {
   color-scheme: light;
 
-  --ground: #E7DED2;
+  /*
+    A desk and the paper on it.
+
+    These were three tints of the same cream seven per cent apart, which is
+    why the page read flat: everything was the same material and nothing was
+    on top of anything. The ground is deeper and less yellow now, so the paper
+    lifts off it and the app has a figure and a ground instead of a wash.
+  */
+  --ground: #D8CFC4;
   --surface: #FDFBF7;
-  --surface-2: #F5EFE6;
-  --surface-3: #EAE1D3;
+  --surface-2: #F4EEE5;
+  --surface-3: #E8DFD2;
   --now: #C8880A;
   --ink: #2A1E1F;
   --ink-2: #5A4B49;
@@ -104,6 +124,10 @@
   --line-strong: #8B7C6B;
 
   --signature: #7A4A2E;
+
+  /* The money half's own green, mixed down far enough to sit on paper. It
+     paints that half's door on the chooser and appears nowhere else. */
+  --money-door: #4C7A1E;
 
   --accent: #A81D33;
   --accent-hover: #85162A;
@@ -140,13 +164,24 @@
   --today: #FBEFD9;
   --today-line: #A81D33;
 
-  --shadow: 0 1px 2px rgba(42, 30, 31, .07), 0 6px 18px rgba(42, 30, 31, .06);
+  /* Tinted to the ground rather than black, and deep enough to read as height. */
+  --shadow: 0 1px 2px rgba(58, 42, 34, .06), 0 10px 28px -12px rgba(58, 42, 34, .22);
 
-  --radius: 6px;
-  --radius-lg: 10px;
+  /*
+    One corner scale, and a rule for which is which.
 
-  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
-  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    There were eight radii in this file: 2, 3, 4, 6, 8, 10, a pill and a
+    circle, assigned by whatever looked right in the moment. Four now, with a
+    job each. A mark is 4, a control is 8, a surface is 14, and a thing that is
+    a pill by nature is a pill. Nothing picks its own.
+  */
+  --r-mark: 4px;     /* chips, swatches, bar fills, the small coloured things */
+  --radius: 8px;     /* buttons, inputs, rows, cards: anything you act on */
+  --radius-lg: 14px; /* sheets: the main panel, dialogs, the chooser tiles */
+  --r-pill: 999px;   /* the live bar, segmented controls, anything already round */
+
+  --font-display: "EB Garamond", Georgia, "Times New Roman", serif;
+  --font-body: "Geist", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   --font-signature: "Alex Brush", "Segoe Script", "Snell Roundhand", cursive;
 }
 
@@ -165,6 +200,10 @@
     --line-strong: #857672;
 
       --signature: #E0B48C;
+
+  --money-door: #A8D44A;
+
+  --money-door: #A8D44A;
 
     --accent: #F08098;
     --accent-hover: #F79BAE;
@@ -217,6 +256,8 @@
   --line-strong: #857672;
 
   --signature: #E0B48C;
+
+  --money-door: #A8D44A;
 
   --accent: #F08098;
   --accent-hover: #F79BAE;
@@ -321,7 +362,7 @@ kbd {
   padding: .1em .45em;
   border: 1px solid var(--line-strong);
   border-bottom-width: 2px;
-  border-radius: 4px;
+  border-radius: var(--r-mark);
   background: var(--surface);
 }
 
@@ -329,7 +370,7 @@ kbd {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
   box-shadow: 0 0 0 6px var(--focus-halo);
-  border-radius: 3px;
+  border-radius: var(--r-mark);
 }
 
 .sr-only {
@@ -401,10 +442,9 @@ kbd {
   margin-right: auto;
   min-width: 0;
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.15rem;
-  font-variation-settings: "opsz" 40;
-  letter-spacing: .005em;
+  font-weight: 620;
+  font-size: 1.35rem;
+  letter-spacing: 0;
 }
 
 .wordmark-mark {
@@ -443,8 +483,8 @@ kbd {
   gap: .45rem;
   margin: 0 0 .35rem;
   font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 600;
+  font-size: 1.2rem;
+  font-weight: 620;
   color: var(--ink);
 }
 
@@ -473,7 +513,7 @@ kbd {
 
 .segmented label {
   padding: .45rem .95rem;
-  border-radius: 4px;
+  border-radius: var(--r-mark);
   font-size: .92rem;
   font-weight: 500;
   color: var(--ink-2);
@@ -497,6 +537,14 @@ kbd {
 }
 
 /* ---------- Buttons ---------- */
+
+/*
+  Every button gives under the finger. The app had hover states and focus
+  rings and nothing at all for the press itself, which on a touchscreen is the
+  only one of the three that exists.
+*/
+.btn:active:not(:disabled), .tile:active, .link-btn:active { transform: translateY(1px); }
+.btn { transition: background .14s ease, border-color .14s ease, transform .08s ease; }
 
 .btn {
   display: inline-flex;
@@ -665,10 +713,9 @@ kbd {
 }
 
 .panel-title {
-  font-family: var(--font-display);
-  font-variation-settings: "opsz" 24;
-  font-size: 1.05rem;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -.011em;
   margin-bottom: .35rem;
 }
 
@@ -745,7 +792,7 @@ kbd {
   min-height: 2.25rem;
   font-size: .95rem;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--r-mark);
 }
 
 .check:hover { background: var(--surface-3); }
@@ -839,10 +886,9 @@ kbd {
 
 .period-title {
   font-family: var(--font-display);
-  font-variation-settings: "opsz" 72;
-  font-weight: 600;
-  font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.1rem);
-  letter-spacing: -.01em;
+  font-weight: 620;
+  font-size: clamp(1.75rem, 1.2rem + 1.9vw, 2.5rem);
+  letter-spacing: -.005em;
 }
 
 .period-nav { display: flex; gap: .5rem; flex-shrink: 0; }
@@ -910,7 +956,7 @@ kbd {
   align-self: flex-start;
   min-width: 1.6rem;
   padding: .1rem .25rem;
-  border-radius: 4px;
+  border-radius: var(--r-mark);
 }
 
 .is-outside .day-num { color: var(--ink-2); font-weight: 400; }
@@ -923,7 +969,7 @@ kbd {
   align-items: center;
   gap: .25rem;
   padding: .1rem .3rem;
-  border-radius: 3px;
+  border-radius: var(--r-mark);
   font-size: .74rem;
   font-weight: 500;
   line-height: 1.35;
@@ -976,7 +1022,7 @@ kbd {
   position: absolute;
   height: 2px;
   background: var(--now);
-  border-radius: 2px;
+  border-radius: var(--r-mark);
   pointer-events: none;
   z-index: 2;
 }
@@ -994,18 +1040,28 @@ kbd {
   border-radius: 50%;
 }
 
+/*
+  The week, drawn as a week rather than as a spreadsheet.
+
+  Every cell used to carry a box: a hairline on all four sides, which turns
+  thirty-five lessons into thirty-five little rectangles and makes the grid
+  louder than the work in it. The rules that stay are the ones that do a job:
+  a line under each row of periods, because the eye travels along a row, and
+  one line between days. The outer box is gone, the cells sit on the paper,
+  and the only strong vertical in the whole table is today.
+*/
 .timetable {
   width: 100%;
   min-width: 44rem;
   table-layout: fixed;
   border-collapse: collapse;
-  border: 1px solid var(--line);
 }
 
 .timetable th {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  padding: .45rem .5rem;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  padding: .3rem .55rem .5rem;
   text-align: left;
 }
 
@@ -1031,7 +1087,9 @@ kbd {
 
 .timetable th.is-today {
   background: var(--today);
+  border-bottom-color: var(--today-line);
   box-shadow: inset 0 -2px 0 var(--today-line);
+  border-radius: var(--r-mark) var(--r-mark) 0 0;
 }
 
 .timetable th.is-today .tt-day-name { color: var(--accent); }
@@ -1054,16 +1112,27 @@ kbd {
 }
 
 .timetable td {
-  border: 1px solid var(--line);
-  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  /* Two pixels, so a double period reads as two lessons and not as one tall
+     block with a line drawn through it. */
+  padding: 2px;
   height: 3.9rem;
   vertical-align: top;
   background: var(--surface);
 }
 
-.timetable td.is-today { background: var(--today); }
+/* One rule between the period column and the week, and that is the lot. */
+.timetable td:first-child, .timetable th:first-child { border-right: 1px solid var(--line); }
+.timetable tr:last-child td { border-bottom: 0; }
 
-.tt-free { background: var(--surface-2); }
+/* Today keeps its tint on the lessons themselves, not only in the gaps. */
+.timetable td.is-today { background: var(--today); }
+.timetable td.is-today .tt-lesson { background: var(--today); }
+.timetable td.is-today .tt-lesson:hover { background: var(--surface-3); }
+
+/* A free period is the absence of a lesson, so it is drawn as absence. */
+.tt-free { background: none; }
 .timetable td.tt-free.is-today { background: var(--today); }
 
 .tt-lesson {
@@ -1073,14 +1142,29 @@ kbd {
   width: 100%;
   height: 100%;
   min-height: 3.9rem;
-  padding: .35rem .4rem;
+  padding: .35rem .5rem;
   text-align: left;
   border: 0;
   /* The grid itself stays neutral; colour belongs to the work due on it. */
-  border-left: 3px solid var(--line);
-  background: none;
+  border-left: 3px solid var(--s-none);
+  border-radius: 0 var(--r-mark) var(--r-mark) 0;
+  background: var(--surface-2);
   cursor: pointer;
+  transition: background .14s ease;
 }
+
+/*
+  The strip down the side of a lesson is the subject's own colour, which it was
+  always meant to be and never was: it sat on the neutral line colour, three
+  pixels of decoration on every tile. Now the week can be read by colour at a
+  glance, and never only by colour, because the subject is written on it too.
+*/
+.tt-lesson[data-subject="economics"] { border-left-color: var(--s-economics); }
+.tt-lesson[data-subject="mathematics"] { border-left-color: var(--s-mathematics); }
+.tt-lesson[data-subject="english"] { border-left-color: var(--s-english); }
+.tt-lesson[data-subject="polish"] { border-left-color: var(--s-polish); }
+.tt-lesson[data-subject="history"] { border-left-color: var(--s-history); }
+.tt-lesson[data-subject="ess"] { border-left-color: var(--s-ess); }
 
 .tt-lesson:hover { background: var(--surface-3); }
 
@@ -1145,7 +1229,7 @@ kbd {
 .swatch {
   width: .85rem;
   height: .85rem;
-  border-radius: 3px;
+  border-radius: var(--r-mark);
   background: var(--subject-color);
   flex-shrink: 0;
 }
@@ -1155,8 +1239,6 @@ kbd {
 .agenda-group { margin-bottom: 1.5rem; }
 
 .agenda-date {
-  font-family: var(--font-display);
-  font-variation-settings: "opsz" 24;
   font-size: 1.02rem;
   font-weight: 600;
   padding-bottom: .4rem;
@@ -1224,7 +1306,7 @@ kbd {
   align-items: center;
   gap: .3rem;
   padding: .05rem .45rem;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   font-size: .74rem;
   font-weight: 600;
   background: var(--subject-soft, var(--surface-3));
@@ -1241,10 +1323,9 @@ kbd {
 .organiser-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 
 .organiser-title {
-  font-family: var(--font-display);
-  font-variation-settings: "opsz" 40;
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -.015em;
 }
 
 .organiser-head {
@@ -1257,8 +1338,6 @@ kbd {
 }
 
 .organiser-title {
-  font-family: var(--font-display);
-  font-variation-settings: "opsz" 40;
   font-size: 1.25rem;
   font-weight: 600;
 }
@@ -1318,7 +1397,7 @@ kbd {
   align-items: baseline;
   gap: .5rem;
   padding: .3rem .25rem;
-  border-radius: 4px;
+  border-radius: var(--r-mark);
   font-size: .88rem;
 }
 
@@ -1548,9 +1627,8 @@ kbd {
 
 .dialog-title {
   font-family: var(--font-display);
-  font-variation-settings: "opsz" 40;
-  font-size: 1.3rem;
-  font-weight: 600;
+  font-size: 1.5rem;
+  font-weight: 620;
 }
 
 /*
@@ -1725,7 +1803,7 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
   min-height: 2.5rem;
   padding: .4rem .8rem;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   font-size: .9rem;
   cursor: pointer;
   background: var(--surface-2);
@@ -2010,10 +2088,9 @@ body.is-booting { overflow: hidden; }
 .welcome-name {
   margin: 1.1rem 0 0;
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: clamp(1.9rem, 7vmin, 2.9rem);
-  font-variation-settings: "opsz" 48;
-  letter-spacing: .01em;
+  font-weight: 620;
+  font-size: clamp(2.2rem, 8vmin, 3.4rem);
+  letter-spacing: 0;
   color: #FCFBF8;
   animation: welcome-rise .6s cubic-bezier(.2, .8, .3, 1) 1s both;
 }
@@ -2089,9 +2166,10 @@ body.is-booting { overflow: hidden; }
 
 .chooser-title {
   font-family: var(--font-display);
-  font-size: clamp(1.4rem, 4vw, 1.9rem);
-  font-weight: 600;
-  margin-bottom: 1.5rem;
+  font-size: clamp(1.65rem, 4.6vw, 2.25rem);
+  font-weight: 620;
+  letter-spacing: -.005em;
+  margin-bottom: 1.6rem;
 }
 
 .chooser-tiles {
@@ -2136,6 +2214,15 @@ body.is-booting { overflow: hidden; }
 }
 
 .tile-live:empty { display: none; }
+
+/*
+  Each door is painted the colour of the room behind it: cherry for the
+  schoolwork half, the money half's own lime for the other. The two halves do
+  genuinely look different inside, and a front door that says which is which
+  is more use than two identical ones.
+*/
+.tile[data-area="money"] { border-top-color: var(--money-door); }
+.tile[data-area="money"] .tile-icon { color: var(--money-door); }
 
 .tile:hover {
   border-color: var(--line-strong);
@@ -2295,9 +2382,9 @@ body.is-booting { overflow: hidden; }
 }
 
 .tile-name {
-  font-family: var(--font-display);
-  font-size: 1.3rem;
-  font-weight: 600;
+  font-size: 1.2rem;
+  font-weight: 680;
+  letter-spacing: -.02em;
 }
 
 .tile-note {
@@ -2429,7 +2516,7 @@ body.is-booting { overflow: hidden; }
   text-transform: capitalize;
   color: var(--ink-2);
   background: var(--surface-3);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 
 .tx-cat.is-loose {
@@ -2463,8 +2550,9 @@ body.is-booting { overflow: hidden; }
 }
 
 .report-total strong {
-  font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: 1.6rem;
+  font-weight: 650;
+  letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2511,7 +2599,7 @@ body.is-booting { overflow: hidden; }
 .report-bar {
   height: 4px;
   background: var(--surface-3);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   overflow: hidden;
 }
 
@@ -2519,7 +2607,7 @@ body.is-booting { overflow: hidden; }
   display: block;
   height: 100%;
   background: var(--s-ess);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 
 .report-limit { font-size: .76rem; color: var(--ink-2); }
@@ -2589,9 +2677,6 @@ body.on-money {
   --focus: #C9F45C;
   --focus-halo: #0A120E;
 
-  --radius: 14px;
-  --radius-lg: 20px;
-
   --seq-1: #2C5D3F;
   --seq-2: #3C7F52;
   --seq-3: #4FA468;
@@ -2649,19 +2734,19 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .money-tab:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--r-mark);
 }
 
 /* ---------- Cards ---------- */
 
 /* align-items, not just align-content: a card should be as tall as what is in
    it, rather than as tall as whatever sits beside it. */
-.money-page { display: grid; gap: .75rem; align-content: start; align-items: start; }
+.money-page { display: grid; gap: 1rem; align-content: start; align-items: start; }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--card-line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: .95rem 1.05rem 1.1rem;
 }
 
@@ -2815,7 +2900,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
   gap: .22rem;
 }
 
-.bar-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.bar-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-mark); }
 
 .bar-head { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
 .bar-name { font-weight: 600; font-size: .95rem; text-transform: capitalize; }
@@ -2826,14 +2911,14 @@ body.on-money .wordmark-mark { color: var(--accent); }
   display: block;
   height: 10px;
   background: var(--surface-3);
-  border-radius: 2px;
+  border-radius: var(--r-mark);
   overflow: hidden;
 }
 
 .bar-fill {
   display: block;
   height: 100%;
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--r-mark) var(--r-mark) 0;
 }
 
 .bar-note { font-size: .76rem; color: var(--ink-2); }
@@ -2921,7 +3006,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .rate-col {
   display: block;
   width: 100%;
-  border-radius: 3px 3px 0 0;
+  border-radius: var(--r-mark) var(--r-mark) 0 0;
 }
 
 /* The line is the point of the chart: a column is only tall against something.
@@ -3136,14 +3221,14 @@ body.on-money .wordmark-mark { color: var(--accent); }
   background: var(--accent);
   color: var(--accent-ink);
   border-color: transparent;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   font-weight: 650;
 }
 
 .area-money .btn-primary:hover { background: var(--accent-hover); }
 
 .area-money .btn-quiet {
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border-color: var(--line-strong);
   background: var(--surface-2);
   color: var(--ink);
@@ -3216,7 +3301,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
   width: min(100%, 26rem);
   height: .4rem;
   margin: .35rem 0 .1rem;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-3);
   overflow: hidden;
 }
@@ -3300,7 +3385,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
 }
 
 .map-key { display: inline-flex; align-items: center; gap: .35rem; }
-.map-key-mark { width: .8rem; height: .55rem; border-radius: 2px; background: var(--seq-3); }
+.map-key-mark { width: .8rem; height: .55rem; border-radius: var(--r-mark); background: var(--seq-3); }
 .map-key-mark.is-spent { background: var(--seq-4); }
 .map-key-mark.is-budget { background: var(--seq-4); opacity: .3; }
 .map-key-mark.is-free { background: none; border: 1px dashed var(--line-strong); }
@@ -3479,7 +3564,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
   border: 0;
   padding: .45rem .4rem;
   margin: -.45rem -.4rem;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font: inherit;
   color: inherit;
   text-align: left;
@@ -3576,14 +3661,14 @@ body.on-money .dialog-tx .dialog-title { font-family: var(--font-body); font-wei
 .saved-track {
   height: 8px;
   background: var(--surface-3);
-  border-radius: 2px;
+  border-radius: var(--r-mark);
   overflow: hidden;
 }
 
 .saved-fill {
   display: block;
   height: 100%;
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--r-mark) var(--r-mark) 0;
   background: var(--s-ess);
 }
 
@@ -3668,9 +3753,8 @@ body.is-sitting { overflow: hidden; }
 .timer-title {
   margin: 0 0 1rem;
   font-family: var(--font-display);
-  font-variation-settings: "opsz" 36;
-  font-size: clamp(1.3rem, 4.5vw, 1.7rem);
-  font-weight: 600;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-weight: 620;
   text-wrap: balance;
 }
 
@@ -3736,7 +3820,7 @@ body.is-sitting { overflow: hidden; }
   bottom: calc(.75rem + env(safe-area-inset-bottom, 0px));
   z-index: 60;
   width: min(100% - 1.5rem, 26rem);
-  border-radius: 1.4rem;
+  border-radius: var(--r-pill);
   background: var(--ink);
   color: var(--surface);
   box-shadow: 0 10px 30px -12px rgba(0, 0, 0, .5);
@@ -3827,8 +3911,6 @@ body.is-sitting { overflow: hidden; }
 
 .start-what {
   margin: .1rem 0 .2rem;
-  font-family: var(--font-display);
-  font-variation-settings: "opsz" 30;
   font-size: 1.3rem;
   font-weight: 600;
 }
@@ -3884,6 +3966,18 @@ body.is-sitting { overflow: hidden; }
   this card exists to stop.
 */
 .card-asks { border-left: 3px solid var(--accent); }
+
+/*
+  One card on this page is the one you came to look at. Seven cards of
+  identical material is a list of seven things of equal weight, which is not
+  what the page means: the balance is the object, the rest is what it is made
+  of. A single step of surface says so without a border or a shadow shouting
+  about it.
+*/
+.card-kpi {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
 
 .ask-list { list-style: none; margin: .6rem 0 0; padding: 0; display: grid; gap: .5rem; }
 

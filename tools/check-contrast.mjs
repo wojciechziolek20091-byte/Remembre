@@ -60,6 +60,8 @@ const PAIRS = [
   ["--accent-ink", "--accent", 4.5, "primary button label"],
   ["--accent-ink", "--accent-hover", 4.5, "primary button label, hovered"],
   ["--accent", "--surface", 4.5, "accent text on paper"],
+  /* The money half's door on the chooser: a mark that carries meaning, so 3:1. */
+  ["--money-door", "--surface", 3, "the money door on paper"],
   ["--ink", "--accent-soft", 4.5, "update bar text"],
   // The bar is the page's own paper now, so its contents are read against that.
   ["--ink", "--surface", 4.5, "wordmark on the bar"],

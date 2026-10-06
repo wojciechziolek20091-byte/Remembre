@@ -22,7 +22,7 @@
   which arrives here as a SKIP_WAITING message.
 */
 
-const CACHE = "getagrip-v32";
+const CACHE = "getagrip-v33";
 
 /* How long to wait for the network before falling back to the cached shell.
    Long enough for a slow connection, short enough not to feel broken. */
@@ -42,10 +42,10 @@ const SHELL = [
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
-  "./fonts/inter-var-latin.woff2",
-  "./fonts/inter-var-latin-ext.woff2",
-  "./fonts/fraunces-var-latin.woff2",
-  "./fonts/fraunces-var-latin-ext.woff2",
+  "./fonts/geist-var-latin.woff2",
+  "./fonts/geist-var-latin-ext.woff2",
+  "./fonts/garamond-var-latin.woff2",
+  "./fonts/garamond-var-latin-ext.woff2",
   "./fonts/alexbrush-400-latin.woff2",
   "./fonts/alexbrush-400-latin-ext.woff2",
 ];

@@ -175,7 +175,7 @@ await page2.waitForSelector(".tt-lesson", { timeout: 20000 });
 check("the app still opens offline",
   await page2.evaluate(() => document.querySelectorAll(".tt-lesson").length > 0), true);
 check("and its fonts come from the cache",
-  await page2.evaluate(() => document.fonts.check('600 1rem Fraunces')), true);
+  await page2.evaluate(() => document.fonts.check('600 1rem "EB Garamond"')), true);
 await fresh.setOffline(false);
 await fresh.close();
 
