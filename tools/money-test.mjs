@@ -827,7 +827,7 @@ console.log("\nthe income plan");
     };
   });
   check("the card leads with the plan",
-    /Plan 2\u00a0500,00 z\u0142 — 1\u00a0900,00 z\u0142 in, 600,00 z\u0142 to come · next 600,00 z\u0142 on the 22nd/.test(card.plan),
+    /Plan 2\u00a0500,00 z\u0142, 1\u00a0900,00 z\u0142 in, 600,00 z\u0142 to come · next 600,00 z\u0142 on the 22nd/.test(card.plan),
     true, card.plan);
   check("what came from outside it is listed apart", /BABCIA/.test(card.outside), true, card.outside);
   check("and nothing on the page asks about it", card.asked, 0);
@@ -973,7 +973,7 @@ console.log("\nwhat the bank's answer looks like");
     /not connected/.test(states.notConnected.line), true, states.notConnected.line);
   check("and offers to connect it there", /Connect it/.test(states.notConnected.line), true);
   check("it says when it is connected, and to what",
-    /connected — eKonto …8067/.test(states.connected.line), true, states.connected.line);
+    /connected. eKonto …8067/.test(states.connected.line), true, states.connected.line);
   check("and when it was last checked", /last checked/.test(states.connected.line), true);
   check("a consent that has run out says so in words",
     /wants approving again/.test(states.expired.line), true, states.expired.line);
@@ -994,15 +994,20 @@ console.log("\nwhat the bank's answer looks like");
   await page.evaluate(() => { bankPhrase = window.__realBankPhrase; });
   const went = await page.evaluate(() => {
     setArea("money");
+    const fold = document.getElementById("settings-fold");
+    if (fold) fold.open = false;
     openSyncing();
     return {
       area: state.area,
       panel: Boolean(document.querySelector("#cloud-panel")),
+      opened: document.getElementById("settings-fold").open,
       focused: document.activeElement.id,
     };
   });
   check("tapping it opens the half syncing lives in", went.area, "school");
   check("where the panel is", went.panel, true);
+  // Being sent to a panel inside a shut fold is being sent nowhere.
+  check("and the fold it is folded into", went.opened, true);
   check("with the cursor already in the phrase box", went.focused, "cloud-code");
   await page.evaluate(() => setArea("money"));
 }
@@ -1511,12 +1516,15 @@ console.log("\ntoday's budget on the page");
       id: "quiet", date: yesterday, amount: -Math.round(rate / 2), counterparty: "ZABKA", category: "food",
     }));
     saveTransactions();
-    renderRateCard();
+    renderDashboard();
 
     const budget = dayBudget();
     return {
       budget,
-      line: (document.querySelector(".today-line") || {}).textContent || "",
+      line: (document.querySelector("#money-today") || {}).textContent || "",
+      figure: (document.querySelector(".lead-figure") || {}).textContent || "",
+      limit: zloty(budget.limit),
+      left: zloty(Math.max(0, budget.left)),
       rate,
     };
   });
@@ -1524,7 +1532,11 @@ console.log("\ntoday's budget on the page");
   check("a quarter of yesterday's underspend lands on today",
     today.budget.carried, Math.round(today.budget.yesterdayLeft / 4));
   check("so today is worth more than its own rate", today.budget.limit > today.budget.base, true);
-  check("the page says what is left of it", /left of/.test(today.line), true, today.line);
+  // The figure moved out of the fourth card down and into the lead, which is
+  // where somebody who opens the app to check one number actually looks.
+  check("the half opens on what is left of it", today.figure, today.left);
+  check("with the limit it came out of",
+    today.line.includes(`spent of ${today.limit} today`), true, today.line);
   check("and where the extra came from", /carried from yesterday/.test(today.line), true, today.line);
 }
 

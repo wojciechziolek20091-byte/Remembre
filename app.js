@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.06-68";
+const APP_VERSION = "2026.10.06-69";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1388,6 +1388,7 @@ function setArea(area, { remember = true } = {}) {
   state.area = ["school", "money"].includes(area) ? area : "";
 
   $("chooser").hidden = state.area !== "";
+  if (state.area === "") renderChooserLines();
   $("school-area").hidden = state.area !== "school";
   $("money-area").hidden = state.area !== "money";
   $("area-back").hidden = state.area === "";
@@ -1414,6 +1415,44 @@ function setArea(area, { remember = true } = {}) {
     else if (typeof moneyChanged === "function") moneyChanged();
     else if (typeof renderMoney === "function") renderMoney();
   }
+}
+
+/*
+  The choice is a door, and a door that says nothing makes you open it to find
+  out whether you needed to. Each half writes one line on its own tile: what is
+  due next, and what is left to spend today. Both are worked out from what is
+  already on the device, so the choice costs nothing and is right offline.
+*/
+function renderChooserLines() {
+  const school = $("tile-school-live");
+  if (school) {
+    const today = todayISO();
+    const pending = liveTasks().filter((task) => !task.done).sort(sortTasks);
+    const late = pending.filter((task) => task.date < today).length;
+    const next = pending.find((task) => task.date >= today);
+    school.textContent = late > 0
+      ? `${late} overdue`
+      : next
+        ? `Next: ${next.title}, ${whenInWords(next.date)}`
+        : pending.length === 0 && liveTasks().length === 0 ? "" : "Nothing outstanding";
+  }
+
+  const money = $("tile-money-live");
+  if (money) {
+    money.textContent = typeof moneyTileLine === "function" ? moneyTileLine() : "";
+  }
+}
+
+/** "today", "tomorrow", "Friday", or the date once a week has passed. */
+function whenInWords(iso) {
+  const today = todayISO();
+  if (iso === today) return "today";
+  if (iso === addDays(today, 1)) return "tomorrow";
+  const days = Math.round((Date.parse(iso) - Date.parse(today)) / 86400000);
+  if (days > 1 && days < 7) {
+    return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long" });
+  }
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
 }
 
 function restoreArea() {

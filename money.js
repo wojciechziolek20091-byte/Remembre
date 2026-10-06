@@ -343,7 +343,7 @@ function renderMoney() {
   const paidIn = entries.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0);
   if (summary) {
     summary.textContent =
-      `${entries.length} transactions · ${zloty(spent)} out · ${zloty(paidIn)} in · ` +
+      `${entries.length} transactions, ${zloty(spent)} out and ${zloty(paidIn)} in · ` +
       `${entries[entries.length - 1].date} to ${entries[0].date}`;
   }
 
@@ -1000,7 +1000,7 @@ function renderBank(connection) {
   const fetchNow = $("bank-fetch");
 
   if (!bankPhrase()) {
-    status.textContent = "Turn on automatic syncing first — the server needs to know whose account this is. "
+    status.textContent = "Turn on automatic syncing first. The server needs to know whose account this is. "
       + "It is in Schoolwork, in the sidebar, under Automatic sync.";
     status.classList.add("is-stale");
     connect.disabled = true;
@@ -1025,10 +1025,10 @@ function renderBank(connection) {
 
   const accounts = connection.accounts.map((a) => `${a.name}${a.iban ? ` ${a.iban}` : ""}`).join(", ");
   if (connection.expired) {
-    status.textContent = `${accounts} — mBank wants you to approve again.`;
+    status.textContent = `${accounts}. mBank wants you to approve again.`;
     status.classList.add("is-stale");
   } else if (bankChecking) {
-    status.textContent = `${accounts} — asking mBank for anything new…`;
+    status.textContent = `${accounts}. Asking mBank for anything new…`;
     status.classList.remove("is-stale");
   } else {
     const until = connection.validUntil ? connection.validUntil.slice(0, 10) : "";
@@ -1196,7 +1196,7 @@ const BANK_OUTCOMES = {
   // the wrong place: the tick box is on mBank's own consent screen.
   "no-accounts": {
     tone: "warn",
-    text: "mBank approved the connection but handed back no account. On mBank's screen there is a list of accounts with tick boxes — your eKonto has to be ticked before you confirm. Approving the consent alone is not enough.",
+    text: "mBank approved the connection but handed back no account. On mBank's screen there is a list of accounts with tick boxes, and your eKonto has to be ticked before you confirm. Approving the consent alone is not enough.",
   },
   "bad-return": { tone: "warn", text: "mBank sent back something unexpected. Tap Connect and try once more." },
   "no-store": { tone: "warn", text: "The server has no storage attached, so there is nowhere to keep the connection." },
@@ -1746,7 +1746,7 @@ function sustainability() {
     why = `At ${zloty(perDay)} a day this month would cost ${zloty(projected)}, against ${zloty(typical)} coming in.`;
   } else if (share <= 1) {
     verdict = "tight";
-    why = `At ${zloty(perDay)} a day this month would cost ${zloty(projected)} — almost exactly the ${zloty(typical)} coming in.`;
+    why = `At ${zloty(perDay)} a day this month would cost ${zloty(projected)}, almost exactly the ${zloty(typical)} coming in.`;
   } else {
     verdict = "overspending";
     why = `At ${zloty(perDay)} a day this month would cost ${zloty(projected)}, which is ${zloty(projected - typical)} more than comes in.`;
@@ -1912,7 +1912,7 @@ function renderOutside() {
             { class: "outside-row" },
             el("span", { class: "outside-when", text: entry.date.slice(5) }),
             el("span", { class: "outside-what" },
-              el("span", { text: entry.counterparty || entry.title || "—" }),
+              el("span", { text: entry.counterparty || entry.title || "-" }),
               spent
                 ? el("span", { class: "outside-paid", text: `paid for ${spent.counterparty || spent.title || "something"}, ${zloty(spent.amount)}` })
                 : el("span", { class: "outside-paid", text: "nothing matched to it yet" })),
@@ -2125,8 +2125,23 @@ function renderBudgetMap() {
   const value = (row) => Math.max(row.limit, row.spent);
   const total = rows.reduce((sum, row) => sum + value(row), 0) || 1;
   const floor = width < 520 ? 34 : 36;
-  const slack = Math.max(0, 420 - rows.length * floor);
+  /* A phone gets a shorter map: the same picture, not the same pixels. */
+  const room = width < 520 ? 300 : 420;
+  const slack = Math.max(0, room - rows.length * floor);
   const heights = rows.map((row) => Math.round(floor + (value(row) / total) * slack));
+
+  /*
+    The same thought as the colour ramp below, applied to height. Money not
+    yet given a job is usually the largest row there is, and drawn to scale it
+    becomes the tallest band on the page: the absence of a decision, taking up
+    more room than every decision made. It is capped at the tallest real
+    budget, so it is still visibly the biggest without being the subject.
+  */
+  const real = rows.map((row, i) => (row.spare ? 0 : heights[i]));
+  const tallestReal = Math.max(floor, ...real);
+  rows.forEach((row, i) => {
+    if (row.spare) heights[i] = Math.min(heights[i], tallestReal);
+  });
 
   const height = heights.reduce((sum, h) => sum + h, 0) + MAG_GAPS(rows.length) + MAP_PAD * 2;
 
@@ -2230,9 +2245,9 @@ function renderBudgetMap() {
           el("th", { scope: "col", text: "Left" }))),
         el("tbody", {}, rows.map((row) => el("tr", {},
           el("th", { scope: "row", text: row.name }),
-          el("td", { text: row.limit ? zloty(row.limit) : "—" }),
-          el("td", { text: row.spent ? zloty(-row.spent) : "—" }),
-          el("td", { text: row.limit ? zloty(row.limit - row.spent) : "—" })))))
+          el("td", { text: row.limit ? zloty(row.limit) : "-" }),
+          el("td", { text: row.spent ? zloty(-row.spent) : "-" }),
+          el("td", { text: row.limit ? zloty(row.limit - row.spent) : "-" })))))
     ),
   ]);
 }
@@ -2312,10 +2327,10 @@ function renderTransaction(entry) {
     entry.title && entry.counterparty ? ["Description", entry.title] : null,
     entry.description ? ["Kind", entry.description] : null,
     ["Where it counts", external
-      ? "Outside the plan — left out of the month"
+      ? "Outside the plan, left out of the month"
       : entry.amount > 0 ? "Money in, part of the plan" : "In this month's spending"],
     paidFor ? [entry.amount > 0 ? "Paid for" : "Covered by",
-      `${paidFor.counterparty || paidFor.title || "—"} · ${zloty(paidFor.amount)}`] : null,
+      `${paidFor.counterparty || paidFor.title || "-"} · ${zloty(paidFor.amount)}`] : null,
     ["Where it came from", entry.source === "api" ? "mBank, automatically" : "a CSV you imported"],
   ].filter(Boolean);
 
@@ -2351,7 +2366,7 @@ function renderTransaction(entry) {
 
     el("p", { class: "field-hint", text: external
       ? "Outside the plan, it is in neither the day-to-day budget nor the rate. The 2 500 is untouched by it."
-      : "Moving it out takes it off the budget and out of the daily rate — for the one-off that somebody else was covering." }),
+      : "Moving it out takes it off the budget and out of the daily rate, for the one-off that somebody else was covering." }),
   ]);
 }
 
@@ -2417,7 +2432,7 @@ function txRow(entry, { showCategory = true } = {}) {
     },
     el("span", { class: "tx-date", text: entry.date.slice(5) }),
     el("span", { class: "tx-what" },
-      el("span", { class: "tx-title", text: entry.counterparty || entry.title || entry.description || "—" }),
+      el("span", { class: "tx-title", text: entry.counterparty || entry.title || entry.description || "-" }),
       entry.title && entry.counterparty ? el("span", { class: "tx-note", text: entry.title }) : null),
     el("span", { class: `tx-amount${entry.amount > 0 ? " is-in" : ""}`, text: zloty(entry.amount) }),
     showCategory
@@ -2813,12 +2828,22 @@ function renderSaved() {
 
   const biggest = Math.max(1, ...standing.months.map((row) => Math.abs(row.saved)));
 
+  /*
+    A box headed "money saved" showing a red negative is a box arguing with
+    its own title. What a month in deficit has produced is not savings of a
+    negative amount: it is nothing saved, and an overspend to name separately.
+  */
+  const behind = standing.total < 0;
+
   show(wrap, [
-    el("p", { class: "card-title", text: "Money saved" }),
-    el("p", { class: `saved-figure${standing.total < 0 ? " is-negative" : ""}`, text: zloty(standing.total) }),
-    el("p", { class: "kpi-note", text: standing.done.length === 0
-      ? `Since ${since}. A month that ends with money left is a month saved.`
-      : `Since ${since} — ${standing.kept} of ${standing.done.length} finished months kept something.` }),
+    el("p", { class: "card-title", text: behind ? "Nothing saved yet" : "Money saved" }),
+    el("p", { class: `saved-figure${behind ? " is-waiting" : ""}`,
+      text: behind ? zloty(0) : zloty(standing.total) }),
+    el("p", { class: "kpi-note", text: behind
+      ? `Since ${since}, ${zloty(Math.abs(standing.total))} more has gone out than came in. A month that ends with money left is the one that counts here.`
+      : standing.done.length === 0
+        ? `Since ${since}. A month that ends with money left is a month saved.`
+        : `Since ${since}. ${standing.kept} of ${standing.done.length} finished months kept something.` }),
 
     el("ul", { class: "saved-months" }, standing.months.slice(-6).map((row) => {
       const share = Math.round((Math.abs(row.saved) / biggest) * 100);
@@ -2900,7 +2925,7 @@ function renderBalanceCard() {
   if (!balance) {
     show(card, [
       el("p", { class: "kpi-label", text: "Current balance" }),
-      el("p", { class: "kpi-figure is-missing", text: "—" }),
+      el("p", { class: "kpi-figure is-missing", text: "-" }),
       el("p", {
         class: "kpi-note",
         text: "No statement has told us what is in the account yet. Import a CSV, or connect mBank and it arrives on its own.",
@@ -2980,11 +3005,11 @@ function planLine(monthKey) {
 
   const standing = incomeStanding(monthKey);
   const when = standing.next ? ` · next ${zloty(standing.next.amount)} on the ${ordinal(standing.next.day)}` : "";
-  const outside = standing.external ? ` · ${zloty(standing.external)} from outside the plan` : "";
+  const outside = standing.external ? `, ${zloty(standing.external)} from outside the plan` : "";
 
   return el("p", { class: "kpi-plan" },
     el("span", {
-      text: `Plan ${zloty(standing.planned)} — ${zloty(standing.arrived)} in${
+      text: `Plan ${zloty(standing.planned)}, ${zloty(standing.arrived)} in${
         standing.toCome > 0 ? `, ${zloty(standing.toCome)} to come` : ""}${when}${outside}`,
     }));
 }
@@ -3006,7 +3031,7 @@ function bankLine() {
   if (!bankPhrase()) {
     return el("p", { class: "kpi-bank" },
       el("span", { class: "kpi-dot is-off", "aria-hidden": "true" }),
-      el("span", { text: "mBank can only be connected once syncing is on — the phrase is what tells the server whose account it is." }),
+      el("span", { text: "mBank can only be connected once syncing is on. The phrase is what tells the server whose account it is." }),
       el("button", { type: "button", class: "link-btn", text: "Turn syncing on", onclick: openSyncing }));
   }
 
@@ -3026,7 +3051,7 @@ function bankLine() {
   if (bankConnection.expired) {
     return el("p", { class: "kpi-bank" },
       el("span", { class: "kpi-dot is-stale", "aria-hidden": "true" }),
-      el("span", { text: `mBank wants approving again — ${where}.` }),
+      el("span", { text: `mBank wants approving again. ${where}.` }),
       el("button", {
         type: "button",
         class: "link-btn",
@@ -3038,7 +3063,7 @@ function bankLine() {
   if (bankChecking) {
     return el("p", { class: "kpi-bank" },
       el("span", { class: "kpi-dot is-on", "aria-hidden": "true" }),
-      el("span", { text: `Asking mBank for anything new — ${where}.` }));
+      el("span", { text: `Asking mBank for anything new. ${where}.` }));
   }
 
   // lastFetchAt is a moment, fetchedTo only a date: on a half that refreshes
@@ -3047,7 +3072,7 @@ function bankLine() {
   const checked = when ? `, last checked ${when}` : "";
   return el("p", { class: "kpi-bank" },
     el("span", { class: "kpi-dot is-on", "aria-hidden": "true" }),
-    el("span", { text: `mBank connected — ${where}${checked}.` }));
+    el("span", { text: `mBank connected. ${where}${checked}.` }));
 }
 
 /*
@@ -3058,6 +3083,10 @@ function bankLine() {
 */
 function openSyncing() {
   setArea("school");
+  // Settings are folded away, and being sent to a panel inside a shut fold is
+  // being sent nowhere: the scroll lands on the summary and the focus is lost.
+  const fold = $("settings-fold");
+  if (fold) fold.open = true;
   const panel = $("cloud-panel");
   if (!panel) return;
   panel.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -3116,7 +3145,7 @@ function renderCategoryBars() {
             ? `${zloty(row.spent - limit)} over the ${zloty(limit)} limit`
             : `${zloty(limit - row.spent)} left of ${zloty(limit)}`
           : "",
-      ].filter(Boolean).join(" · ");
+      ].filter(Boolean).join(", ");
 
       const detail = el("ul", { class: "bar-detail tx-list", hidden: true });
 
@@ -3218,8 +3247,6 @@ function renderRateCard() {
         el("strong", { class: "verdict-label", text: verdict.label }),
         el("span", { class: "verdict-why", text: read.why }))
     ),
-    todayLine(),
-    weekLine(),
     el(
       "ul",
       { class: "rate-strip" },
@@ -3247,7 +3274,7 @@ function renderRateCard() {
     el("ul", { class: "weeks" }, read.weeks.map((week) => el(
       "li",
       { class: "week" },
-      el("span", { class: "week-when", text: `${week.from.slice(5)} – ${week.to.slice(5)}` }),
+      el("span", { class: "week-when", text: `${week.from.slice(5)} to ${week.to.slice(5)}` }),
       el("span", { class: "week-sum", text: zloty(-week.spent) }),
       el("span", { class: "week-rate", text: `${zloty(Math.round(week.spent / week.length))} a day` })
     ))),
@@ -3262,10 +3289,76 @@ function renderRateCard() {
           el("th", { scope: "col", text: "Out" }),
           el("th", { scope: "col", text: "A day" }))),
         el("tbody", {}, read.weeks.map((week) => el("tr", {},
-          el("th", { scope: "row", text: `${week.from} – ${week.to}` }),
+          el("th", { scope: "row", text: `${week.from} to ${week.to}` }),
           el("td", { text: zloty(-week.spent) }),
           el("td", { text: zloty(Math.round(week.spent / week.length)) })))))
     ),
+  ]);
+}
+
+/**
+ * One line for the money tile on the chooser: what is left today, which is
+ * the only thing anybody wants to know before deciding whether to look.
+ */
+function moneyTileLine() {
+  if (liveTransactions().length === 0) return "";
+  const today = dayBudget();
+  if (!today.plan.spendable) return "";
+  return today.left < 0
+    ? `${zloty(Math.abs(today.left))} over today`
+    : `${zloty(today.left)} left today`;
+}
+
+/*
+  The money half opens on the one number it exists to answer: how much there
+  is left to spend today. It used to be a line in the middle of the fourth
+  card down, which on a phone meant scrolling past two and a half thousand
+  pixels of charts to reach the figure you opened the app for.
+
+  Everything under it is context for it: the rate it came from, what yesterday
+  carried in, and what the weekend has waiting.
+*/
+function renderToday() {
+  const wrap = $("money-today");
+  if (!wrap) return;
+
+  const today = dayBudget();
+  if (!today.plan.spendable) {
+    wrap.hidden = true;
+    wrap.replaceChildren();
+    return;
+  }
+  wrap.hidden = false;
+
+  const over = today.left < 0;
+  const share = Math.max(0, Math.min(1, today.share));
+  const tone = over ? " is-over" : today.share >= NEARLY ? " is-close" : "";
+  const kind = isWeekend(today.date) ? "weekend day" : "weekday";
+
+  const made = today.carried === 0
+    ? `${zloty(today.limit)} for a ${kind}`
+    : today.carried > 0
+      ? `${zloty(today.base)} for a ${kind}, plus ${zloty(today.carried)} carried from yesterday`
+      : `${zloty(today.base)} for a ${kind}, less ${zloty(Math.abs(today.carried))} carried from yesterday`;
+  const from = `${zloty(today.spent)} spent of ${zloty(today.limit)} today: ${made}.`;
+
+  show(wrap, [
+    el("p", { class: "lead-label", text: over ? "Over today by" : "Left to spend today" }),
+    el("p", {
+      class: `lead-figure${tone}`,
+      text: zloty(Math.abs(today.left)),
+    }),
+    el(
+      "div",
+      {
+        class: `lead-meter${tone}`,
+        role: "img",
+        "aria-label": `${zloty(today.spent)} spent of ${zloty(today.limit)} for today.`,
+      },
+      el("span", { class: "lead-meter-fill", style: `width:${Math.round(share * 100)}%` })
+    ),
+    el("p", { class: "lead-note", text: from }),
+    weekLine(),
   ]);
 }
 
@@ -3280,8 +3373,8 @@ function todayLine() {
   const tone = today.share >= 1 ? " is-over" : today.share >= NEARLY ? " is-close" : "";
   const carried = today.carried === 0 ? ""
     : today.carried > 0
-      ? ` — ${zloty(today.base)} for a ${isWeekend(today.date) ? "weekend day" : "weekday"}, plus ${zloty(today.carried)} carried from yesterday`
-      : ` — ${zloty(today.base)} for the day, less ${zloty(Math.abs(today.carried))} carried from yesterday`;
+      ? `, ${zloty(today.base)} for a ${isWeekend(today.date) ? "weekend day" : "weekday"} plus ${zloty(today.carried)} carried from yesterday`
+      : `, ${zloty(today.base)} for the day less ${zloty(Math.abs(today.carried))} carried from yesterday`;
 
   return el(
     "p",
@@ -3289,7 +3382,7 @@ function todayLine() {
     el("span", { class: "today-label", text: "Today" }),
     el("strong", { class: "today-figure", text: `${zloty(Math.max(0, today.left))} left of ${zloty(today.limit)}` }),
     el("span", { class: "today-note", text: today.left < 0
-      ? ` — ${zloty(Math.abs(today.left))} over${carried}`
+      ? `, ${zloty(Math.abs(today.left))} over${carried}`
       : carried })
   );
 }
@@ -3308,7 +3401,7 @@ function weekLine() {
     "p",
     { class: `week-line${purse.saved < 0 ? " is-over" : ""}` },
     el("strong", { text: `${zloty(plan.weekday)} a weekday · ${zloty(plan.weekend)} a weekend day` }),
-    el("span", { text: saved ? ` — ${saved}, ${zloty(purse.purse)} for the weekend` : ` — ${zloty(purse.base)} for the weekend` })
+    el("span", { text: saved ? `. ${saved}, ${zloty(purse.purse)} for the weekend` : `. ${zloty(purse.base)} for the weekend` })
   );
 }
 
@@ -3317,6 +3410,7 @@ function renderDashboard() {
   // figures and the queue can never disagree.
   classifyIncome();
   renderGreeting();
+  renderToday();
   renderBalanceCard();
   renderDebrief();
   renderSaved();
@@ -3408,7 +3502,7 @@ function buildDigest() {
   liveTransactions()
     .filter((entry) => SPENT_OUT(entry) && monthOf(entry.date) === thisMonth)
     .forEach((entry) => {
-      const name = (entry.counterparty || entry.title || entry.description || "—").slice(0, 40);
+      const name = (entry.counterparty || entry.title || entry.description || "-").slice(0, 40);
       const held = payees.get(name) || { name, total: 0, count: 0, category: entry.category || "other" };
       held.total += Math.abs(entry.amount);
       held.count += 1;
@@ -3457,7 +3551,7 @@ function buildDigest() {
       .map((charge) => ({ name: charge.name, monthly: zl(charge.typical), seenInMonths: charge.months })),
     weeks: (read.weeks || []).map((week) => ({ from: week.from, to: week.to, out: zl(week.spent) })),
     biggest: now.biggest.map((entry) => ({
-      what: entry.counterparty || entry.title || "—",
+      what: entry.counterparty || entry.title || "-",
       amount: zl(Math.abs(entry.amount)),
       date: entry.date,
       category: entry.category || "other",
@@ -3718,7 +3812,7 @@ function applyMoves(rawMoves, { quiet = false } = {}) {
 
   if (quiet) return;
   const said = moves.slice(0, 3)
-    .map((move) => `${move.category} ${move.from ? zloty(move.from) : "—"} → ${zloty(move.to)}`)
+    .map((move) => `${move.category} ${move.from ? zloty(move.from) : "-"} → ${zloty(move.to)}`)
     .join(", ");
   const capped = moves.some((move) => move.capped)
     ? ` Held to ${Math.round(SPEND_CEILING * 100)}% of the plan, so a fifth is still saved.`

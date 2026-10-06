@@ -578,22 +578,57 @@ kbd {
   padding: 2.5rem calc(1.25rem + env(safe-area-inset-right, 0px)) 2rem
            calc(1.25rem + env(safe-area-inset-left, 0px));
   display: grid;
-  grid-template-columns: 19rem minmax(0, 1fr);
+  grid-template-columns: 15rem minmax(0, 1fr);
   /*
     Two rows, not three with main spanning: a spanning main is only as tall as
     the rows it spans, which are sized by the sidebar beside it, so a tall
     calendar spilled straight over whatever sat underneath.
   */
+  /*
+    The rail spans both rows rather than splitting across them. Split, its two
+    short panels sat at the top and the bottom of a column six hundred pixels
+    tall, with the hole between them reading as a missing card.
+  */
   grid-template-areas:
-    "upcoming main"
-    "settings organiser";
+    "rail main"
+    "rail organiser"
+    "settings settings";
   gap: 1.5rem;
   align-items: start;
 }
 
-.sidebar-upcoming { grid-area: upcoming; }
-.sidebar-settings { grid-area: settings; }
+.sidebar-rail { grid-area: rail; }
 .main { grid-area: main; }
+
+/*
+  Settings used to be six panels of prose stacked in the left column, where
+  they took up two thirds of the page height and competed with the week for
+  attention. They are read once and then never again, so they fold away under
+  everything else, and open three across rather than one down.
+*/
+.sidebar-settings { grid-area: settings; }
+
+.settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  align-items: start;
+}
+
+.panel-fold { position: relative; padding: 0; }
+.panel-fold > .fold-summary { padding: .85rem 1rem; }
+.panel-fold[open] > .fold-summary { border-bottom: 1px solid var(--line); }
+.panel-fold > .fold-body { padding: 1.1rem 1rem 1.2rem; }
+
+/*
+  Explicit, because `display: grid` on the body is an author rule and it beats
+  whatever the browser uses to hide a shut <details>. Measured: the settings
+  body still reported 944 pixels of layout with the fold shut, and the box
+  inside it still had a client rect, so everything in there was still a
+  tab stop on a page that showed none of it.
+*/
+.card-fold:not([open]) > .fold-body,
+.panel-fold:not([open]) > .fold-body { display: none; }
+.panel-fold[open] > .fold-summary::after { transform: translateY(.55rem) rotate(225deg); }
+.settings-grid > .panel { background: var(--surface); }
 
 /* The organiser wears .main for the box treatment, so its own placement has to
    come after .main or it inherits main's cell and lands on top of it. */
@@ -735,8 +770,6 @@ kbd {
 .up-group-title {
   font-size: .74rem;
   font-weight: 700;
-  letter-spacing: .09em;
-  text-transform: uppercase;
   color: var(--ink-2);
   margin: .85rem 0 .4rem;
 }
@@ -1064,8 +1097,6 @@ kbd {
 
 .tt-extra-label {
   font-size: .8rem;
-  letter-spacing: .04em;
-  text-transform: uppercase;
   color: var(--ink-2);
 }
 
@@ -1081,8 +1112,6 @@ kbd {
 .legend-title {
   font-size: .76rem;
   font-weight: 700;
-  letter-spacing: .09em;
-  text-transform: uppercase;
   color: var(--ink-2);
   margin: 1.1rem 0 .4rem;
 }
@@ -1265,8 +1294,6 @@ kbd {
   display: block;
   font-size: .72rem;
   font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
   color: var(--ink-2);
   margin-bottom: .1rem;
 }
@@ -1729,13 +1756,28 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 
 /* ---------- Footer ---------- */
 
+/*
+  One line where there is room for one. The signature sat centred with the
+  version stranded on the far left below it, two separate footers sharing a
+  footer; they are a row now, with a rule above to end the page on something
+  deliberate.
+*/
 .site-footer {
   max-width: 82rem;
   margin: 0 auto;
-  padding: 0 1.25rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  padding: 1.1rem 1.25rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .35rem 1.5rem;
+  border-top: 1px solid var(--line);
   font-size: .85rem;
   color: var(--ink-2);
 }
+
+.site-footer .footer-signature { margin-right: auto; }
+.site-footer .school-only { flex-basis: 100%; order: 3; }
 
 .site-footer p { margin: 0; }
 
@@ -1752,7 +1794,6 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 .link-btn:hover { color: var(--accent); }
 
 .version {
-  margin-top: .35rem !important;
   font-size: .78rem;
   font-variant-numeric: tabular-nums;
   opacity: .8;
@@ -1760,11 +1801,37 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 
 /* ---------- Responsive ---------- */
 
+/*
+  An iPad in portrait is 1024px wide, and the week has to fit in it. The table
+  scrolls sideways rather than breaking, which is correct but useless: a week
+  view whose Friday is off the edge is not a week view. Below a desktop width
+  the period column narrows and the table is allowed to be smaller, so all five
+  days are on screen at once.
+*/
+@media (max-width: 75rem) {
+  .timetable { min-width: 38.5rem; }
+  .tt-corner { width: 3.5rem; }
+  .tt-period-time { font-size: .68rem; }
+  .tt-room { font-size: .68rem; }
+}
+
 @media (max-width: 62rem) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "upcoming" "main" "organiser" "settings";
+    /*
+      The week first. On a phone the old order put the filters above the
+      thing they filter, so the first screenful of a calendar was two
+      checkboxes and an empty "nothing scheduled yet".
+    */
+    grid-template-areas: "main" "upcoming" "organiser" "filters" "settings";
+    grid-template-columns: minmax(0, 1fr);
+
   }
+  /* One column: the rail stops being a column and its panels place
+     themselves, so the week comes before the things that filter it. */
+  .sidebar-rail { display: contents; }
+  .panel-upcoming { grid-area: upcoming; }
+  .panel-filters { grid-area: filters; }
   .calendar td { height: 5.5rem; }
   .day { min-height: 5.5rem; }
 }
@@ -1777,14 +1844,32 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
   .tt-chips .chip { padding: .05rem .2rem; font-size: 0; justify-content: center; min-height: 1rem; }
   .tt-chips .chip-text { display: none; }
   .tt-chips .chip-glyph { font-size: .68rem; }
-  .app-bar-inner { padding: .85rem 1rem; }
-  /* Narrow: the signature drops under the wordmark, the way a name is signed
-     beneath what it signs. */
-  .wordmark-group { width: 100%; margin-right: 0; gap: 0; }
-  /* Full width forces the signature onto its own line instead of letting it
-     run up against the wordmark. */
-  .wordmark { width: 100%; font-size: 1.25rem; }
-  .signature { font-size: 1.55rem; transform: translateY(0) rotate(-2deg); }
+  /*
+    One row, not four.
+
+    The bar used to wrap onto a line each for the wordmark, Switch, the view
+    switch and Add task, which is 230 pixels of chrome before a phone shows a
+    single lesson. Everything shortens instead: the mark without the wordmark,
+    the arrow without "Switch", and a plus without "Add task". The accessible
+    names stay on the buttons, so nothing is lost to a screen reader.
+  */
+  .app-bar-inner {
+    padding: .6rem .75rem;
+    flex-wrap: nowrap;
+    gap: .4rem;
+    align-items: center;
+  }
+  .wordmark-group { margin-right: auto; gap: 0; min-width: 0; }
+  .wordmark { font-size: 0; gap: 0; }
+  .wordmark-text { display: none; }
+  .wordmark-mark { width: 1.6rem; height: 1.6rem; }
+  /* The bar's signature only. The one in the footer is the one that signs. */
+  .app-bar .signature { display: none; }
+  .btn-back { padding-inline: .55rem; font-size: 0; gap: 0; }
+  .btn-back [aria-hidden] { font-size: 1rem; }
+  .view-switch .segmented label { padding: .3rem .5rem; font-size: .78rem; }
+  #add-task-top { padding-inline: .7rem; font-size: 0; gap: 0; }
+  #add-task-top .btn-plus { font-size: 1.2rem; line-height: 1; }
   .layout {
     /* Keeps the side insets a narrow screen still needs in landscape. */
     padding: 1.75rem calc(.75rem + env(safe-area-inset-right, 0px)) 1.5rem
@@ -1975,8 +2060,13 @@ body.is-booting { overflow: hidden; }
 
 /* ---------- Choosing a half ---------- */
 
+/*
+  The choice takes the screen it is on. At 60vh it sat in a band across the
+  middle of a 1366-pixel iPad with the footer stranded in the dead space below
+  it, which reads as a page that failed to load rather than as a question.
+*/
 .chooser {
-  min-height: 60vh;
+  min-height: calc(100dvh - 4.5rem);
   display: grid;
   place-items: center;
   padding: 2rem 1.25rem 3rem;
@@ -2020,6 +2110,23 @@ body.is-booting { overflow: hidden; }
     transform .18s cubic-bezier(.22, .9, .3, 1),
     box-shadow .18s ease;
 }
+
+/*
+  What the half would tell you if you opened it. A door that says nothing has
+  to be opened to find out whether it needed opening.
+*/
+.tile-live {
+  margin-top: .5rem;
+  padding-top: .5rem;
+  border-top: 1px solid var(--line);
+  width: 100%;
+  font-size: .85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.tile-live:empty { display: none; }
 
 .tile:hover {
   border-color: var(--line-strong);
@@ -2557,13 +2664,18 @@ body.on-money .wordmark-mark { color: var(--accent); }
   margin-bottom: .55rem;
 }
 
+/*
+  These were uppercase wide-tracked micro-labels, on every card, nine of them
+  down the page. One of those is a label; nine is a rhythm, and the rhythm was
+  the loudest thing on a page whose job is to show numbers. They are headings
+  now: sentence case, the weight doing the work the letter-spacing was doing.
+*/
 .card-title {
   margin: 0;
-  font-size: .82rem;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--ink-2);
+  font-size: .98rem;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  color: var(--ink);
 }
 
 .card .panel-hint { margin-top: 0; }
@@ -2610,9 +2722,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .kpi-label {
   margin: 0;
   font-size: .82rem;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ink-2);
 }
 
@@ -2621,17 +2731,25 @@ body.on-money .wordmark-mark { color: var(--accent); }
   number, set large enough that it is the first thing read, in tabular figures
   so it does not reflow as it changes.
 */
+/*
+  Sized under the lead on purpose. What is in the account and what is left to
+  spend today are different questions, and only one of them is asked every
+  time the app is opened. Two figures of the same size asked both at once and
+  answered neither.
+*/
 .kpi-figure {
-  margin: .15rem 0 .1rem;
-  font-size: clamp(2.6rem, 9vw, 3.4rem);
-  font-weight: 700;
-  line-height: 1.05;
+  margin: .1rem 0 .1rem;
+  font-size: clamp(1.7rem, 4.5vw, 2.1rem);
+  font-weight: 680;
+  line-height: 1.1;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
 
 .kpi-figure.is-negative { color: var(--danger); }
+/* Nothing saved is not a loss, so it is not in the colour a loss wears. */
+.saved-figure.is-waiting { color: var(--ink-2); }
 .kpi-figure.is-missing { color: var(--ink-2); }
 
 .kpi-move {
@@ -2656,7 +2774,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
 
 .kpi-strip li, .rate-strip li { display: grid; gap: .1rem; }
 
-.strip-label { font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+.strip-label { font-size: .76rem; color: var(--ink-2); }
 
 .strip-value {
   font-size: 1.08rem;
@@ -2895,8 +3013,6 @@ body.on-money .wordmark-mark { color: var(--accent); }
   margin: 1.1rem 0 .4rem;
   font-size: .78rem;
   font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
   color: var(--ink-2);
 }
 
@@ -2915,7 +3031,17 @@ body.on-money .wordmark-mark { color: var(--accent); }
 
 @media (min-width: 60rem) {
   #money-dash { grid-template-columns: 1fr 1fr; }
+  /*
+    Not a uniform two-column sieve. Cards of unequal height in matched pairs
+    left holes two hundred pixels deep down the right-hand side, so the wide
+    ones take the full width and the quiet ones pair off with something of
+    their own size. Full, split, full, split, full reads as a rhythm; eight
+    equal tiles read as a list that has been folded in half.
+  */
   #money-dash > .card-kpi,
+  #money-dash > .card-rate,
+  #money-dash > .card-map,
+  #money-dash > .card-debrief,
   #money-dash > .card-fold { grid-column: 1 / -1; }
   .fold-body { grid-template-columns: 1fr 1fr; }
   .fold-body > .subpanel:first-child { grid-column: 1 / -1; }
@@ -3041,6 +3167,75 @@ body.on-money .wordmark-mark { color: var(--accent); }
 }
 
 .greeting-hello .greeting-name { color: var(--accent); }
+
+/*
+  The lead.
+
+  Every figure in this half is a quantity read at a glance, so they are all
+  lining figures of one width: a column of amounts that shifts sideways as the
+  digits change is a column you have to read twice.
+*/
+.today-lead {
+  margin: 0 0 1rem;
+  display: grid;
+  gap: .3rem;
+  justify-items: start;
+}
+
+.lead-label {
+  margin: 0;
+  font-size: .8rem;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.lead-figure {
+  margin: 0;
+  font-size: clamp(2.6rem, 9vw, 4rem);
+  font-weight: 680;
+  line-height: 1;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.lead-figure.is-close { color: var(--now); }
+.lead-figure.is-over { color: var(--accent); }
+
+.lead-meter {
+  width: min(100%, 26rem);
+  height: .4rem;
+  margin: .35rem 0 .1rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.lead-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--s-ess);
+  transition: width .5s cubic-bezier(.22, .61, .36, 1);
+}
+
+.lead-meter.is-close .lead-meter-fill { background: var(--now); }
+.lead-meter.is-over .lead-meter-fill { background: var(--accent); }
+
+.lead-note {
+  margin: 0;
+  font-size: .86rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  max-width: 60ch;
+}
+
+/* One rule for every amount on the half, rather than per component. */
+.lead-figure, .kpi-figure, .strip-value, .bar-value, .week-sum, .week-rate,
+.saved-figure, .tx-amount, .rate-strip .strip-value, .plain-table td,
+.today-figure, .week-line, .money-figure {
+  font-variant-numeric: tabular-nums;
+}
 
 .greeting-when {
   margin: 0;

@@ -78,6 +78,16 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 
+/*
+  Settings live behind a fold now, so a test that drives a setting opens it
+  first. This is the only concession the move asks of the tests: everything
+  inside is the same markup it always was.
+*/
+const openSettings = (p) => p.evaluate(() => {
+  const fold = document.getElementById("settings-fold");
+  if (fold) fold.open = true;
+});
+
 const failures = [];
 let checks = 0;
 
@@ -111,6 +121,7 @@ async function openDevice(name) {
   });
   await page.goto(base);
   await page.waitForSelector(".tt-lesson");
+  await openSettings(page);
   return { context, page };
 }
 
@@ -316,6 +327,7 @@ await waitForSynced(phone.page);
 
 await ipad.page.reload();
 await ipad.page.waitForSelector(".tt-lesson");
+await openSettings(ipad.page);
 await waitForSynced(ipad.page);
 {
   check("syncing is still on after a reload", await ipad.page.locator("#cloud-live").isVisible(), true);

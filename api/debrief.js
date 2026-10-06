@@ -161,7 +161,7 @@ function digestOf(review, settings) {
     })),
     categories,
     biggest: review.now.biggest.map((entry) => ({
-      what: entry.counterparty || entry.title || "—",
+      what: entry.counterparty || entry.title || "-",
       amount: zl(Math.abs(entry.amount)),
       date: entry.date,
       category: entry.category || "other",
@@ -188,7 +188,7 @@ const SHAPE = {
     },
     curb: {
       type: "string",
-      description: "The one thing worth curbing next week and what it would save, named precisely — the shop, the habit, the day of the week it happens on. One or two sentences. If nothing needs curbing, say so plainly.",
+      description: "The one thing worth curbing next week and what it would save, named precisely: the shop, the habit, the day of the week it happens on. One or two sentences. If nothing needs curbing, say so plainly.",
     },
     nextWeek: {
       type: "string",

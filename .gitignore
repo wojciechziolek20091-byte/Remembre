@@ -4,3 +4,6 @@ node_modules
 .DS_Store
 
 dist
+
+# Screenshots are made by tools/shots.mjs whenever they are wanted.
+docs/shots

@@ -74,8 +74,19 @@ page.on("console", (message) => {
   if (message.type() === "error") problems.push(`console: ${message.text()}`);
 });
 
+/*
+  Settings live behind a fold now, so a test that drives a setting opens it
+  first. This is the only concession the move asks of the tests: everything
+  inside is the same markup it always was.
+*/
+const openSettings = (p) => p.evaluate(() => {
+  const fold = document.getElementById("settings-fold");
+  if (fold) fold.open = true;
+});
+
 await page.goto(base);
 await page.waitForSelector(".tt-lesson");
+await openSettings(page);
 
 console.log("\ntimetable");
 check("the timetable opens by default", await page.locator("#view-week").isChecked(), true);
@@ -253,6 +264,7 @@ check("and checking it brings them back", (await homeworkChips()) > 0, true);
 const beforeReload = await page.evaluate(() =>
   JSON.parse(localStorage.getItem("remembre.tasks.v1")).length);
 await page.reload();
+await openSettings(page);
 await page.waitForSelector(".day");
 check("tasks survive a reload",
   await page.evaluate(() => JSON.parse(localStorage.getItem("remembre.tasks.v1")).length), beforeReload);
@@ -1295,6 +1307,74 @@ const tomb = await page.evaluate(() => {
 });
 check("the row is kept so the deletion can travel", [tomb.rows, tomb.deleted], [1, true]);
 check("but it is gone from the interface", tomb.visible, 0);
+
+console.log("\nwhat the page is made of");
+
+{
+  /*
+    The shape of the half, which is the thing the redesign changed. Six panels
+    of settings prose used to stand in the left column, where they took two
+    thirds of the page height and were read once a year.
+  */
+  const shape = await page.evaluate(() => {
+    const fold = document.getElementById("settings-fold");
+    const order = [...document.querySelectorAll("#school-area > *, #school-area .panel")]
+      .filter((node) => node.id === "calendar-region" || node.classList.contains("panel-filters")
+        || node.classList.contains("panel-upcoming") || node.id === "settings-fold")
+      .map((node) => node.id || node.className.split(" ").find((c) => c.startsWith("panel-")));
+    return {
+      order,
+      folded: Boolean(fold),
+      holds: ["alerts-panel", "cloud-panel", "sync-panel", "theme-auto", "export-alerts"]
+        .every((id) => fold.contains(document.getElementById(id))),
+      inRail: Boolean(document.querySelector(".sidebar-rail .panel-filters")),
+    };
+  });
+
+  check("settings are behind one fold", shape.folded, true);
+  check("and every one of them is inside it", shape.holds, true);
+  check("what is due and what is shown share the rail", shape.inRail, true);
+  check("and the week comes before both of them in the document",
+    shape.order, ["panel-upcoming", "panel-filters", "calendar-region", "settings-fold"]);
+}
+
+{
+  // The fold starts shut, or it has not moved anything out of the way.
+  const shut = await page.evaluate(() => {
+    const fold = document.getElementById("settings-fold");
+    fold.open = false;
+    const hidden = document.getElementById("cloud-code").getClientRects().length === 0;
+    fold.open = true;
+    const shown = document.getElementById("cloud-code").getClientRects().length > 0;
+    return { hidden, shown };
+  });
+  check("shut, it takes no room at all", shut.hidden, true);
+  check("open, everything is where it was", shut.shown, true);
+}
+
+{
+  // The choice says what each half would tell you, so it can be answered
+  // without opening either.
+  const tiles = await page.evaluate(() => {
+    state.tasks = [normaliseTask({
+      id: "soon", title: "Economics IA", type: "homework", date: todayISO(),
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    })];
+    saveTasks();
+    setArea("");
+    const read = document.getElementById("tile-school-live").textContent;
+    state.tasks[0].date = addDays(todayISO(), -2);
+    renderChooserLines();
+    const late = document.getElementById("tile-school-live").textContent;
+    state.tasks = [];
+    saveTasks();
+    renderChooserLines();
+    return { read, late, empty: document.getElementById("tile-school-live").textContent };
+  });
+  check("the schoolwork tile says what is next", tiles.read, "Next: Economics IA, today");
+  check("and counts what is late instead when there is any", tiles.late, "1 overdue");
+  check("with nothing to say when there is nothing", tiles.empty, "");
+}
 
 check("no console or page errors", problems, []);
 

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Get a grip &ndash; tests, homework and assignments</title>
+<title>Get a grip: tests, homework and assignments</title>
 <meta name="description" content="A personal academic calendar for tracking tests, homework and assignments. Add a task in seconds, see what is due next, and keep the whole term in one week view. Everything is stored on your own device.">
 <meta name="theme-color" content="#141011">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -91,6 +91,7 @@
         </svg>
         <span class="tile-name">Schoolwork</span>
         <span class="tile-note">Tests, homework, coursework and your timetable.</span>
+        <span class="tile-live" id="tile-school-live"></span>
       </button>
 
       <button type="button" class="tile" data-area="money">
@@ -101,6 +102,7 @@
         </svg>
         <span class="tile-name">Money</span>
         <span class="tile-note">Where it goes, by category, month on month.</span>
+        <span class="tile-live" id="tile-money-live"></span>
       </button>
     </div>
   </div>
@@ -108,13 +110,20 @@
 
 <div class="layout" id="school-area">
 
-  <aside class="sidebar sidebar-upcoming" aria-label="Upcoming work">
+  <aside class="sidebar sidebar-rail" aria-label="What is due, and what is shown">
 
-    <section class="panel" aria-labelledby="upcoming-heading">
-      <h2 class="panel-title" id="upcoming-heading">Upcoming</h2>
-      <p class="panel-hint" id="upcoming-hint">What is due next, soonest first.</p>
-      <div id="upcoming-list" aria-describedby="upcoming-hint"></div>
-    </section>
+  <section class="panel panel-upcoming" aria-labelledby="upcoming-heading">
+    <h2 class="panel-title" id="upcoming-heading">Upcoming</h2>
+    <p class="panel-hint" id="upcoming-hint">What is due next, soonest first.</p>
+    <div id="upcoming-list" aria-describedby="upcoming-hint"></div>
+  </section>
+
+  <section class="panel panel-filters" aria-labelledby="filters-heading">
+    <h2 class="panel-title" id="filters-heading">Show</h2>
+    <fieldset class="filters" id="type-filters"></fieldset>
+    <hr class="panel-rule">
+    <label class="check"><input type="checkbox" id="show-done"> Completed tasks</label>
+  </section>
 
   </aside>
 
@@ -203,14 +212,12 @@
     <div id="coursework-list" aria-describedby="organiser-hint"></div>
   </section>
 
-  <aside class="sidebar sidebar-settings" aria-label="Filters and settings">
-
-    <section class="panel" aria-labelledby="filters-heading">
-      <h2 class="panel-title" id="filters-heading">Show</h2>
-      <fieldset class="filters" id="type-filters"></fieldset>
-      <hr class="panel-rule">
-      <label class="check"><input type="checkbox" id="show-done"> Completed tasks</label>
-    </section>
+  <details class="panel panel-fold sidebar-settings" id="settings-fold">
+    <summary class="fold-summary">
+      <span class="fold-title">Settings</span>
+      <span class="fold-note">Reminders, calendar alerts, syncing, backup and the theme.</span>
+    </summary>
+    <div class="fold-body settings-grid">
 
     <section class="panel" aria-labelledby="display-heading">
       <h2 class="panel-title" id="display-heading">Display</h2>
@@ -277,7 +284,7 @@
 
     <section class="panel" id="sync-panel" aria-labelledby="sync-heading">
       <h2 class="panel-title" id="sync-heading">Sync and backup</h2>
-      <p class="panel-hint" id="sync-hint">A copy you keep yourself, and the way to move work between devices when syncing is off. Save it to iCloud Drive here, then load it on the other device. Loading merges &ndash; the newer version of each task wins and nothing is lost.</p>
+      <p class="panel-hint" id="sync-hint">A copy you keep yourself, and the way to move work between devices when syncing is off. Save it to iCloud Drive here, then load it on the other device. Loading merges: the newer version of each task wins and nothing is lost.</p>
       <p class="sync-status" id="sync-status" role="status"></p>
       <div class="panel-actions" aria-describedby="sync-hint">
         <button type="button" class="btn btn-quiet" id="save-copy">Save a copy</button>
@@ -286,7 +293,8 @@
       </div>
     </section>
 
-  </aside>
+    </div>
+  </details>
 
 </div>
 
@@ -294,13 +302,22 @@
 
   <div class="greeting" id="money-greeting"></div>
 
+  <section class="today-lead" id="money-today" aria-label="What is left today" hidden></section>
+
   <div class="notice" id="money-notice" role="status" hidden></div>
 
   <div class="money-page" id="money-dash">
 
     <section class="card card-kpi" id="money-balance" aria-label="Current balance"></section>
 
-    <section class="card" aria-labelledby="money-cats-heading">
+    <section class="card card-rate" aria-labelledby="money-rate-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="money-rate-heading">How fast it is going</h2>
+      </div>
+      <div id="money-rate"></div>
+    </section>
+
+    <section class="card card-cats" aria-labelledby="money-cats-heading">
       <div class="card-head">
         <h2 class="card-title" id="money-cats-heading">Where it went</h2>
         <div class="report-nav">
@@ -312,9 +329,17 @@
       <div id="money-cats"></div>
     </section>
 
-    <section class="card card-debrief" id="money-debrief" aria-label="Your week" hidden></section>
-
     <section class="card card-saved" id="money-saved" aria-label="Money saved"></section>
+
+    <section class="card card-map" aria-labelledby="money-map-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="money-map-heading">Where the plan goes</h2>
+        <button type="button" class="link-btn" id="map-rebalance">Rebalance</button>
+      </div>
+      <div class="map-wrap" id="money-map"></div>
+    </section>
+
+    <section class="card card-debrief" id="money-debrief" aria-label="Your week" hidden></section>
 
     <section class="card card-reading" id="money-reading" aria-label="What your spending says"></section>
 
@@ -324,7 +349,7 @@
       </div>
       <p class="chart-caption">
         Money that is not part of your 2&nbsp;500 and whatever it pays for. Tell the app
-        what is coming and it is kept out of the month by itself &ndash; nothing here is
+        what is coming and it is kept out of the month by itself, and nothing here is
         counted as spending or as income.
       </p>
       <form class="expect-form" id="expect-form">
@@ -337,21 +362,6 @@
         <button type="submit" class="btn btn-primary btn-tiny">Add</button>
       </form>
       <div id="money-outside"></div>
-    </section>
-
-    <section class="card card-map" aria-labelledby="money-map-heading">
-      <div class="card-head">
-        <h2 class="card-title" id="money-map-heading">Where the plan goes</h2>
-        <button type="button" class="link-btn" id="map-rebalance">Rebalance</button>
-      </div>
-      <div class="map-wrap" id="money-map"></div>
-    </section>
-
-    <section class="card" aria-labelledby="money-rate-heading">
-      <div class="card-head">
-        <h2 class="card-title" id="money-rate-heading">How fast it is going</h2>
-      </div>
-      <div id="money-rate"></div>
     </section>
 
     <details class="card card-fold" id="money-more">
