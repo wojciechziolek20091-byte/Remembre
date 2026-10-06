@@ -1,6 +1,6 @@
 import { cors, json, notConfigured, store } from "./_store.js";
 import { forgetSubscription, listSubscriptions, saveSubscription, sendPush, vapidKeys } from "./_push.js";
-import { dayBudget, NEARLY, shiftISO, unbudgeted, weekendPurse } from "./_budget.js";
+import { dayBudget, guardWords, pressure, shiftISO, unbudgeted, weekendPurse } from "./_budget.js";
 import { debriefKey } from "./debrief.js";
 
 /**
@@ -358,24 +358,29 @@ export function moneyAlerts(vault, clock) {
         : `A quiet day puts half of what is left on the weekend.`}`.trim(), clock));
   }
 
-  /* Nearly there, and past it. One each, whichever way the day goes. */
-  if (today.share >= 1) {
-    due.push(alert(`over:${clock.today}`, `${money(today.spent - today.limit)} over today`,
-      `${money(today.spent)} spent against ${money(today.limit)}. Tomorrow carries a quarter of it.`, clock));
-  } else if (today.share >= NEARLY) {
-    due.push(alert(`nearly:${clock.today}`, `${money(today.left)} left today`,
-      `${money(today.spent)} of ${money(today.limit)} gone. Half of anything left lands on the weekend.`, clock));
-  }
+  /*
+    The guard, which watches the week rather than the day.
+
+    This used to be two tripwires on today's limit: one at four fifths of it
+    and one at the whole of it. On somebody whose days run zero, zero, two
+    hundred, zero, they fire constantly and mean nothing, and an alarm that
+    means nothing is worse than no alarm. What is sent now is a run: two days
+    over the rate in a row with the week itself above its allowance, or a week
+    that is over however ordinary each day in it looked.
+  */
+  const guard = guardWords(pressure(rows, settings, clock.today));
+  if (guard) due.push(alert(`guard:${clock.today}`, guard.title, guard.body, clock));
 
   /* And a payment nothing was budgeted for, which is the one that would
-     otherwise quietly become a category of its own. */
+     otherwise quietly become a category of its own. The page asks where the
+     money came from; this is the nudge to go and answer it. */
   const loose = unbudgeted(rows, settings, clock.today).filter((entry) => Math.abs(entry.amount) >= UNBUDGETED_FLOOR);
   if (loose.length > 0) {
     const worst = loose[0];
     const what = worst.counterparty || worst.title || worst.description || "something";
     due.push(alert(`loose:${clock.today}:${worst.id}`,
       `${money(Math.abs(worst.amount))} with no budget behind it`,
-      `${what}, filed under ${worst.category || "other"}. Give it a limit, or move it outside the plan.`, clock));
+      `${what}, filed under ${worst.category || "other"}. Open the app and say where it came from: the month, savings, or somebody else.`, clock));
   }
 
   return due;

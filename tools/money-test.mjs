@@ -1875,6 +1875,165 @@ console.log("\nthe analysis moving the budgets");
   check("and still says what is coming", /next 600,00 z\u0142/.test(both.line), true, both.line);
 }
 
+console.log("\nthe guard, and where the money came from");
+
+{
+  /*
+    The point of the guard is what it stays quiet about. These days run zero,
+    zero, two hundred, zero: a tripwire on today's limit fires on every one of
+    those spikes, and an alarm that fires every week is one nobody reads.
+  */
+  const read = await page.evaluate(() => {
+    const today = todayISO();
+    writeStore("remembre.moneybudgets.v1", "food = 600\ntransport = 120\nfun = 180");
+    const only = (rows) => {
+      state.transactions = rows.map((row) => normaliseTransaction(row)).filter(Boolean);
+      saveTransactions();
+      return pressureNow(today);
+    };
+    // Each day against its own rate: a weekend day is allowed 1.8 times a
+    // weekday, so a fixed multiple of today's rate is a different multiple of
+    // somebody else's and the run breaks where the week does.
+    const on = (back, times) => {
+      const date = shiftISO(today, -back);
+      const plan = weekPlan(monthOf(date));
+      const rate = isWeekend(date) ? plan.weekend : plan.weekday;
+      return {
+        id: `d${back}`, date, amount: -Math.round(rate * times),
+        counterparty: "ZABKA", category: "food",
+      };
+    };
+
+    return {
+      spike: only([on(1, 4)]),
+      pair: only([on(1, 1.4), on(0, 1.4)]),
+      week: only([0, 1, 2, 3, 4, 5, 6].map((back) => on(back, 1.4))),
+      quiet: only([on(1, 0.4), on(0, 0.3)]),
+    };
+  });
+
+  check("one enormous day with a quiet week behind it is calm", read.spike.level, "calm");
+  // A run has to be current to be a run: yesterday's spike with nothing on
+  // today is over, and the guard counts back from today.
+  check("and yesterday's spike is not a run at all", read.spike.run, 0);
+  check("two days over in a row raises the guard", read.pair.level === "calm", false);
+  check("and counts them", read.pair.run, 2);
+  check("a whole week over its rate is over, not merely watched", read.week.level, "over");
+  check("a quiet week says nothing", read.quiet.level, "calm");
+
+  // The line is on the card whether or not it has a complaint, so it can be
+  // checked when it is calm and believed when it is not.
+  const line = await page.evaluate(() => {
+    const today = todayISO();
+    state.transactions = [normaliseTransaction({
+      id: "q", date: today, amount: -500, counterparty: "ZABKA", category: "food",
+    })];
+    saveTransactions();
+    renderRateCard();
+    const calm = document.querySelector(".guard-line");
+    const calmWords = calm ? calm.textContent : "";
+    const calmClass = calm ? calm.className : "";
+
+    state.transactions = [0, 1, 2].map((back) => {
+      const date = shiftISO(today, -back);
+      const plan = weekPlan(monthOf(date));
+      const rate = isWeekend(date) ? plan.weekend : plan.weekday;
+      return normaliseTransaction({
+        id: `r${back}`, date, amount: -Math.round(rate * 1.5),
+        counterparty: "ZABKA", category: "food",
+      });
+    });
+    saveTransactions();
+    renderRateCard();
+    const loud = document.querySelector(".guard-line");
+    return { calmWords, calmClass, loudWords: loud.textContent, loudClass: loud.className };
+  });
+
+  check("the guard is on the card when it is calm", /% of their rate/.test(line.calmWords), true, line.calmWords);
+  check("and says so in its class", /is-calm/.test(line.calmClass), true, line.calmClass);
+  check("a run is counted in words", /3 days over in a row/.test(line.loudWords), true, line.loudWords);
+  check("and marked as over", /is-over/.test(line.loudClass), true, line.loudClass);
+}
+
+{
+  // A big one-off is a question, not a category.
+  const asked = await page.evaluate(() => {
+    const today = todayISO();
+    state.transactions = [
+      normaliseTransaction({ id: "big", date: today, amount: -40000, counterparty: "LOT", category: "other" }),
+      normaliseTransaction({ id: "small", date: today, amount: -1500, counterparty: "ZABKA", category: "food" }),
+    ];
+    state.moneyMonth = monthOf(today);
+    saveTransactions();
+    renderDashboard();
+    return {
+      shown: document.getElementById("money-asks").hidden === false,
+      rows: document.querySelectorAll(".ask-row").length,
+      who: (document.querySelector(".ask-who") || {}).textContent || "",
+      answers: [...document.querySelectorAll(".ask-acts .btn")].map((b) => b.textContent),
+      countedBefore: monthReport(monthOf(today)).spent,
+    };
+  });
+
+  check("a big one-off is asked about", asked.shown, true);
+  check("and only the big one", asked.rows, 1);
+  check("naming who took it", asked.who, "LOT");
+  check("with the three answers it can have",
+    asked.answers, ["Part of the month", "From savings", "Someone else paid"]);
+  check("and it counts against the month until it is answered", asked.countedBefore, -41500);
+
+  const savings = await page.evaluate(() => {
+    const today = todayISO();
+    moveTransaction("big", "savings");
+    const report = monthReport(monthOf(today));
+    return {
+      spent: report.spent,
+      fromSavings: report.fromSavings,
+      gone: document.getElementById("money-asks").hidden,
+      day: dayBudget(today).spent,
+    };
+  });
+
+  check("answering 'from savings' takes it out of the month", savings.spent, -1500);
+  check("and out of the day's own figure", savings.day, 1500);
+  check("but it is still on the page, counted apart", savings.fromSavings, -40000);
+  check("and the question goes away", savings.gone, true);
+}
+
+{
+  // Everything is mentioned, which is the whole point of the ledger.
+  const ledger = await page.evaluate(() => {
+    const today = todayISO();
+    const month = monthOf(today);
+    state.transactions = [
+      normaliseTransaction({ id: "in", date: `${month}-01`, amount: 70000, counterparty: "MAMA", branch: "plan" }),
+      normaliseTransaction({ id: "extra", date: `${month}-02`, amount: 30000, counterparty: "BABCIA", branch: "external" }),
+      normaliseTransaction({ id: "out", date: `${month}-03`, amount: -5000, counterparty: "ZABKA", category: "food" }),
+      normaliseTransaction({ id: "saved", date: `${month}-04`, amount: -40000, counterparty: "LOT", branch: "savings" }),
+      normaliseTransaction({ id: "paid", date: `${month}-05`, amount: -30000, counterparty: "APPLE", branch: "external" }),
+      normaliseTransaction({ id: "moved", date: `${month}-06`, amount: -10000, counterparty: "ME", category: "transfers" }),
+    ];
+    state.moneyMonth = month;
+    saveTransactions();
+    renderReport();
+    return [...document.querySelectorAll(".ledger-row")].map((row) => [
+      row.querySelector(".ledger-what").textContent,
+      row.querySelector(".ledger-sum").textContent,
+      row.querySelector(".ledger-how").textContent,
+    ]);
+  });
+
+  check("every zloty of the month is on the page", ledger.length, 6);
+  check("the plan's income is counted", ledger[0], ["In, on the plan", "700,00 zł", "in the month"]);
+  check("money from outside it is kept apart", ledger[1], ["In, from outside it", "300,00 zł", "kept apart"]);
+  check("spending against the month is counted", ledger[2], ["Out, against the month", "−50,00 zł", "in the month"]);
+  check("spending out of savings is kept apart", ledger[3], ["Out, from savings", "−400,00 zł", "kept apart"]);
+  check("so is spending somebody else covered",
+    ledger[4], ["Out, covered by someone else", "−300,00 zł", "kept apart"]);
+  check("and so is money moved between your own accounts",
+    ledger[5], ["Moved between your own accounts", "−100,00 zł", "kept apart"]);
+}
+
 console.log("\nopening the half is the refresh");
 
 {

@@ -3874,3 +3874,84 @@ body.is-sitting { overflow: hidden; }
   font-weight: 600;
   color: var(--now);
 }
+
+/* ---------- The ones worth asking about ---------- */
+
+/*
+  A question, so it looks like one: the accent down the edge the way a notice
+  wears it, and three answers of equal weight. None of them is the recommended
+  one, because the app does not know which is true and guessing is the thing
+  this card exists to stop.
+*/
+.card-asks { border-left: 3px solid var(--accent); }
+
+.ask-list { list-style: none; margin: .6rem 0 0; padding: 0; display: grid; gap: .5rem; }
+
+.ask-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem .9rem;
+  padding: .6rem .7rem;
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.ask-what { display: grid; gap: .1rem; min-width: 0; margin-right: auto; }
+.ask-sum { font-size: 1.05rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.ask-who {
+  font-size: .9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ask-when { font-size: .76rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ask-acts { display: flex; flex-wrap: wrap; gap: .4rem; }
+
+/*
+  The guard's line, which is on the card whether or not it has anything to
+  complain about. A guard that only appears when it is unhappy is one you
+  cannot check, and checking it is what earns it the benefit of the doubt the
+  one time it does speak up.
+*/
+.guard-line {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  margin: .55rem 0 0;
+  font-size: .86rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.guard-mark {
+  width: .5rem;
+  height: .5rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--s-ess);
+}
+
+.guard-line.is-watch { color: var(--ink); }
+.guard-line.is-watch .guard-mark { background: var(--now); }
+.guard-line.is-over { color: var(--ink); font-weight: 600; }
+.guard-line.is-over .guard-mark { background: var(--accent); }
+
+/* Every zloty of the month, and which side of the line it sits on. */
+.ledger { list-style: none; margin: .5rem 0 .9rem; padding: 0; display: grid; gap: .1rem; }
+
+.ledger-row {
+  display: flex;
+  align-items: baseline;
+  gap: .6rem;
+  padding: .25rem 0;
+  border-bottom: 1px solid var(--card-line);
+  font-size: .85rem;
+}
+
+.ledger-row:last-child { border-bottom: 0; }
+.ledger-what { min-width: 0; }
+.ledger-sum { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ledger-how { width: 6.5rem; text-align: right; font-size: .76rem; color: var(--ink-2); }
+.ledger-row.is-apart .ledger-what, .ledger-row.is-apart .ledger-sum { color: var(--ink-2); }

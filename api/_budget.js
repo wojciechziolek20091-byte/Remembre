@@ -123,12 +123,20 @@ export function parseAmount(text) {
 
 /* ---------- The money that may be spent ---------- */
 
-/** Spending that counts: not a transfer to yourself, not outside the plan. */
+/**
+ * Spending that counts against the month.
+ *
+ * Not a transfer to yourself, not something somebody else covered, and not
+ * something paid for out of savings. The last two are money that was never
+ * part of this month's 2 500, and counting them makes a normal month look
+ * reckless on the one occasion it was anything but.
+ */
 export const counts = (entry) => entry
   && entry.amount < 0
   && !entry.deleted
   && (entry.category || "other") !== "transfers"
-  && entry.branch !== "external";
+  && entry.branch !== "external"
+  && entry.branch !== "savings";
 
 export const spentOn = (rows, date) => (Array.isArray(rows) ? rows : [])
   .filter((entry) => counts(entry) && entry.date === date)
@@ -218,6 +226,105 @@ export function weekendPurse(rows, settings, today) {
 }
 
 /** Spending today in a category with no limit against it. */
+/* ---------- The guard ---------- */
+
+/*
+  Whether the spending is getting away, which is not the same question as
+  whether today went over.
+
+  One day means nothing here. A day at zero and a day at 200 are both ordinary:
+  a textbook, a night out, a week of packed lunches. A tripwire on the daily
+  limit fires on every one of those and is therefore ignored within a week,
+  which makes it worse than no alarm at all.
+
+  What does mean something is a run. Two days over the rate in a row, with the
+  week as a whole above its allowance, is a direction rather than an event. So
+  the guard reads two things together: how many days in a row have been over,
+  and what the last week has cost against what the last week was allowed.
+
+  A single enormous day with a quiet week around it stays quiet. A week of
+  small overruns with no single day that looks bad raises it.
+*/
+
+/* The window the load is measured over: long enough for a spike to average
+   out, short enough to still be about now. */
+export const GUARD_WINDOW = 7;
+/* Days in a row over the rate before a run is a run rather than a Tuesday. */
+export const GUARD_RUN = 2;
+/* What the window may cost against what it was allowed. */
+export const GUARD_WATCH = 1.15;
+export const GUARD_OVER = 1.35;
+
+/**
+ * The last week, day by day, and what it adds up to.
+ *
+ * `run` counts back from the given day: how many consecutive days, ending
+ * there, cost more than that day's own rate. A day with nothing on it yet
+ * (today, before anything has been spent) ends a run rather than extending it.
+ */
+export function pressure(rows, settings, date) {
+  const days = [];
+  for (let back = GUARD_WINDOW - 1; back >= 0; back -= 1) {
+    const when = shiftISO(date, -back);
+    const plan = weekPlan(settings, monthOf(when));
+    const rate = baseRate(plan, when);
+    const spent = spentOn(rows, when);
+    days.push({ date: when, spent, rate, over: spent - rate });
+  }
+
+  const spent = days.reduce((sum, day) => sum + day.spent, 0);
+  const allowed = days.reduce((sum, day) => sum + day.rate, 0);
+  const load = allowed > 0 ? spent / allowed : 0;
+
+  let run = 0;
+  for (let i = days.length - 1; i >= 0; i -= 1) {
+    if (days[i].spent > days[i].rate && days[i].rate > 0) run += 1;
+    else break;
+  }
+
+  /*
+    A run is the trigger, the week is the severity. Two days over the rate in a
+    row is worth hearing about even when the week can still carry it -- that is
+    the whole point of watching runs on somebody whose days swing from nothing
+    to two hundred -- but what it is called depends on whether the week behind
+    it agrees.
+  */
+  const level = load >= GUARD_OVER || run >= GUARD_RUN + 1 || (run >= GUARD_RUN && load >= GUARD_WATCH)
+    ? "over"
+    : run >= GUARD_RUN || load >= GUARD_WATCH
+      ? "watch"
+      : "calm";
+
+  const worst = days.reduce((held, day) => (day.over > held.over ? day : held), days[0]);
+
+  return { days, run, spent, allowed, load, level, worst, over: Math.max(0, spent - allowed) };
+}
+
+/**
+ * What the guard has to say, in the words it would say it in.
+ *
+ * A run with a quiet week behind it is said as what it is -- a nudge -- rather
+ * than dressed up as a crisis. Crying wolf is how an alert stops being read,
+ * and this one has to still be worth reading in March.
+ */
+export function guardWords(read) {
+  if (!read || read.level === "calm") return null;
+  const share = Math.round(read.load * 100);
+
+  if (read.run >= GUARD_RUN) {
+    return {
+      title: `${read.run} days over in a row`,
+      body: read.load >= 1
+        ? `The week is at ${share}% of what it allows. One big day is nothing; ${read.run} in a row is a direction.`
+        : `The week is still inside its rate at ${share}%, so this is a nudge rather than a problem.`,
+    };
+  }
+  return {
+    title: `The week is at ${share}% of its rate`,
+    body: "No single day looks bad, which is how this one gets past you.",
+  };
+}
+
 export function unbudgeted(rows, settings, date) {
   const budgets = parseBudgets(settings && settings.budgets);
   return (Array.isArray(rows) ? rows : [])

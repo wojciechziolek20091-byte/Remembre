@@ -405,26 +405,62 @@ const shareOf = (rows, date, share) => {
 }
 
 {
-  // The day is nearly gone. One alert, saying how much is left.
-  const rows = [spend("2026-10-08", shareOf([], "2026-10-08", 0.85))];
-  const nearly = moneyAlerts(vaultOf(rows), clockAt("2026-10-08", 15 * 60));
-  check("a day nearly spent is said once", keysOf(nearly) === "nearly", keysOf(nearly));
-  check("with what is left in the title", /left today/.test(nearly[0].message.title),
-    nearly[0].message.title);
-  check("and why keeping it matters", /lands on the weekend/.test(nearly[0].message.body));
+  /*
+    The guard watches the week, not the day. These days run zero, zero, two
+    hundred, zero: a tripwire on today's limit fires on every spike and is
+    ignored inside a week, so the thing being tested is that it does not.
+  */
+  const over = (date, times) => spend(date, shareOf([], date, times));
 
-  // And past it.
-  const overRows = [spend("2026-10-08", shareOf([], "2026-10-08", 1.3))];
-  const over = moneyAlerts(vaultOf(overRows), clockAt("2026-10-08", 15 * 60));
-  check("a day gone over is said instead, not as well", keysOf(over) === "over", keysOf(over));
-  check("with the overspend in the title", /over today/.test(over[0].message.title),
-    over[0].message.title);
-  check("and what it costs tomorrow", /carries a quarter/.test(over[0].message.body));
+  // One enormous day, with a quiet week around it. Nothing is said.
+  const spike = moneyAlerts(
+    vaultOf([over("2026-10-08", 3)]),
+    clockAt("2026-10-08", 20 * 60),
+  );
+  check("a single big day says nothing at all", keysOf(spike) === "", keysOf(spike));
 
-  // A quiet day says nothing at all, which is the whole discipline.
+  // Two days over in a row, and the week with it. That is a direction.
+  const streak = moneyAlerts(
+    vaultOf([over("2026-10-07", 1.6), over("2026-10-08", 1.6)]),
+    clockAt("2026-10-08", 20 * 60),
+  );
+  check("two days over in a row is", keysOf(streak) === "guard", keysOf(streak));
+  check("and the title counts them", /2 days over in a row/.test(streak[0].message.title),
+    streak[0].message.title);
+
+  // A run with the week behind it agreeing is the one that gets the figure.
+  const agreed = moneyAlerts(
+    vaultOf(["2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05",
+      "2026-10-06", "2026-10-07", "2026-10-08"].map((date) => over(date, 1.3))),
+    clockAt("2026-10-08", 20 * 60),
+  );
+  check("a run the week agrees with carries the week's own figure",
+    /% of what it allows/.test(agreed[0].message.body), agreed[0].message.body);
+
+  // Two days over, but the week around them quiet enough to carry it. Still
+  // worth saying, and said as the nudge it is rather than as a crisis.
+  const carried = moneyAlerts(
+    vaultOf([over("2026-10-07", 1.1), over("2026-10-08", 1.1)]),
+    clockAt("2026-10-08", 20 * 60),
+  );
+  check("a run the week can still carry is said as a nudge",
+    /nudge rather than a problem/.test(carried[0].message.body), carried[0].message.body);
+
+  // A week over its allowance with no single day that looks bad.
+  const creep = moneyAlerts(
+    vaultOf(["2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07"]
+      .map((date) => over(date, 1.4))),
+    clockAt("2026-10-08", 20 * 60),
+  );
+  check("a week that has quietly got away is caught", keysOf(creep) === "guard", keysOf(creep));
+  check("even with nothing over today", /week is at/.test(creep[0].message.title), creep[0].message.title);
+  check("and says why it was easy to miss",
+    /how this one gets past you/.test(creep[0].message.body), creep[0].message.body);
+
+  // A quiet week says nothing at all, which is the whole discipline.
   const quiet = moneyAlerts(vaultOf([spend("2026-10-08", shareOf([], "2026-10-08", 0.3))]),
     clockAt("2026-10-08", 15 * 60));
-  check("a quiet day is left in peace", keysOf(quiet) === "", keysOf(quiet));
+  check("a quiet week is left in peace", keysOf(quiet) === "", keysOf(quiet));
 }
 
 {
@@ -437,7 +473,8 @@ const shareOf = (rows, date, share) => {
     loose.some((one) => one.key.startsWith("loose")), keysOf(loose));
   const note = loose.find((one) => one.key.startsWith("loose"));
   check("naming what it was", /ZABKA/.test(note.message.body), note.message.body);
-  check("and what to do about it", /move it outside the plan/i.test(note.message.body));
+  check("and what to do about it",
+    /the month, savings, or somebody else/.test(note.message.body), note.message.body);
 
   // Small change is not worth a buzz.
   const small = moneyAlerts(vaultOf([spend("2026-10-08", -800, "clothes")]), clockAt("2026-10-08", 15 * 60));
@@ -448,7 +485,11 @@ const shareOf = (rows, date, share) => {
 {
   // Keys carry the date, so a run that fires five times sends one of each and
   // a day that rolls over starts again.
-  const loud = [spend("2026-10-08", shareOf([], "2026-10-08", 1.3))];
+  // A run rather than a single day, because a single day no longer speaks.
+  const loud = [
+    spend("2026-10-07", shareOf([], "2026-10-07", 1.3)),
+    spend("2026-10-08", shareOf([], "2026-10-08", 1.3)),
+  ];
   const twice = moneyAlerts(vaultOf(loud), clockAt("2026-10-08", 15 * 60));
   const later = moneyAlerts(vaultOf(loud), clockAt("2026-10-08", 16 * 60));
   check("the same day produces the same key", twice[0].key === later[0].key, twice[0].key);
@@ -465,10 +506,13 @@ const shareOf = (rows, date, share) => {
 
 {
   // The alerts ride in with everything else the run sends.
-  const vault = vaultOf([spend("2026-10-08", shareOf([], "2026-10-08", 1.3))]);
+  const vault = vaultOf([
+    spend("2026-10-07", shareOf([], "2026-10-07", 1.3)),
+    spend("2026-10-08", shareOf([], "2026-10-08", 1.3)),
+  ]);
   const all = dueReminders(vault, clockAt("2026-10-08", 15 * 60));
   check("they come out of dueReminders with the rest",
-    all.some((one) => one.key.startsWith("over")));
+    all.some((one) => one.key.startsWith("guard")));
 }
 
 console.log("\nthe Sunday debrief");

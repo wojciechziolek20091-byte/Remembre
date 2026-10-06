@@ -249,13 +249,21 @@ function normaliseTransaction(raw) {
     balance: Number.isFinite(Number(raw.balance)) ? Math.round(Number(raw.balance)) : null,
     category: String(raw.category || "").slice(0, 40),
     /*
-      Which side of the income plan this sits on. "plan" is money that arrived
-      on schedule and the spending it pays for; "external" is a payment from
-      outside the cycle and whatever it was for, which is counted separately
-      because it never belonged to the month's budget. Empty means nobody has
-      decided yet -- which, for money coming in, is a question to ask.
+      Which side of the income plan this sits on.
+
+      Money in is one of two things and never a third: "plan" is the 2 500 that
+      arrives on schedule, "external" is anything else that turned up. Money out
+      is one of three: part of the month, "external" when somebody else's money
+      paid for it, or "savings" when it came out of what had been put by.
+
+      The last one is the one that was missing. A 400 zl one-off paid for out of
+      savings was landing in the month as ordinary spending and making an
+      ordinary month look reckless, and the only way out of it was to call it
+      external, which said somebody else had paid -- a different and untrue
+      thing. Empty means nobody has decided yet, which for anything large is a
+      question the page asks rather than a guess it makes.
     */
-    branch: ["plan", "external"].includes(raw.branch) ? raw.branch : "",
+    branch: ["plan", "external", "savings"].includes(raw.branch) ? raw.branch : "",
     linkedTo: String(raw.linkedTo || "").slice(0, 40),
     // Set when a payment was put back into the month by hand, so the linker
     // does not quietly take it out again on the next pass.
@@ -768,13 +776,27 @@ function monthReport(key) {
     byCategory.set(name, (byCategory.get(name) || 0) + entry.amount);
   });
 
+  /*
+    Every zloty of the month, on one side or the other, with nothing dropped.
+
+    Three of these used to be invisible: money from outside the plan, spending
+    somebody else covered, and spending taken out of savings were all left out
+    of the figures and never added up anywhere else either. Leaving a number
+    out of the arithmetic is right; leaving it off the page is how a month
+    stops adding up and nobody can say why.
+  */
+  const sum = (list) => list.reduce((total, entry) => total + entry.amount, 0);
+  const all = (test) => entries.filter(test);
+
   return {
     key,
     count: entries.length,
-    spent: out.reduce((sum, entry) => sum + entry.amount, 0),
-    received: entries
-      .filter((entry) => entry.amount > 0 && entry.branch !== "external")
-      .reduce((sum, entry) => sum + entry.amount, 0),
+    spent: sum(out),
+    received: sum(all((entry) => entry.amount > 0 && entry.branch !== "external")),
+    extra: sum(all((entry) => entry.amount > 0 && entry.branch === "external")),
+    fromSavings: sum(all((entry) => entry.amount < 0 && entry.branch === "savings")),
+    covered: sum(all((entry) => entry.amount < 0 && entry.branch === "external")),
+    transfers: sum(all((entry) => entry.amount < 0 && (entry.category || "other") === "transfers")),
     byCategory,
     biggest: out.slice().sort((a, b) => a.amount - b.amount).slice(0, 5),
   };
@@ -827,6 +849,40 @@ function latestMonth() {
   return dates.length ? monthOf(dates[dates.length - 1]) : monthOf(todayISO());
 }
 
+/*
+  Every zloty of the month, on one side or the other.
+
+  The figure above this is what the month cost against its own budget, which
+  deliberately leaves three things out: money that arrived from outside the
+  plan, spending somebody else covered, and spending taken out of savings.
+  Leaving them out of that figure is right. Leaving them off the page was not,
+  and it is how a month stops adding up with nobody able to say where the
+  difference went. So everything is listed, with what is and is not counted
+  said plainly.
+*/
+function ledger(now) {
+  const rows = [
+    ["In, on the plan", now.received, "counted"],
+    ["In, from outside it", now.extra, "apart"],
+    ["Out, against the month", now.spent, "counted"],
+    ["Out, from savings", now.fromSavings, "apart"],
+    ["Out, covered by someone else", now.covered, "apart"],
+    ["Moved between your own accounts", now.transfers, "apart"],
+  ].filter(([, amount]) => amount !== 0);
+
+  return el(
+    "ul",
+    { class: "ledger" },
+    rows.map(([label, amount, how]) => el(
+      "li",
+      { class: `ledger-row is-${how}` },
+      el("span", { class: "ledger-what", text: label }),
+      el("span", { class: "ledger-sum", text: zloty(amount) }),
+      el("span", { class: "ledger-how", text: how === "counted" ? "in the month" : "kept apart" })
+    ))
+  );
+}
+
 function renderReport() {
   const wrap = $("money-report");
   if (!wrap) return;
@@ -851,6 +907,8 @@ function renderReport() {
     el("strong", { text: zloty(now.spent) }),
     el("span", { class: "report-against", text: describeChange(now.spent, before.spent, before.key) })
   ));
+
+  pieces.push(ledger(now));
 
   // Categories, biggest spend first, with last month beside each and a bar
   // where a budget says what the month is allowed to be.
@@ -1631,9 +1689,15 @@ function incomeStanding(monthKey, today = todayISO()) {
   expensive as it was. Cash withdrawals stay in: the money has left the
   account and where it went afterwards is not something a statement knows.
 */
+/*
+  Spending that counts against the month: not a transfer between your own
+  accounts, not something somebody else's money paid for, and not something
+  taken out of savings. The same rule the server uses, in the same words.
+*/
 const SPENT_OUT = (entry) => entry.amount < 0
   && (entry.category || "other") !== "transfers"
-  && entry.branch !== "external";
+  && entry.branch !== "external"
+  && entry.branch !== "savings";
 
 /** Every day in the window, including the ones nothing happened on. */
 function dailySpending(days = 28) {
@@ -1879,6 +1943,90 @@ function countItAgain(id) {
   saveTransactions();
   moneyChanged();
   announce("Counted as part of the month again.");
+}
+
+/* ---------- The ones worth asking about ---------- */
+
+/*
+  A big one-off is a question, not a category.
+
+  Four hundred zloty on a plane ticket is not the same kind of event as four
+  hundred zloty of shopping, and the difference is not what it was for: it is
+  where the money came from. Out of the month, and the month is wrecked; out of
+  what was put by, and the month is fine and the savings are smaller; out of
+  somebody else's pocket, and neither is true.
+
+  The app used to have no way to say the middle one. Anything large either
+  wrecked the month's figures or had to be called external, which claims
+  somebody else paid and is a different and untrue thing. So it is asked, once,
+  about anything big enough to matter, and never guessed.
+*/
+
+/* A payment is big when it is three days' spending, or 120 zl, whichever is
+   more. Below that it is a Tuesday and nobody wants to be asked. */
+const BIG_FLOOR = 12000;
+const BIG_TIMES = 3;
+
+function bigEnoughToAsk(date = todayISO()) {
+  const plan = weekPlan(monthOf(date));
+  const rate = plan.spendable ? (isWeekend(date) ? plan.weekend : plan.weekday) : 0;
+  return Math.max(BIG_FLOOR, rate * BIG_TIMES);
+}
+
+/** Big one-offs this month that nobody has placed yet, newest first. */
+function worthAsking(monthKey) {
+  return liveTransactions()
+    .filter((entry) => entry.amount < 0
+      && !entry.branch
+      && !entry.counted
+      && (entry.category || "other") !== "transfers"
+      && monthOf(entry.date) === monthKey
+      && Math.abs(entry.amount) >= bigEnoughToAsk(entry.date))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.amount - b.amount);
+}
+
+function renderAsks() {
+  const card = $("money-asks");
+  if (!card) return;
+
+  const monthKey = state.moneyMonth || latestMonth();
+  const asking = worthAsking(monthKey);
+  card.hidden = asking.length === 0;
+  if (asking.length === 0) {
+    card.replaceChildren();
+    return;
+  }
+
+  show(card, [
+    el("div", { class: "card-head" },
+      el("h2", { class: "card-title", text: asking.length === 1 ? "One worth asking about" : `${asking.length} worth asking about` })),
+    el("p", { class: "chart-caption", text:
+      "Where did the money come from? Nothing here is counted either way until you say." }),
+    el("ul", { class: "ask-list" }, asking.map((entry) => el(
+      "li",
+      { class: "ask-row" },
+      el("div", { class: "ask-what" },
+        el("span", { class: "ask-sum", text: zloty(entry.amount) }),
+        el("span", { class: "ask-who", text: entry.counterparty || entry.title || entry.description || "a payment" }),
+        el("span", { class: "ask-when", text: entry.date })),
+      el("div", { class: "ask-acts" },
+        el("button", {
+          type: "button", class: "btn btn-quiet btn-tiny",
+          text: "Part of the month",
+          onclick: () => moveTransaction(entry.id, ""),
+        }),
+        el("button", {
+          type: "button", class: "btn btn-quiet btn-tiny",
+          text: "From savings",
+          onclick: () => moveTransaction(entry.id, "savings"),
+        }),
+        el("button", {
+          type: "button", class: "btn btn-quiet btn-tiny",
+          text: "Someone else paid",
+          onclick: () => moveTransaction(entry.id, "external"),
+        }))
+    ))),
+  ]);
 }
 
 /* ---------- What is coming, and what came ---------- */
@@ -2419,7 +2567,11 @@ function moveTransaction(id, branch) {
 
   saveTransactions();
   moneyChanged();
-  announce(branch === "external" ? "Moved outside the plan." : "Counted in the month again.");
+  announce(
+    branch === "external" ? "Moved outside the plan: somebody else's money paid for it."
+    : branch === "savings" ? "Taken out of savings, not out of the month."
+    : "Counted in the month again."
+  );
 }
 
 function setTransactionCategory(id, category) {
@@ -3218,6 +3370,75 @@ function renderCategoryBars() {
   allowed to cost if the month is to fit inside the money coming in. The line
   is the point of the chart: a column is only tall or short against something.
 */
+/* ---------- The guard, on the page ---------- */
+
+/*
+  The same arithmetic the server sends the alert from, drawn where the days
+  are. Mirrored rather than imported because this half runs with no build step
+  and the server half runs on Node; tools/budget-test.mjs runs both over the
+  same fixtures and fails if they ever disagree by a grosz.
+*/
+const GUARD_WINDOW = 7;
+const GUARD_RUN = 2;
+const GUARD_WATCH = 1.15;
+const GUARD_OVER = 1.35;
+
+function pressureNow(date = todayISO()) {
+  const days = [];
+  for (let back = GUARD_WINDOW - 1; back >= 0; back -= 1) {
+    const when = shiftISO(date, -back);
+    const plan = weekPlan(monthOf(when));
+    const rate = plan.spendable ? (isWeekend(when) ? plan.weekend : plan.weekday) : 0;
+    days.push({ date: when, spent: spentOnDay(when), rate });
+  }
+
+  const spent = days.reduce((sum, day) => sum + day.spent, 0);
+  const allowed = days.reduce((sum, day) => sum + day.rate, 0);
+  const load = allowed > 0 ? spent / allowed : 0;
+
+  let run = 0;
+  for (let i = days.length - 1; i >= 0; i -= 1) {
+    if (days[i].spent > days[i].rate && days[i].rate > 0) run += 1;
+    else break;
+  }
+
+  const level = load >= GUARD_OVER || run >= GUARD_RUN + 1 || (run >= GUARD_RUN && load >= GUARD_WATCH)
+    ? "over"
+    : run >= GUARD_RUN || load >= GUARD_WATCH
+      ? "watch"
+      : "calm";
+
+  return { days, run, spent, allowed, load, level };
+}
+
+/**
+ * The guard's line on the card.
+ *
+ * Deliberately present when it is calm as well. A guard that only appears when
+ * it is unhappy is a guard you cannot check, and checking it is what makes it
+ * worth believing the one time it speaks up.
+ */
+function guardLine() {
+  const read = pressureNow();
+  if (read.allowed <= 0) return null;
+  const share = Math.round(read.load * 100);
+
+  const words = read.level === "calm"
+    ? read.run === 1
+      ? `One day over, and the week at ${share}% of its rate. Nothing in that.`
+      : `The last seven days are at ${share}% of their rate.`
+    : read.run >= GUARD_RUN
+      ? `${read.run} days over in a row, with the week at ${share}% of its rate.`
+      : `The week is at ${share}% of its rate, with no single day that looks bad.`;
+
+  return el(
+    "p",
+    { class: `guard-line is-${read.level}` },
+    el("span", { class: "guard-mark", "aria-hidden": "true" }),
+    el("span", { text: words })
+  );
+}
+
 function renderRateCard() {
   const wrap = $("money-rate");
   if (!wrap) return;
@@ -3275,6 +3496,7 @@ function renderRateCard() {
         el("strong", { class: "verdict-label", text: verdict.label }),
         el("span", { class: "verdict-why", text: read.why }))
     ),
+    guardLine(),
     el(
       "ul",
       { class: "rate-strip" },
@@ -3442,6 +3664,7 @@ function renderDashboard() {
   renderBalanceCard();
   renderDebrief();
   renderSaved();
+  renderAsks();
   renderOutside();
   renderBudgetMap();
   renderCategoryBars();

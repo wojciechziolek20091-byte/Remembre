@@ -82,6 +82,21 @@ const CASES = [
     rows: [tx("2026-10-07", -4500, "clothes"), tx("2026-10-07", -1000)],
     on: "2026-10-07",
   },
+  {
+    name: "one enormous day in a quiet week",
+    rows: [tx("2026-10-05", -300), tx("2026-10-06", -20000), tx("2026-10-07", -300)],
+    on: "2026-10-08",
+  },
+  {
+    name: "a run of days over the rate",
+    rows: [tx("2026-10-06", -9000), tx("2026-10-07", -9000), tx("2026-10-08", -9000)],
+    on: "2026-10-08",
+  },
+  {
+    name: "spending taken out of savings",
+    rows: [tx("2026-10-07", -40000, "fun", { branch: "savings" }), tx("2026-10-07", -1000)],
+    on: "2026-10-07",
+  },
 ];
 
 /* ---------- The page's copy ---------- */
@@ -134,6 +149,7 @@ for (const one of CASES) {
 
     const day = dayBudget(on);
     const purse = weekendPurse(new Date(`${on}T12:00:00`));
+    const guard = pressureNow(on);
     return {
       weekday: day.plan.weekday,
       weekendRate: day.plan.weekend,
@@ -145,11 +161,16 @@ for (const one of CASES) {
       purse: purse.purse,
       purseBase: purse.base,
       purseCarried: purse.carried,
+      guardRun: guard.run,
+      guardSpent: guard.spent,
+      guardAllowed: guard.allowed,
+      guardLevel: guard.level,
     };
   }, { rows: one.rows, settings: SETTINGS, on: one.on });
 
   const day = server.dayBudget(one.rows, SETTINGS, one.on);
   const purse = server.weekendPurse(one.rows, SETTINGS, one.on);
+  const guard = server.pressure(one.rows, SETTINGS, one.on);
   const fromServer = {
     weekday: day.plan.weekday,
     weekendRate: day.plan.weekend,
@@ -161,6 +182,10 @@ for (const one of CASES) {
     purse: purse.purse,
     purseBase: purse.base,
     purseCarried: purse.carried,
+    guardRun: guard.run,
+    guardSpent: guard.spent,
+    guardAllowed: guard.allowed,
+    guardLevel: guard.level,
   };
 
   check(one.name, fromPage, fromServer);
@@ -180,6 +205,16 @@ console.log("\nand the rules themselves");
   const pageSide = await page.evaluate(() => ({
     weekend: CARRY_WEEKEND, tomorrow: CARRY_TOMORROW, kept: CARRY_KEPT, nearly: NEARLY, ratio: WEEKEND_RATIO,
   }));
+  const guardSide = await page.evaluate(() => ({
+    window: GUARD_WINDOW, run: GUARD_RUN, watch: GUARD_WATCH, over: GUARD_OVER,
+  }));
+  check("the guard is set to the same thresholds on both sides", guardSide, {
+    window: server.GUARD_WINDOW,
+    run: server.GUARD_RUN,
+    watch: server.GUARD_WATCH,
+    over: server.GUARD_OVER,
+  });
+
   check("and the page uses the same numbers", pageSide, {
     weekend: server.CARRY_WEEKEND,
     tomorrow: server.CARRY_TOMORROW,
