@@ -2103,14 +2103,45 @@ console.log("\nopening the half is the refresh");
   });
   check("opening it again straight away does not ask twice", again, 1);
 
+  // The button on the balance card, which is the one somebody actually
+  // presses. It has to get through the cooldown that the automatic pull is
+  // held to, and it has to do the whole refresh rather than only the bank.
+  const pressed = await page.evaluate(async () => {
+    const before = window.__asked.filter((u) => u.includes("action=fetch")).length;
+    writeStore("remembre.bankasked.v1", { at: new Date().toISOString() });  // just asked
+    renderBalanceCard();
+    const button = document.getElementById("money-refresh");
+    await refreshMoney();
+    return {
+      exists: Boolean(button),
+      label: button.querySelector(".refresh-text").textContent,
+      drawn: button.querySelector(".refresh-mark") instanceof SVGElement,
+      fetched: window.__asked.filter((u) => u.includes("action=fetch")).length - before,
+      status: window.__asked.filter((u) => u.includes("action=status")).length > 0,
+      synced: window.__asked.some((u) => u.includes("/api/sync")),
+      enabled: button.disabled === false,
+      still: Boolean(document.getElementById("money-refresh")),
+    };
+  });
+
+  check("there is a refresh button on the balance card", pressed.exists, true);
+  check("with an icon that is a real SVG and therefore visible", pressed.drawn, true);
+  check("pressing it fetches even a minute after the last fetch", pressed.fetched, 1);
+  check("it asks about the consent as well", pressed.status, true);
+  check("and pulls what the bank wrote into the vault", pressed.synced, true);
+  check("the button says Refresh again afterwards", pressed.label, "Refresh");
+  check("and is pressable again", pressed.enabled, true);
+  check("and survives the redraw it causes", pressed.still, true);
+
   const byHand = await page.evaluate(async () => {
+    const before = window.__asked.filter((u) => u.includes("action=fetch")).length;
     await pullBank({ force: true, loud: true });
     return {
-      fetched: window.__asked.filter((u) => u.includes("action=fetch")).length,
+      fetched: window.__asked.filter((u) => u.includes("action=fetch")).length - before,
       said: (document.querySelector("#money-notice") || {}).textContent || "",
     };
   });
-  check("the button is not held to the cooldown", byHand.fetched, 2);
+  check("asking by hand is never held to the cooldown", byHand.fetched, 1);
   check("and says what it found", /1 new transaction from mBank/.test(byHand.said), true, byHand.said);
 
   // How long ago, in the units a refresh-on-opening actually moves in.

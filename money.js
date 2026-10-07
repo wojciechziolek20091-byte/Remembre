@@ -1115,6 +1115,56 @@ async function refreshBank() {
 }
 
 /*
+  Asking for it now.
+
+  The half refreshes itself when it is opened, and the schedule brings the
+  bank in four times a day besides. Neither of those is any use at the moment
+  you have just paid for something and want to see where that leaves you, so
+  there is a button, and it does the whole thing rather than part of it: the
+  consent, the bank itself, the sync that carries what the bank wrote, and the
+  redraw. The cooldown that stops a glance at the app becoming a call to mBank
+  does not apply to a button somebody pressed on purpose.
+*/
+async function refreshMoney() {
+  const button = $("money-refresh");
+  if (!button || button.disabled) return;
+
+  button.disabled = true;
+  button.classList.add("is-turning");
+  const label = button.querySelector(".refresh-text");
+  const was = label ? label.textContent : "";
+  if (label) label.textContent = "Checking\u2026";
+
+  try {
+    /* The consent first: the pull below refuses without a live one, and the
+       figure it carries is worth having even when the bank will not answer. */
+    const connection = await refreshBank();
+
+    if (connection && connection.connected && !connection.expired) {
+      await pullBank({ force: true, loud: true });
+    } else {
+      /* No bank, but the other device may still have imported something. */
+      await runCloud(() => cloudPull({ quiet: true }));
+      moneyChanged();
+      showMoneyNotice(connection && connection.expired
+        ? "mBank wants approving again, so nothing new could be fetched. Everything else is up to date."
+        : "No bank is connected, so there was nothing to fetch. Everything else is up to date.",
+      { tone: "plain" });
+    }
+
+    if (typeof runInsight === "function") runInsight();
+    if (typeof fetchDebrief === "function") fetchDebrief();
+  } catch (err) {
+    showMoneyNotice(`Could not refresh: ${err.message}`, { tone: "warn" });
+  } finally {
+    button.disabled = false;
+    button.classList.remove("is-turning");
+    if (label) label.textContent = was || "Refresh";
+    renderBalanceCard();
+  }
+}
+
+/*
   Opening the half is the refresh.
 
   Asking the bank used to be a button, because the schedule is only allowed
@@ -3081,6 +3131,63 @@ function freshness(iso) {
   return ageInWords(iso);
 }
 
+/*
+  The button that skips the waiting.
+
+  On the balance card rather than in the bar, because the balance is the thing
+  it changes and the line underneath already says how old the figure is. It
+  says when it last looked rather than only what it does: a refresh button
+  that cannot tell you whether it is worth pressing is a button you press out
+  of superstition.
+*/
+function refreshButton() {
+  const asked = bankLastAsked();
+  const when = asked ? freshness(new Date(asked).toISOString()) : "";
+
+  return el(
+    "button",
+    {
+      type: "button",
+      id: "money-refresh",
+      class: "btn btn-quiet btn-tiny refresh-btn",
+      title: when ? `Last checked ${when}` : "Fetch the newest from mBank",
+      onclick: refreshMoney,
+    },
+    refreshMark(),
+    el("span", { class: "refresh-text", text: "Refresh" })
+  );
+}
+
+/*
+  An arrow coming back round to where it started.
+
+  Built with createElementNS rather than through el(), because el() calls
+  createElement and an <svg> made that way is an unknown HTML element: it
+  parses, it sits in the DOM, and it draws absolutely nothing.
+*/
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function refreshMark() {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "refresh-mark");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+
+  ["M20.5 12a8.5 8.5 0 1 1-2.49-6.01", "M20.5 4.5V10H15"].forEach((d) => {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "2");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.append(path);
+  });
+
+  return svg;
+}
+
 function renderBalanceCard() {
   const card = $("money-balance");
   if (!card) return;
@@ -3088,7 +3195,9 @@ function renderBalanceCard() {
   const balance = balanceNow();
   if (!balance) {
     show(card, [
-      el("p", { class: "kpi-label", text: "Current balance" }),
+      el("div", { class: "kpi-head" },
+        el("p", { class: "kpi-label", text: "Current balance" }),
+        refreshButton()),
       el("p", { class: "kpi-figure is-missing", text: "-" }),
       el("p", {
         class: "kpi-note",
@@ -3112,7 +3221,9 @@ function renderBalanceCard() {
       }.`;
 
   show(card, [
-    el("p", { class: "kpi-label", text: "Current balance" }),
+    el("div", { class: "kpi-head" },
+      el("p", { class: "kpi-label", text: "Current balance" }),
+      refreshButton()),
     el("p", { class: `kpi-figure${balance.amount < 0 ? " is-negative" : ""}`, text: zloty(balance.amount) }),
     movement
       ? el("p", {
