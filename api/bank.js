@@ -204,12 +204,33 @@ async function pullInto(live, vault, connection, psu = null) {
     ? shiftDate(connection.fetchedTo, -OVERLAP_DAYS)
     : shiftDate(today(), -HISTORY_DAYS);
 
-  const incoming = [];
+  const booked = [];
+  const waiting = [];
   for (const account of connection.accounts) {
     const rows = await bankTransactions(account.uid, from, psu);
-    rows.map(asTransaction).filter(Boolean).forEach((row) => incoming.push(row));
+    rows.map(asTransaction).filter(Boolean).forEach((row) => booked.push(row));
+
+    /*
+      And again for what has been authorised and not yet settled. This is the
+      difference between "I spent 30 zl at lunch" and a card payment mBank
+      will not book until tonight: without it the day reads empty until
+      tomorrow, which is the day it is no longer any use.
+
+      A bank that will not answer this is not a reason to fail a fetch whose
+      booked half already succeeded. Not every ASPSP offers pending at all,
+      and the ones that do are allowed to stop.
+    */
+    try {
+      const rest = await bankTransactions(account.uid, from, psu, "PDNG");
+      rest.map(asTransaction).filter(Boolean).forEach((row) => waiting.push({ ...row, pending: true }));
+    } catch (err) {
+      console.error("bank pending fetch failed:", err.status || "", err.message);
+    }
   }
 
+  // Booked first: where the same payment comes back in both lists, the slot
+  // it fills should be the settled one rather than its shadow.
+  const incoming = [...booked, ...waiting];
   incoming.sort((a, b) => (a.date === b.date ? a.amount - b.amount : a.date.localeCompare(b.date)));
 
   const vaultRaw = await live.get(vault);
@@ -228,7 +249,22 @@ async function pullInto(live, vault, connection, psu = null) {
     updatedAt: now,
   }));
 
-  if (added.length > 0) {
+  /*
+    A payment held from an earlier fetch settles under the same day and the
+    same amount, so onlyNewRows rightly declines to store it twice -- which
+    means the stored copy is the one that has to stop calling itself pending.
+  */
+  const settledSlots = new Set(booked.map((row) => `${row.date}|${row.amount}`));
+  let settled = 0;
+  stored.forEach((row) => {
+    if (!row || row.deleted || row.pending !== true) return;
+    if (!settledSlots.has(`${row.date}|${row.amount}`)) return;
+    row.pending = false;
+    row.updatedAt = now;
+    settled += 1;
+  });
+
+  if (added.length > 0 || settled > 0) {
     const next = held && typeof held === "object" ? held : { tasks: [], coursework: [], sessions: [] };
     next.transactions = [...stored, ...added];
     next.updatedAt = now;
@@ -265,7 +301,7 @@ async function pullInto(live, vault, connection, psu = null) {
   await saveConnection(live, vault, {
     ...connection, fetchedTo: today(), lastFetchAt: now, balance,
   });
-  return { read: incoming.length, added: added.length, from, balance };
+  return { read: incoming.length, added: added.length, pending: waiting.length, settled, from, balance };
 }
 
 async function fetchForOne(req, res) {

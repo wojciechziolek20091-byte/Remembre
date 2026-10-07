@@ -1602,6 +1602,28 @@ console.log("\ntoday's budget on the page");
   });
   check("ordinary spending on the same day still counts", counted.spent, 3000);
   check("and the aside keeps only what is set apart", /720,00 zł/.test(counted.aside), true, counted.aside);
+
+  // A card payment the bank has authorised and not yet settled spends like
+  // any other, and the card says the figure may still move.
+  const unsettled = await page.evaluate(() => {
+    state.transactions = [];
+    state.transactions.push(normaliseTransaction({
+      id: "lunch", date: todayISO(), amount: -3000, counterparty: "ZABKA", category: "food", pending: true,
+    }));
+    saveTransactions();
+    renderDashboard();
+    return {
+      spent: dayBudget().spent,
+      kept: liveTransactions()[0].pending,
+      aside: (document.querySelector(".lead-aside") || {}).textContent || "",
+    };
+  });
+  check("a payment the bank has not booked still counts against the day", unsettled.spent, 3000);
+  check("the flag survives being stored", unsettled.kept, true);
+  check("and the card says the figure may move",
+    /30,00 zł of that the bank has not booked yet/.test(unsettled.aside), true, unsettled.aside);
+  check("so it is no longer the empty-day message",
+    !/Nothing has come in/.test(unsettled.aside), true, unsettled.aside);
 }
 
 /* ---------- The week, and the weekend ---------- */

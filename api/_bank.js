@@ -254,12 +254,19 @@ export async function bankSession(code) {
  * to the end rather than stopping at the first page, which would quietly lose
  * the oldest part of a busy month.
  */
-export async function bankTransactions(accountUid, dateFrom, psu = null) {
+export async function bankTransactions(accountUid, dateFrom, psu = null, status = "") {
   const rows = [];
   let continuation = "";
 
   for (let page = 0; page < 40; page += 1) {
     const query = new URLSearchParams({ date_from: dateFrom });
+    /*
+      Left out, the bank answers with what it has booked, and a card payment
+      made this afternoon is not booked until tonight or tomorrow. PDNG is
+      Enable Banking's name for the authorised-but-not-settled ones, which is
+      most of what "I spent 30 zl today" means at the moment it is said.
+    */
+    if (status) query.set("transaction_status", status);
     if (continuation) query.set("continuation_key", continuation);
 
     const answer = await bankFetch(`/accounts/${encodeURIComponent(accountUid)}/transactions?${query}`, { psu });

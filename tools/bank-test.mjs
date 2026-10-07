@@ -296,6 +296,60 @@ console.log("\nread-only by construction");
   check("no payment initiation", !/payment[- _]?initiation/i.test(source));
 }
 
+console.log("\nwhat the bank has not booked yet");
+
+{
+  /* The complaint this answers: thirty zloty spent at lunch and the day
+     reading empty. Asked without a status the bank answers with booked
+     transactions only, and a card payment is not booked for hours. */
+  set(APP_ID, PEM);
+  const module = await import("../api/_bank.js?pending");
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  let paginate = false;
+  globalThis.fetch = async (url) => {
+    asked.push(String(url));
+    const query = new URL(String(url)).searchParams;
+    const more = paginate && !query.get("continuation_key");
+    const body = more ? { transactions: [{}], continuation_key: "more" } : { transactions: [{}] };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+
+  await module.bankTransactions("acc-1", "2026-10-01");
+  check("asked plainly, no status is sent", !asked[0].includes("transaction_status"), true, asked[0]);
+  check("and the date still is", asked[0].includes("date_from=2026-10-01"), true, asked[0]);
+
+  asked.length = 0;
+  await module.bankTransactions("acc-1", "2026-10-01", null, "PDNG");
+  check("the unsettled ones are asked for by name",
+    asked[0].includes("transaction_status=PDNG"), true, asked[0]);
+
+  // A pending list long enough to paginate must not lose its status halfway.
+  asked.length = 0;
+  paginate = true;
+  const rows = await module.bankTransactions("acc-1", "2026-10-01", null, "PDNG");
+  check("a second page is followed", asked.length, 2);
+  check("and still asks for the same status",
+    asked[1].includes("transaction_status=PDNG"), true, asked[1]);
+  check("with the continuation key", asked[1].includes("continuation_key=more"), true, asked[1]);
+  check("and both pages are kept", rows.length === 2, true, String(rows.length));
+
+  globalThis.fetch = realFetch;
+}
+
+{
+  const source = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("../api/bank.js", import.meta.url), "utf8"));
+
+  check("the pull asks for pending as well as booked", /"PDNG"/.test(source));
+  check("a bank that refuses pending does not fail the fetch",
+    /bank pending fetch failed/.test(source), true);
+  check("and a payment that settles stops calling itself pending",
+    /row\.pending = false/.test(source), true);
+  check("the vault is written when only a settlement changed",
+    /added\.length > 0 \|\| settled > 0/.test(source), true);
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} failed:\n` + failures.map((f) => `  - ${f}`).join("\n"));
   process.exit(1);

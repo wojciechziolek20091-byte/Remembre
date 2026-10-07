@@ -270,6 +270,13 @@ function normaliseTransaction(raw) {
     counted: raw.counted === true,
     // And set when the category was chosen by hand, so the rules leave it be.
     fixed: raw.fixed === true,
+    /*
+      Seen by the bank but not yet booked: a card payment is authorised at the
+      till and settles hours or a day later. It spends like any other payment
+      and counts like any other payment -- the flag exists so the page can say
+      the figure may still move, and is cleared when the booked twin arrives.
+    */
+    pending: raw.pending === true,
     source: raw.source === "api" ? "api" : "csv",
     deleted: raw.deleted === true,
     createdAt,
@@ -3741,14 +3748,23 @@ function renderToday() {
   */
   const aside = setAsideOn(today.date);
   const asked = bankLastAsked();
-  let note = "";
-  if (aside.amount > 0) {
-    note = `${zloty(aside.amount)} more left the account today and is not counted: ${aside.why.join(", ")}.`;
-  } else if (today.spent === 0) {
-    note = asked
-      ? `Nothing has come in for today. The bank was last asked ${freshness(new Date(asked).toISOString())}.`
-      : "Nothing has come in for today, and no bank is connected.";
+  const unsettled = liveTransactions()
+    .filter((entry) => entry.pending && entry.date === today.date && SPENT_OUT(entry))
+    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+
+  const lines = [];
+  if (unsettled > 0) {
+    lines.push(`${zloty(unsettled)} of that the bank has not booked yet, so it may still move.`);
   }
+  if (aside.amount > 0) {
+    lines.push(`${zloty(aside.amount)} more left the account today and is not counted: ${aside.why.join(", ")}.`);
+  }
+  if (lines.length === 0 && today.spent === 0) {
+    lines.push(asked
+      ? `Nothing has come in for today. The bank was last asked ${freshness(new Date(asked).toISOString())}.`
+      : "Nothing has come in for today, and no bank is connected.");
+  }
+  const note = lines.join(" ");
 
   show(wrap, [
     el("p", { class: "lead-label", text: over ? "Over today by" : "Left to spend today" }),
