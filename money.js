@@ -3747,36 +3747,37 @@ function renderToday() {
     : today.carried > 0
       ? `${zloty(today.base)} for a ${kind}, plus ${zloty(today.carried)} carried from yesterday`
       : `${zloty(today.base)} for a ${kind}, less ${zloty(Math.abs(today.carried))} carried from yesterday`;
-  const from = `${zloty(today.spent)} spent of ${zloty(today.limit)} today: ${made}.`;
 
   /*
-    Why the figure can read zero on a day money plainly went out. Either it
-    has not been imported yet -- a card payment reaches mBank hours after it
-    happens -- or every payment today is one the month deliberately does not
-    count. Both are worth saying; neither used to be said at all.
+    An instruction, not a running total.
+
+    mBank books overnight, so "spent today" is zero all day however much has
+    been spent, and a figure that is wrong every afternoon teaches you to
+    stop reading the card. What the card can always say truthfully is what
+    today is worth, so that is what it says, as the thing to hold to rather
+    than as a score to check.
   */
+  const from = `Stick to ${zloty(today.limit)} today: ${made}.`;
+
   const aside = setAsideOn(today.date);
-  const asked = bankLastAsked();
   const unsettled = liveTransactions()
     .filter((entry) => entry.pending && entry.date === today.date && SPENT_OUT(entry))
     .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
 
   const lines = [];
   if (unsettled > 0) {
-    lines.push(`${zloty(unsettled)} of that the bank has not booked yet, so it may still move.`);
+    lines.push(`${zloty(unsettled)} of today has reached the bank and is not booked yet, so it may still move.`);
   }
   if (aside.amount > 0) {
-    lines.push(`${zloty(aside.amount)} more left the account today and is not counted: ${aside.why.join(", ")}.`);
+    lines.push(`${zloty(aside.amount)} left the account today and is not counted: ${aside.why.join(", ")}.`);
   }
   if (lines.length === 0 && today.spent === 0) {
-    lines.push(asked
-      ? `Nothing has come in for today. The bank was last asked ${freshness(new Date(asked).toISOString())}.`
-      : "Nothing has come in for today, and no bank is connected.");
+    lines.push("mBank settles overnight, so what you spend today is counted tomorrow. The balance above is current.");
   }
   const note = lines.join(" ");
 
   show(wrap, [
-    el("p", { class: "lead-label", text: over ? "Over today by" : "Left to spend today" }),
+    el("p", { class: "lead-label", text: over ? "Over today by" : "Spend no more than" }),
     el("p", {
       class: `lead-figure${tone}`,
       text: zloty(Math.abs(today.left)),
@@ -3786,7 +3787,9 @@ function renderToday() {
       {
         class: `lead-meter${tone}`,
         role: "img",
-        "aria-label": `${zloty(today.spent)} spent of ${zloty(today.limit)} for today.`,
+        "aria-label": over
+          ? `${zloty(Math.abs(today.left))} over today's ${zloty(today.limit)}.`
+          : `${zloty(Math.abs(today.left))} of today's ${zloty(today.limit)} still to spend.`,
       },
       el("span", { class: "lead-meter-fill", style: `width:${Math.round(share * 100)}%` })
     ),

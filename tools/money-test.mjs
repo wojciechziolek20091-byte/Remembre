@@ -1543,13 +1543,13 @@ console.log("\ntoday's budget on the page");
   // where somebody who opens the app to check one number actually looks.
   check("the half opens on what is left of it", today.figure, today.left);
   check("with the limit it came out of",
-    today.line.includes(`spent of ${today.limit} today`), true, today.line);
+    today.line.includes(`Stick to ${today.limit} today`), true, today.line);
   check("and where the extra came from", /carried from yesterday/.test(today.line), true, today.line);
 }
 
 {
   /* The complaint this answers: money plainly went out and the card still
-     read "0,00 zł spent", with nothing on it to say why. Every reason the day
+     read as an untouched budget, with nothing on it to say why. Every reason the day
      declines to count a payment is a reason that belongs on the card. */
   const quiet = await page.evaluate(() => {
     state.transactions = [];
@@ -1559,8 +1559,9 @@ console.log("\ntoday's budget on the page");
     renderDashboard();
     return { aside: (document.querySelector(".lead-aside") || {}).textContent || "" };
   });
-  check("a day with nothing imported says so", /Nothing has come in for today/.test(quiet.aside), true, quiet.aside);
-  check("and when the bank was last asked", /2 hours ago/.test(quiet.aside), true, quiet.aside);
+  check("a day with nothing imported says why, not nothing",
+    /settles overnight/.test(quiet.aside), true, quiet.aside);
+  check("and points at the figure that is current", /balance above is current/.test(quiet.aside), true, quiet.aside);
 
   const aside = await page.evaluate(() => {
     const today = todayISO();
@@ -1586,7 +1587,8 @@ console.log("\ntoday's budget on the page");
   check("and names every reason it was set aside",
     ["paid for by somebody else", "taken out of savings", "moved between your own accounts"]
       .every((why) => aside.aside.includes(why)), true, aside.aside);
-  check("the figure above is still the day's own spending", /0,00 zł spent of/.test(aside.line), true, aside.line);
+  check("the line above is the instruction, not a total",
+    /^Stick to /.test(aside.line) && !/spent/.test(aside.line), true, aside.line);
   check("one line per reason, not one per payment", aside.why.length, 3);
 
   const counted = await page.evaluate(() => {
@@ -1621,9 +1623,9 @@ console.log("\ntoday's budget on the page");
   check("a payment the bank has not booked still counts against the day", unsettled.spent, 3000);
   check("the flag survives being stored", unsettled.kept, true);
   check("and the card says the figure may move",
-    /30,00 zł of that the bank has not booked yet/.test(unsettled.aside), true, unsettled.aside);
+    /30,00 zł of today has reached the bank and is not booked yet/.test(unsettled.aside), true, unsettled.aside);
   check("so it is no longer the empty-day message",
-    !/Nothing has come in/.test(unsettled.aside), true, unsettled.aside);
+    !/settles overnight/.test(unsettled.aside), true, unsettled.aside);
 }
 
 /* ---------- The week, and the weekend ---------- */
