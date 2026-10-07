@@ -144,8 +144,35 @@ for (const theme of ["light", "dark"]) {
     await page.waitForTimeout(300);
     await shot("7-live", { full: false });
 
+    // The organiser, argued for.
     await page.evaluate(() => {
       endSession({ finished: false });
+      setArea("school");
+      const panel = document.getElementById("sense-panel");
+      if (!panel) return;
+      renderSense({
+        at: new Date().toISOString(),
+        result: {
+          verdict: "This plan spends the next fortnight on the commentary and lets the vocabulary ride on three short evenings.",
+          points: [
+            { claim: "The commentary gets Sunday morning",
+              because: "It is the only three-hour block before the 24th, and your note says the diagrams still have to be redrawn. Two hours on a school night would be spent getting back to where you stopped." },
+            { claim: "Nothing on Thursday",
+              because: "Your maths test is on Friday. The evening before a test belongs to the test, whatever else is owed." },
+            { claim: "The vocabulary goes in 50-minute sittings, not one long one",
+              because: "It is recall, and recall is held by being spaced: four short sittings two days apart beat one evening of three hours by a wide margin." },
+          ],
+          weakest: "Three hours for the vocabulary assumes the list is the length you said it was. If chapter 4 is closer to 80 words than 40, this is an hour short and the first sitting will tell you.",
+          risk: "Two more missed evenings. The commentary has 8 hours owed and 6 evenings left to carry them, so one slip is absorbed and two are not.",
+          change: "I would move Sunday to Saturday if your supervisor answers before Friday, so the redraw happens after the answer rather than before it.",
+        },
+      });
+    });
+    await page.waitForTimeout(400);
+    await shot("9-sense", { full: false });
+
+    await page.evaluate(() => {
+      closeSense();
       openCheckin({ because: "finished" });
     });
     await page.waitForTimeout(300);

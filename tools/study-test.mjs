@@ -161,6 +161,66 @@ console.log("\nscheduling");
   check("and given room to think", sent[0].max_tokens >= 12000);
 }
 
+console.log("\ndefending the plan");
+
+{
+  script = [toolUse("argue", {
+    verdict: "This plan spends the next two weeks on the essay and lets the vocabulary ride.",
+    points: [
+      { claim: "The essay gets Sunday morning", because: "It is the only three-hour block before the 24th, and your notes say the methodology has to be redone." },
+      { claim: "Nothing on Thursday", because: "The maths test is Friday and the evening before it belongs to the test." },
+    ],
+    weakest: "Two hours for the vocabulary is thin if the list is longer than you said.",
+    risk: "Two more missed evenings and the essay cannot be finished in the hours you have given it.",
+    change: "I would move the Sunday sitting earlier if the supervisor answers before Friday.",
+  })];
+  const answer = await ask("explain", {
+    today: "2026-10-07",
+    work: [{ id: "ee", title: "Extended essay", notes: "Supervisor wants the methodology redone.", hoursOwed: 14, steps: [] }],
+    sessions: [{ date: "2026-10-11", time: "10:00", minutes: 180, courseworkId: "ee", why: "Long block" }],
+    busy: [], done: [],
+  });
+
+  check("the plan comes back argued", answer.body.result.points.length === 2);
+  check("the model is told to argue rather than summarise",
+    /Argue, do not summarise/.test(sent[0].system), "the system prompt lost its instruction");
+  check("and to name the part it would defend least",
+    Boolean(answer.body.result.weakest), JSON.stringify(answer.body.result));
+  check("the sittings it is defending are sent with it",
+    /2026-10-11/.test(sent[0].messages[0].content));
+  check("an organiser with nothing in it is not argued about",
+    (await call("explain", { work: [] })).body.thin === true);
+}
+
+console.log("\nthe notes, which are the best information there is");
+
+{
+  script = [toolUse("estimate", {
+    hours: 20, low: 16, high: 28, confidence: "high", shape: "long",
+    sessionMinutes: 150, why: "The methodology rewrite is most of it.",
+  })];
+  await ask("estimate", {
+    title: "Second draft",
+    piece: "Extended essay",
+    notes: "4000 words on Polish inflation 1989-1995. Supervisor wants the methodology redone.",
+    subject: "economics", kind: "ee", due: "2026-11-02",
+  });
+  const asked = sent[0].messages[0].content;
+  check("the notes are sent with the step", /methodology redone/.test(asked), asked.slice(0, 200));
+  check("so is the piece the step belongs to", /Extended essay/.test(asked));
+  check("and the model is told what they are worth",
+    /The notes are the best information you have/.test(sent[0].system));
+
+  script = [toolUse("schedule", { sessions: [], note: "Nothing fits." })];
+  await ask("schedule", {
+    today: "2026-10-07",
+    work: [{ id: "ee", title: "Extended essay", notes: "Four of the six sources are read.", hoursOwed: 9, steps: [] }],
+    busy: [], done: [], kept: [],
+  });
+  check("the planner is given them too",
+    /four of the six sources are read/i.test(sent[0].messages[0].content));
+}
+
 console.log("\nreading the day back");
 
 {

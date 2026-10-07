@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.06-75";
+const APP_VERSION = "2026.10.07-76";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -2533,10 +2533,20 @@ async function estimateStep(index, button) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title,
+        /*
+          The piece this step belongs to, and the notes written on it. The
+          notes were being sent, except the field read was the title box: an
+          estimate for "the first draft" was being made with the name of the
+          piece passed off as everything known about it, and the research
+          question, the word count and the supervisor's last demand sat in the
+          notes box where nothing ever looked at them. They are the most
+          specific thing anybody has written down about the work.
+        */
+        piece: $("cw-title") ? $("cw-title").value : "",
         subject: $("cw-subject") ? $("cw-subject").value : "",
         kind: $("cw-kind") ? $("cw-kind").value : "",
         due: step.due || ($("cw-due") ? $("cw-due").value : ""),
-        notes: $("cw-title") ? $("cw-title").value : "",
+        notes: $("cw-notes") ? $("cw-notes").value : "",
         steps: state.formSteps.map((entry) => entry.title).filter(Boolean),
       }),
       cache: "no-store",
@@ -2756,6 +2766,178 @@ async function planNow() {
   }
 }
 
+/* ---------- Making sense of it ---------- */
+
+/*
+  The organiser shows what the plan is. This asks what it is for.
+
+  It hands the model the same picture the planner had, plus the sittings it
+  actually laid out, and asks it to argue: why these pieces in this order, why
+  the long evenings are where they are, what is being traded for what. An
+  argument rather than a summary, because the calendar is already the summary
+  and reading it back is worth nobody's time.
+
+  It is asked to name the part it would defend least, which is the point of
+  the whole thing: a case that admits its weakest claim is one you can act on,
+  and one that does not is advertising.
+*/
+
+const SENSE_KEY = "remembre.sense.v1";
+
+function senseHeld() {
+  const held = readStore(SENSE_KEY, null);
+  return held && typeof held === "object" && held.result ? held : null;
+}
+
+async function makeSense() {
+  const button = $("make-sense");
+  const panel = $("sense-panel");
+  if (!button || !panel) return;
+
+  /* Open a second time to put it away. */
+  if (!panel.hidden) {
+    closeSense();
+    return;
+  }
+
+  const payload = planPayload();
+  if (payload.work.length === 0) {
+    renderSense({ error: "There is nothing to make sense of yet. Add a piece of coursework first." });
+    return;
+  }
+
+  const was = button.textContent;
+  button.disabled = true;
+  button.textContent = "Reading it\u2026";
+  renderSense({ waiting: true });
+
+  try {
+    const res = await fetch("/api/study?action=explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...payload,
+        sessions: liveSessions()
+          .filter((session) => session.date >= payload.today && !session.deleted)
+          .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+          .slice(0, 40)
+          .map((session) => ({
+            date: session.date,
+            time: session.deferredTo || session.time,
+            minutes: session.minutes,
+            courseworkId: session.courseworkId,
+            stepId: session.stepId,
+            why: session.why,
+            pinned: session.pinned,
+          })),
+      }),
+      cache: "no-store",
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || body.ok !== true) {
+      throw new Error((body && body.message) || `The server answered ${res.status}.`);
+    }
+    if (body.thin) {
+      renderSense({ error: body.message });
+      return;
+    }
+    const held = { at: new Date().toISOString(), result: body.result, prose: body.prose || "" };
+    writeStore(SENSE_KEY, held);
+    renderSense(held);
+    announce("The plan, argued.");
+  } catch (err) {
+    renderSense({ error: `Could not make sense of it: ${err.message}` });
+  } finally {
+    button.disabled = false;
+    button.textContent = was;
+  }
+}
+
+function closeSense() {
+  const panel = $("sense-panel");
+  const button = $("make-sense");
+  if (panel) {
+    panel.hidden = true;
+    panel.replaceChildren();
+  }
+  if (button) {
+    button.setAttribute("aria-expanded", "false");
+    button.focus();
+  }
+}
+
+function renderSense(state) {
+  const panel = $("sense-panel");
+  const button = $("make-sense");
+  if (!panel) return;
+
+  panel.hidden = false;
+  if (button) button.setAttribute("aria-expanded", "true");
+
+  if (state.waiting) {
+    panel.replaceChildren(el("p", { class: "sense-waiting", text: "Reading the plan, and the notes on it\u2026" }));
+    return;
+  }
+
+  if (state.error) {
+    panel.replaceChildren(
+      el("p", { class: "sense-error", text: state.error }),
+      el("button", { type: "button", class: "link-btn sense-close", text: "Close", onclick: closeSense })
+    );
+    return;
+  }
+
+  const read = state.result;
+  if (!read) {
+    panel.replaceChildren(
+      el("p", { class: "sense-error", text: state.prose || "Nothing came back." }),
+      el("button", { type: "button", class: "link-btn sense-close", text: "Close", onclick: closeSense })
+    );
+    return;
+  }
+
+  const points = Array.isArray(read.points) ? read.points : [];
+
+  panel.replaceChildren(...[
+    el("div", { class: "sense-head" },
+      el("h3", { class: "sense-verdict", text: read.verdict || "" }),
+      el("button", { type: "button", class: "btn btn-icon sense-close", onclick: closeSense },
+        el("span", { "aria-hidden": "true", text: "\u00d7" }),
+        el("span", { class: "sr-only", text: "Close" }))),
+
+    points.length
+      ? el("ol", { class: "sense-points" }, points.map((point) => el(
+          "li",
+          { class: "sense-point" },
+          el("p", { class: "sense-claim", text: point.claim || "" }),
+          el("p", { class: "sense-because", text: point.because || "" })
+        )))
+      : null,
+
+    read.weakest
+      ? el("div", { class: "sense-aside is-weakest" },
+          el("p", { class: "sense-aside-label", text: "The part it would defend least" }),
+          el("p", { class: "sense-aside-text", text: read.weakest }))
+      : null,
+
+    read.risk
+      ? el("div", { class: "sense-aside" },
+          el("p", { class: "sense-aside-label", text: "What would break it" }),
+          el("p", { class: "sense-aside-text", text: read.risk }))
+      : null,
+
+    read.change
+      ? el("div", { class: "sense-aside" },
+          el("p", { class: "sense-aside-label", text: "What it would change first" }),
+          el("p", { class: "sense-aside-text", text: read.change }))
+      : null,
+
+    state.at
+      ? el("p", { class: "sense-when", text: `Argued ${whenInWords(state.at.slice(0, 10))}, from the plan as it stands now.` })
+      : null,
+  ].filter(Boolean));
+}
+
 function setupSitting() {
   const dialog = $("session-dialog");
   if (!dialog) return;
@@ -2796,6 +2978,7 @@ function setupSitting() {
 function setupCoursework() {
   $("add-coursework").addEventListener("click", () => openCourseworkDialog());
   $("plan-sessions").addEventListener("click", () => planNow());
+  $("make-sense").addEventListener("click", () => makeSense());
   $("coursework-form").addEventListener("submit", submitCourseworkForm);
   $("delete-coursework").addEventListener("click", deleteCurrentCoursework);
 
@@ -3470,6 +3653,7 @@ function planPayload(today = todayISO(), horizonDays = 28) {
       kind: item.kind || "",
       due: item.due || "",
       stage: item.stage,
+      notes: item.notes || "",
       hoursOwed: hoursOwed(item),
       steps: (item.steps || []).filter((step) => !step.done).map((step) => ({
         id: step.id,

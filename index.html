@@ -203,12 +203,19 @@
         <p class="organiser-hint" id="organiser-hint">The long pieces: internal assessments, the extended essay, the TOK essay, CAS. Each can carry its own steps, and the one still to do leads the card.</p>
       </div>
       <div class="organiser-actions">
+        <!--
+          Small on purpose. It is not a thing you do, it is a thing you ask,
+          and asking it should feel cheaper than planning.
+        -->
+        <button type="button" class="btn btn-quiet btn-tiny" id="make-sense"
+                aria-expanded="false" aria-controls="sense-panel">Make sense of it</button>
         <button type="button" class="btn btn-quiet" id="plan-sessions">Plan study sessions</button>
         <button type="button" class="btn btn-primary" id="add-coursework">
           <span class="btn-plus" aria-hidden="true">+</span> Add coursework
         </button>
       </div>
     </div>
+    <section class="sense" id="sense-panel" aria-live="polite" hidden></section>
     <div id="coursework-list" aria-describedby="organiser-hint"></div>
   </section>
 

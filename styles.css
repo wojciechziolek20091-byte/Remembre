@@ -4049,3 +4049,90 @@ body.is-sitting { overflow: hidden; }
 .ledger-sum { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
 .ledger-how { width: 6.5rem; text-align: right; font-size: .76rem; color: var(--ink-2); }
 .ledger-row.is-apart .ledger-what, .ledger-row.is-apart .ledger-sum { color: var(--ink-2); }
+
+/* ---------- The plan, argued ---------- */
+
+/*
+  Not a card among cards. This is a piece of writing about the thing it sits
+  under, so it is set as writing: a rule above it, the argument numbered, and
+  the two asides it ends on marked off rather than boxed.
+*/
+.sense {
+  margin: .25rem 0 1.1rem;
+  padding: 1rem 0 0;
+  border-top: 2px solid var(--line-strong);
+  display: grid;
+  gap: .9rem;
+  animation: sense-in .28s cubic-bezier(.19, .78, .28, 1);
+}
+
+@keyframes sense-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.sense-head { display: flex; align-items: flex-start; gap: 1rem; }
+
+.sense-verdict {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 650;
+  letter-spacing: -.015em;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+.sense-head .sense-close { margin-left: auto; flex-shrink: 0; }
+
+.sense-points {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: sense;
+  display: grid;
+  gap: .8rem;
+}
+
+.sense-point {
+  counter-increment: sense;
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  gap: 0 .6rem;
+}
+
+/* The number is the argument's order, which is its strength. */
+.sense-point::before {
+  content: counter(sense);
+  grid-row: 1 / span 2;
+  font-size: .82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  padding-top: .1rem;
+}
+
+.sense-claim { margin: 0; font-weight: 650; font-size: .96rem; }
+.sense-because { margin: .1rem 0 0; font-size: .9rem; color: var(--ink-2); line-height: 1.55; max-width: 64ch; }
+
+.sense-aside {
+  padding-left: .85rem;
+  border-left: 2px solid var(--line);
+}
+
+.sense-aside.is-weakest { border-left-color: var(--now); }
+
+.sense-aside-label {
+  margin: 0;
+  font-size: .78rem;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.sense-aside-text { margin: .1rem 0 0; font-size: .9rem; line-height: 1.55; max-width: 64ch; }
+
+.sense-waiting, .sense-error { margin: 0; font-size: .92rem; color: var(--ink-2); }
+.sense-when { margin: 0; font-size: .78rem; color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sense { animation: none; }
+}

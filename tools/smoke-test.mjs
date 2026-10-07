@@ -1432,6 +1432,105 @@ console.log("\nthe planner, which is the model's now");
   check("and the sitting knows it was not laid out by hand", laid.by, "ai");
 }
 
+console.log("\nmaking sense of it");
+
+{
+  // The notes are the best information anybody has written down about a piece
+  // of work, and for a long time nothing read them: the estimate was sending
+  // the title box in the field marked notes.
+  const sent = await page.evaluate(async () => {
+    const today = todayISO();
+    // Added to what is there rather than replacing it: the sittings below are
+    // for a piece the blocks above set up.
+    state.coursework.push(normaliseCoursework({
+      id: "ee", title: "Extended essay", kind: "ee", subject: "economics",
+      due: addDays(today, 26), stage: "in-progress",
+      notes: "4000 words on Polish inflation. Supervisor wants the methodology redone.",
+      steps: [{ id: "s1", title: "Second draft", due: addDays(today, 20), done: false, hours: 12 }],
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    }));
+    saveCoursework();
+    window.__body = null;
+    window.fetch = async (url, options) => {
+      window.__body = JSON.parse(options.body);
+      return { ok: true, json: async () => ({
+        ok: true,
+        result: {
+          hours: 18, low: 14, high: 25, confidence: "high", shape: "long",
+          sessionMinutes: 120, why: "The methodology rewrite is most of it.", assumed: "", sources: [],
+        },
+      }) };
+    };
+    openCourseworkDialog("ee");
+    await estimateStep(0, document.querySelector('[data-estimate-step="0"]'));
+    return window.__body;
+  });
+
+  check("the estimate is sent the notes themselves", sent.notes,
+    "4000 words on Polish inflation. Supervisor wants the methodology redone.");
+  check("and the piece the step belongs to", sent.piece, "Extended essay");
+  check("with the step as the thing being estimated", sent.title, "Second draft");
+
+  const planned = await page.evaluate(() =>
+    planPayload().work.find((piece) => piece.id === "ee").notes);
+  check("and the planner gets them as well", planned,
+    "4000 words on Polish inflation. Supervisor wants the methodology redone.");
+
+  await page.evaluate(() => closeDialog(document.getElementById("coursework-dialog")));
+
+  // The button that argues.
+  const argued = await page.evaluate(async () => {
+    window.__asked = null;
+    window.fetch = async (url, options) => {
+      window.__asked = { url: String(url), body: JSON.parse(options.body) };
+      return { ok: true, json: async () => ({
+        ok: true,
+        result: {
+          verdict: "This plan spends two weeks on the essay and lets the rest ride.",
+          points: [
+            { claim: "The essay gets Sunday morning", because: "It is the only three-hour block before the deadline." },
+            { claim: "Nothing on Thursday", because: "The evening before a test belongs to the test." },
+          ],
+          weakest: "Two hours for the vocabulary is thin.",
+          risk: "Two more missed evenings and it does not fit.",
+          change: "Move Sunday earlier if the supervisor answers first.",
+        },
+      }) };
+    };
+    await makeSense();
+    const panel = document.getElementById("sense-panel");
+    return {
+      url: window.__asked.url,
+      sentSessions: Array.isArray(window.__asked.body.sessions),
+      open: panel.hidden === false,
+      expanded: document.getElementById("make-sense").getAttribute("aria-expanded"),
+      verdict: panel.querySelector(".sense-verdict").textContent,
+      points: panel.querySelectorAll(".sense-point").length,
+      weakest: (panel.querySelector(".is-weakest .sense-aside-text") || {}).textContent || "",
+    };
+  });
+
+  check("the button asks the study route to argue", /action=explain/.test(argued.url), true, argued.url);
+  check("and hands it the sittings it is defending", argued.sentSessions, true);
+  check("the argument opens under the organiser", argued.open, true);
+  check("with the button saying so", argued.expanded, "true");
+  check("it leads with what the plan is actually doing",
+    argued.verdict, "This plan spends two weeks on the essay and lets the rest ride.");
+  check("the case is numbered", argued.points, 2);
+  check("and it names the part it would defend least",
+    argued.weakest, "Two hours for the vocabulary is thin.");
+
+  const shut = await page.evaluate(() => {
+    closeSense();
+    return {
+      hidden: document.getElementById("sense-panel").hidden,
+      expanded: document.getElementById("make-sense").getAttribute("aria-expanded"),
+    };
+  });
+  check("asking again puts it away", shut.hidden, true);
+  check("and the button says that too", shut.expanded, "false");
+}
+
 console.log("\nsitting down");
 
 {

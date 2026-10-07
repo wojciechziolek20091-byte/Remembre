@@ -1,6 +1,6 @@
 import { cors, json } from "./_store.js";
 import { aiClient, aiReport, MODEL } from "./_ai.js";
-import { CHECKIN_SYSTEM, ESTIMATE_SYSTEM, SCHEDULE_SYSTEM } from "./_playbook.js";
+import { CHECKIN_SYSTEM, ESTIMATE_SYSTEM, EXPLAIN_SYSTEM, SCHEDULE_SYSTEM } from "./_playbook.js";
 
 /**
  * The study route. Three questions, all of them the model's to answer.
@@ -8,6 +8,7 @@ import { CHECKIN_SYSTEM, ESTIMATE_SYSTEM, SCHEDULE_SYSTEM } from "./_playbook.js
  *   POST /api/study?action=estimate   how long will this piece take?
  *   POST /api/study?action=schedule   when should I sit down, and for how long?
  *   POST /api/study?action=checkin    I did this much today. Where does that leave me?
+ *   POST /api/study?action=explain    defend this plan to me
  *
  * The planner used to be arithmetic here: spacing by an effort slider, days
  * chosen by a load score. It placed sittings, but it could not know that a
@@ -114,6 +115,30 @@ const CHECKIN_SHAPE = {
   required: ["line", "owed", "replan"],
 };
 
+const EXPLAIN_SHAPE = {
+  type: "object",
+  properties: {
+    verdict: { type: "string", description: "One sentence: what this plan is actually doing. Not a summary of the dates, the shape of the bet it is making." },
+    points: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        properties: {
+          claim: { type: "string", description: "The decision being defended, under ten words. For example: 'The essay gets Sunday morning'." },
+          because: { type: "string", description: "Why, in one or two sentences, with the hours and dates in it. Name the piece and the note it came from where there is one." },
+        },
+        required: ["claim", "because"],
+      },
+      description: "Three to five arguments, strongest first. Each is a real choice the plan made, not a description of it.",
+    },
+    weakest: { type: "string", description: "The part of this plan you would defend least, named plainly, and what it would take to fix it. Every plan has one." },
+    risk: { type: "string", description: "The thing most likely to make this plan fail, in one sentence. Usually a deadline, a run of missed evenings, or an estimate you do not believe." },
+    change: { type: "string", description: "The one thing you would change first, and what would have to be true for you to change it." },
+  },
+  required: ["verdict", "points", "weakest", "risk"],
+};
+
 const ACTIONS = {
   estimate: {
     system: ESTIMATE_SYSTEM,
@@ -126,7 +151,10 @@ const ACTIONS = {
     refuse: (body) => (typeof body.title === "string" && body.title.trim().length >= 3
       ? "" : "There is nothing to estimate yet: give the piece a title first."),
     prompt: (body) => `Estimate this piece of work.\n\n${JSON.stringify({
-      title: String(body.title).slice(0, 200),
+      step: String(body.title).slice(0, 200),
+      /* The piece the step belongs to, and the student's own notes on it:
+         a draft of what, exactly, is most of the question. */
+      piece: String(body.piece || "").slice(0, 200),
       subject: String(body.subject || "").slice(0, 80),
       kind: String(body.kind || "").slice(0, 80),
       due: String(body.due || "").slice(0, 10),
@@ -151,6 +179,24 @@ const ACTIONS = {
       busy: body.busy,
       done: body.done,
       kept: body.kept,
+    }, null, 1)}`,
+  },
+
+  explain: {
+    system: EXPLAIN_SYSTEM,
+    shape: EXPLAIN_SHAPE,
+    tool: "argue",
+    about: "Make the case for the plan as it stands. Always answer by calling this.",
+    search: 0,
+    tokens: 8000,
+    refuse: (body) => (Array.isArray(body.work) && body.work.length > 0
+      ? "" : "There is nothing to argue about yet: add a piece of coursework first."),
+    prompt: (body) => `Defend this plan to me.\n\n${JSON.stringify({
+      today: String(body.today || "").slice(0, 10),
+      work: body.work,
+      sessions: body.sessions,
+      busy: body.busy,
+      done: body.done,
     }, null, 1)}`,
   },
 
