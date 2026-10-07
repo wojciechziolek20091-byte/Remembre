@@ -654,6 +654,28 @@ function tomorrowIn(zone) {
 }
 
 {
+  /* Five registrations and two devices in the room is the ordinary case, not a
+     strange one: reinstalling leaves the old endpoint alive. The dry run has to
+     be readable enough to say which registration is which. */
+  await register("Europe/Warsaw", { updatedAt: "2026-08-14T09:00:00.000Z" });
+  const res = await call(notify, { url: "/api/notify?dry=1" });
+  const line = res.body.report[0];
+
+  check("a dry run fingerprints the vault it read", typeof line.vault === "string" && line.vault.length === 8, JSON.stringify(line));
+  check("which is a piece of the hash, never the phrase", !vaultKey(CODE).includes(CODE) && vaultKey(CODE).includes(line.vault));
+  check("two registrations on one phrase carry the same mark", line.vault === vaultKey(CODE).slice(6, 14));
+  check("and it says the day the device registered", line.since === "2026-08-14", String(line.since));
+
+  await register("Europe/Warsaw", { updatedAt: undefined });
+  const undated = await call(notify, { url: "/api/notify?dry=1" });
+  check("a registration with no date reads empty rather than breaking", undated.body.report[0].since === "", JSON.stringify(undated.body.report[0]));
+
+  await register("Europe/Warsaw", { updatedAt: "2026-08-14T09:00:00.000Z" });
+  const real = await call(notify, { url: "/api/notify" });
+  check("none of which is said on a real run", real.body.report[0].vault === undefined && real.body.report[0].since === undefined);
+}
+
+{
   // A device that has been wiped: the push service says so, once.
   answerWith = 410;
   await register(zoneWhereItIsEvening());

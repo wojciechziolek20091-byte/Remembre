@@ -88,9 +88,19 @@ export default async function handler(req, res) {
       const waiting = dueReminders(vault, clock, debriefs.get(device.vault))
         .filter((item) => !sent[item.key]);
 
+      /* A registration is not a device. Reinstalling the app, or clearing the
+         site data, leaves the old push endpoint alive and makes a second one,
+         so a reader with two devices can easily have five of these and no way
+         to tell which two are the ones in their hands. On a dry run each line
+         carries the vault it reads and the day it registered: same fingerprint
+         means same sync phrase, and the oldest are the ones left behind. */
+      const marks = dryRun
+        ? { vault: device.vault.slice(6, 14), since: String(device.updatedAt || "").slice(0, 10) }
+        : {};
+
       if (waiting.length === 0) {
         report.push({
-          device: device.id, zone: device.zone, at: clock.time, sent: 0,
+          device: device.id, zone: device.zone, at: clock.time, sent: 0, ...marks,
           /* On a dry run, say why. "Nothing was sent" and "nothing could ever
              be sent" look identical from outside, and the difference is the
              whole question when somebody says the alerts never arrive. */
@@ -100,7 +110,7 @@ export default async function handler(req, res) {
       }
       if (dryRun) {
         report.push({
-          device: device.id, zone: device.zone, at: clock.time, sent: 0,
+          device: device.id, zone: device.zone, at: clock.time, sent: 0, ...marks,
           would: waiting.map((item) => item.body),
         });
         continue;
