@@ -2832,6 +2832,36 @@ const spentOnDay = (date) => liveTransactions()
   .filter((entry) => SPENT_OUT(entry) && entry.date === date)
   .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
 
+/*
+  Money that left today and is deliberately not in the figure above it: a
+  transfer between your own accounts, something somebody else paid for,
+  something taken out of savings. Each is a good reason not to count it
+  against the day's limit. None of them is a reason to leave it off the card.
+  A day reading zero while two hundred zloty left the account is a card the
+  reader is right not to believe.
+*/
+function setAsideOn(date) {
+  const out = liveTransactions()
+    .filter((entry) => entry.amount < 0 && entry.date === date && !SPENT_OUT(entry));
+
+  const reason = (entry) => ((entry.category || "other") === "transfers"
+    ? "moved between your own accounts"
+    : entry.branch === "savings" ? "taken out of savings"
+      : "paid for by somebody else");
+
+  const kinds = new Map();
+  out.forEach((entry) => {
+    const what = reason(entry);
+    kinds.set(what, (kinds.get(what) || 0) + 1);
+  });
+
+  return {
+    entries: out,
+    amount: out.reduce((sum, entry) => sum + Math.abs(entry.amount), 0),
+    why: [...kinds].map(([what, count]) => (count === 1 ? what : `${count} ${what}`)),
+  };
+}
+
 /* ---------- The settings, where the server can read them ---------- */
 
 /*
@@ -3703,6 +3733,23 @@ function renderToday() {
       : `${zloty(today.base)} for a ${kind}, less ${zloty(Math.abs(today.carried))} carried from yesterday`;
   const from = `${zloty(today.spent)} spent of ${zloty(today.limit)} today: ${made}.`;
 
+  /*
+    Why the figure can read zero on a day money plainly went out. Either it
+    has not been imported yet -- a card payment reaches mBank hours after it
+    happens -- or every payment today is one the month deliberately does not
+    count. Both are worth saying; neither used to be said at all.
+  */
+  const aside = setAsideOn(today.date);
+  const asked = bankLastAsked();
+  let note = "";
+  if (aside.amount > 0) {
+    note = `${zloty(aside.amount)} more left the account today and is not counted: ${aside.why.join(", ")}.`;
+  } else if (today.spent === 0) {
+    note = asked
+      ? `Nothing has come in for today. The bank was last asked ${freshness(new Date(asked).toISOString())}.`
+      : "Nothing has come in for today, and no bank is connected.";
+  }
+
   show(wrap, [
     el("p", { class: "lead-label", text: over ? "Over today by" : "Left to spend today" }),
     el("p", {
@@ -3719,6 +3766,7 @@ function renderToday() {
       el("span", { class: "lead-meter-fill", style: `width:${Math.round(share * 100)}%` })
     ),
     el("p", { class: "lead-note", text: from }),
+    note ? el("p", { class: "lead-aside", text: note }) : null,
     weekLine(),
   ]);
 }

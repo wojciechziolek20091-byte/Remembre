@@ -1547,6 +1547,63 @@ console.log("\ntoday's budget on the page");
   check("and where the extra came from", /carried from yesterday/.test(today.line), true, today.line);
 }
 
+{
+  /* The complaint this answers: money plainly went out and the card still
+     read "0,00 zł spent", with nothing on it to say why. Every reason the day
+     declines to count a payment is a reason that belongs on the card. */
+  const quiet = await page.evaluate(() => {
+    state.transactions = [];
+    writeStore("remembre.moneybudgets.v1", "food = 600\ntransport = 120\nfun = 180");
+    writeStore(BANK_ASKED_KEY, { at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() });
+    saveTransactions();
+    renderDashboard();
+    return { aside: (document.querySelector(".lead-aside") || {}).textContent || "" };
+  });
+  check("a day with nothing imported says so", /Nothing has come in for today/.test(quiet.aside), true, quiet.aside);
+  check("and when the bank was last asked", /2 hours ago/.test(quiet.aside), true, quiet.aside);
+
+  const aside = await page.evaluate(() => {
+    const today = todayISO();
+    state.transactions = [];
+    [
+      { id: "cover", amount: -12000, counterparty: "TICKETS", branch: "external" },
+      { id: "save", amount: -40000, counterparty: "LAPTOP", branch: "savings" },
+      { id: "move", amount: -20000, counterparty: "MY OTHER ACCOUNT", category: "transfers" },
+    ].forEach((row) => state.transactions.push(normaliseTransaction({ ...row, date: today })));
+    saveTransactions();
+    renderDashboard();
+    return {
+      spent: dayBudget().spent,
+      why: setAsideOn(today).why,
+      aside: (document.querySelector(".lead-aside") || {}).textContent || "",
+      line: (document.querySelector(".lead-note") || {}).textContent || "",
+    };
+  });
+
+  check("none of the three counts against the day", aside.spent, 0);
+  check("but the card no longer pretends nothing happened", aside.aside !== "", true, aside.aside);
+  check("it says how much left the account", /720,00 zł/.test(aside.aside), true, aside.aside);
+  check("and names every reason it was set aside",
+    ["paid for by somebody else", "taken out of savings", "moved between your own accounts"]
+      .every((why) => aside.aside.includes(why)), true, aside.aside);
+  check("the figure above is still the day's own spending", /0,00 zł spent of/.test(aside.line), true, aside.line);
+  check("one line per reason, not one per payment", aside.why.length, 3);
+
+  const counted = await page.evaluate(() => {
+    state.transactions.push(normaliseTransaction({
+      id: "real", date: todayISO(), amount: -3000, counterparty: "ZABKA", category: "food",
+    }));
+    saveTransactions();
+    renderDashboard();
+    return {
+      spent: dayBudget().spent,
+      aside: (document.querySelector(".lead-aside") || {}).textContent || "",
+    };
+  });
+  check("ordinary spending on the same day still counts", counted.spent, 3000);
+  check("and the aside keeps only what is set apart", /720,00 zł/.test(counted.aside), true, counted.aside);
+}
+
 /* ---------- The week, and the weekend ---------- */
 
 console.log("\nweekdays and the weekend");
