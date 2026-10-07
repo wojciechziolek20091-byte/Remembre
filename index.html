@@ -684,6 +684,13 @@
       <button type="button" class="btn btn-quiet" id="session-defer">Schedule it</button>
     </div>
     <button type="button" class="btn btn-primary" id="session-start">Start now</button>
+    <!--
+      Last, quietest, and saying what it is. Passing an evening is a real
+      option and the app should not pretend otherwise, but the hours do not go
+      away when you take it, and the button says so rather than being hidden
+      behind a confirmation nobody reads.
+    -->
+    <button type="button" class="btn btn-pass" id="session-pass">Pass <span class="pass-note">(not recommended)</span></button>
   </div>
 </dialog>
 

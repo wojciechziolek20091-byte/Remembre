@@ -1552,6 +1552,7 @@ console.log("\nsitting down");
     return { offered, dialogOpen, asked, again };
   });
   check("tonight's sitting is offered on arrival", sat.offered, true);
+  check("and the word null appears nowhere in it", /null/i.test(sat.asked), false, sat.asked);
   check("in a dialog", sat.dialogOpen, true);
   check("which says what it is for", /Draft the commentary/.test(sat.asked), true, sat.asked);
   check("and is not asked twice in one visit", sat.again, false);
@@ -1607,6 +1608,92 @@ console.log("\nsitting down");
   check("twenty minutes of an hour is not a sitting done", ended.done, false);
   check("the clock stops being the screen", ended.timerHidden, true);
   check("and nothing is left running", ended.running, "null");
+}
+
+{
+  /*
+    The dialog is built from optional lines, and replaceChildren prints the
+    word "null" where el() drops it. A sitting with no step and no note put
+    "nullnull" on the screen under the title.
+  */
+  const bare = await page.evaluate(() => {
+    const today = todayISO();
+    state.coursework = [normaliseCoursework({
+      id: "bare", title: "Internal Maths", kind: "ia", subject: "mathematics",
+      due: addDays(today, 85), stage: "in-progress", steps: [],
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    state.sessions = [normaliseSession({
+      id: "plain", courseworkId: "bare", stepId: "", date: today, time: "16:00", minutes: 60,
+      why: "", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    })];
+    saveCoursework(); saveSessions();
+    try { sessionStorage.removeItem("getagrip.offered"); } catch (err) { /* nothing */ }
+    offerSession({ force: true });
+    return document.getElementById("session-dialog-body").textContent;
+  });
+
+  check("a sitting with no step and no note still reads cleanly",
+    /null/i.test(bare), false, bare);
+  check("and says what it is", /Internal Maths/.test(bare), true, bare);
+}
+
+{
+  // Passing an evening. The hours do not go away: the sitting moves.
+  const passed = await page.evaluate(() => {
+    const today = todayISO();
+    // Something already on tomorrow, so the search has to step over it.
+    state.sessions.push(normaliseSession({
+      id: "taken", courseworkId: "bare", date: addDays(today, 1), minutes: 45,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    }));
+    saveSessions();
+    const moved = passSession();
+    const again = liveSessions().find((entry) => entry.id === "plain");
+    return {
+      date: moved.date,
+      expected: addDays(today, 2),
+      minutes: moved.minutes,
+      done: moved.done,
+      passes: again.passes,
+      closed: document.getElementById("session-dialog").open === false,
+    };
+  });
+
+  check("passing moves the sitting to the next evening with room", passed.date, passed.expected);
+  check("it keeps every minute it was owed", passed.minutes, 60);
+  check("and is not marked done", passed.done, false);
+  check("the pass is counted", passed.passes, 1);
+  check("and the dialog closes", passed.closed, true);
+
+  // Offered again, it says it has been passed before.
+  const second = await page.evaluate(() => {
+    const session = liveSessions().find((entry) => entry.id === "plain");
+    session.date = todayISO();
+    saveSessions();
+    try { sessionStorage.removeItem("getagrip.offered"); } catch (err) { /* nothing */ }
+    offerSession({ force: true });
+    const said = document.getElementById("session-dialog-body").textContent;
+    const moved = passSession();
+    return { said, passes: moved.passes };
+  });
+  check("a sitting that has been passed says so when it comes round again",
+    /Passed once already/.test(second.said), true, second.said);
+  check("and passing it again counts twice", second.passes, 2);
+
+  // Nothing may be pushed past the deadline it belongs to.
+  const capped = await page.evaluate(() => {
+    const today = todayISO();
+    const item = findCoursework("bare");
+    item.due = addDays(today, 1);
+    saveCoursework();
+    const session = liveSessions().find((entry) => entry.id === "plain");
+    session.date = today;
+    saveSessions();
+    return nextFreeEvening(session, today);
+  });
+  check("a deadline a day away pushes it to tomorrow and no further",
+    capped, await page.evaluate(() => addDays(todayISO(), 1)));
 }
 
 console.log("\nthe day, read back");

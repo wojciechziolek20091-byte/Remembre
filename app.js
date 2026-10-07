@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.07-76";
+const APP_VERSION = "2026.10.07-77";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -284,6 +284,21 @@ const fmtShortDate = new Intl.DateTimeFormat(LOCALE, { day: "numeric", month: "s
 
 function $(id) {
   return document.getElementById(id);
+}
+
+/*
+  replaceChildren prints the word "null" where el() quietly drops it.
+
+  A dialog built with `condition ? el(...) : null` in the list therefore shows
+  "nullnull" to the reader the moment two of its optional lines are absent,
+  which is exactly what the session dialog did for a sitting with no step and
+  no note. This filters, so the two can be used together without thinking
+  about it.
+*/
+function show(node, children) {
+  if (!node) return;
+  node.replaceChildren(...[].concat(children).flat()
+    .filter((child) => child !== null && child !== undefined && child !== false));
 }
 
 function el(tag, props, ...children) {
@@ -2948,6 +2963,7 @@ function setupSitting() {
     if (id) startSession(id);
   });
   $("session-defer").addEventListener("click", deferSession);
+  $("session-pass").addEventListener("click", passSession);
 
   $("timer-pause").addEventListener("click", () => {
     const run = running();
@@ -3391,6 +3407,10 @@ function normaliseSession(raw) {
     ranMinutes: Number.isFinite(Number(raw.ranMinutes)) ? Math.max(0, Math.round(Number(raw.ranMinutes))) : 0,
     /* Moved to later today rather than started when it was offered. */
     deferredTo: /^\d{2}:\d{2}$/.test(raw.deferredTo || "") ? raw.deferredTo : "",
+    /* How many times this sitting has been pushed to another day. Kept
+       because once is a Tuesday and three times is a piece of work that is
+       not going to happen the way it is currently planned. */
+    passes: Number.isFinite(Number(raw.passes)) ? Math.max(0, Math.round(Number(raw.passes))) : 0,
     /* What the planner said this evening was for, in its own words. */
     why: String(raw.why == null ? "" : raw.why).slice(0, 160),
     by: raw.by === "ai" || raw.by === "hand" ? raw.by : "hand",
@@ -3961,13 +3981,21 @@ function offerSession({ force = false } = {}) {
   const step = item && item.steps ? item.steps.find((entry) => entry.id === session.stepId) : null;
   const at = session.deferredTo || session.time;
 
-  body.replaceChildren(
+  show(body, [
     el("p", { class: "start-when", text: `${at}, ${session.minutes} minutes` }),
     el("h3", { class: "start-what", text: item ? item.title : "Study" }),
     step ? el("p", { class: "start-step", text: step.title }) : null,
     session.why ? el("p", { class: "start-why", text: session.why }) : null,
-    item && item.due ? el("p", { class: "start-due", text: `Due ${whenInWords(item.due)}.` }) : null
-  );
+    item && item.due ? el("p", { class: "start-due", text: `Due ${whenInWords(item.due)}.` }) : null,
+    session.passes > 0
+      ? el("p", {
+          class: "start-passed",
+          text: session.passes === 1
+            ? "Passed once already."
+            : `Passed ${session.passes} times already.`,
+        })
+      : null,
+  ]);
 
   const later = $("session-later");
   if (later) later.value = laterToday(at);
@@ -4004,6 +4032,66 @@ function deferSession() {
   closeDialog(dialog);
   renderAll();
   announce(`Moved to ${at} today.`);
+}
+
+/*
+  Passing an evening.
+
+  Not doing it is a real answer and the app should not pretend otherwise. What
+  it will not do is let the hours disappear: a passed sitting keeps its minutes
+  and moves to the next evening that has room, the count of passes rides along
+  with it, and the piece is still owed exactly what it was owed this morning.
+
+  The move is worked out here rather than asked of the model, so that passing
+  an evening on a train with no signal still puts the work somewhere.
+*/
+
+/* How far forward to look for an evening with nothing on it. */
+const PASS_HORIZON = 21;
+
+function passSession() {
+  const dialog = $("session-dialog");
+  if (!dialog) return null;
+  const session = liveSessions().find((entry) => entry.id === dialog.dataset.sessionId);
+  if (!session) return null;
+
+  const moved = nextFreeEvening(session);
+  session.date = moved;
+  session.deferredTo = "";
+  session.time = sessionTimeFor(moved);
+  session.passes = (session.passes || 0) + 1;
+  touch(session);
+  saveSessions();
+
+  closeDialog(dialog);
+  renderAll();
+
+  const name = sessionName(session);
+  announce(`Passed. ${name} moves to ${whenInWords(moved)}, and still owes its ${session.minutes} minutes.`);
+  return session;
+}
+
+/**
+ * The next day with nothing else on it, inside the deadline where there is
+ * one. A day that already carries a sitting is skipped; if every day to the
+ * horizon carries one, tomorrow takes it anyway, because an evening that has
+ * to go somewhere is better doubled up than lost.
+ */
+function nextFreeEvening(session, today = todayISO()) {
+  const item = sessionCoursework(session);
+  const step = item && item.steps ? item.steps.find((entry) => entry.id === session.stepId) : null;
+  const deadline = [step && step.due, item && item.due].filter(Boolean).sort()[0] || "";
+
+  const taken = new Set(liveSessions()
+    .filter((entry) => entry.id !== session.id && !entry.done)
+    .map((entry) => entry.date));
+
+  for (let ahead = 1; ahead <= PASS_HORIZON; ahead += 1) {
+    const day = addDays(today, ahead);
+    if (deadline && day > deadline) break;
+    if (!taken.has(day)) return day;
+  }
+  return addDays(today, 1);
 }
 
 /* ---------- The daily check-in ---------- */

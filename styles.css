@@ -4136,3 +4136,37 @@ body.is-sitting { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .sense { animation: none; }
 }
+
+/*
+  Passing an evening. Last in the row, quietest in the row, and honest about
+  itself: the label carries its own warning rather than hiding behind a
+  confirmation nobody reads. It is not styled as a danger, because it is not
+  one. It is a choice with a cost, and the cost is written on it.
+*/
+.btn-pass {
+  /* Last in the row on purpose: the eye reaches it after both answers that
+     actually move the work along. */
+  order: 3;
+  padding-inline: .6rem;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.btn-pass:hover { color: var(--ink); background: var(--surface-2); }
+
+.pass-note { font-weight: 500; opacity: .75; }
+
+/* A sitting that has been pushed before says so, before it is pushed again. */
+.start-passed {
+  margin: .35rem 0 0;
+  font-size: .86rem;
+  font-weight: 600;
+  color: var(--now);
+}
+
+@media (max-width: 34rem) {
+  /* Narrow: the three answers stack, and the discouraged one stays last. */
+  .session-actions { flex-direction: column; align-items: stretch; }
+  .session-actions .later-row { margin-right: 0; }
+  .btn-pass { order: 4; }
+}
