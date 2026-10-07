@@ -375,6 +375,20 @@ async function journal(req, res) {
     ok: true,
     connections: connections.length,
     accounts: connections.reduce((sum, held) => sum + held.accounts.length, 0),
+    /*
+      Which vault each connection writes into, as the same eight characters of
+      the hash the notification dry run prints. A bank connected while the
+      device was on one sync phrase keeps writing there after the device moves
+      to another, and from outside the two cases -- "the bank fetched nothing"
+      and "the bank fetched into a vault nobody is reading" -- look identical.
+      The fingerprint is a slice of a hash and tells nobody whose it is.
+    */
+    writing: connections.map((held) => ({
+      vault: String(held.vault || "").slice(6, 14),
+      accounts: held.accounts.length,
+      fetchedTo: held.fetchedTo || "",
+      lastFetchAt: held.lastFetchAt || "",
+    })),
     entries: await readJournal(live),
   });
 }
