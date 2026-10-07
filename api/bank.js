@@ -224,7 +224,15 @@ async function pullInto(live, vault, connection, psu = null) {
       const rest = await bankTransactions(account.uid, from, psu, "PDNG");
       rest.map(asTransaction).filter(Boolean).forEach((row) => waiting.push({ ...row, pending: true }));
     } catch (err) {
+      /*
+        Written down rather than only logged. "The bank has nothing waiting"
+        and "the bank refused to be asked" produce the same empty day, and
+        from outside there is no way to tell them apart -- which is exactly
+        the hour that gets wasted guessing. Console logs live in a dashboard
+        nobody reading this page can open; the journal is on a route they can.
+      */
       console.error("bank pending fetch failed:", err.status || "", err.message);
+      await noteOutcome(live, "pending-refused", `${err.status || "no status"}: ${err.message}`);
     }
   }
 
@@ -301,6 +309,14 @@ async function pullInto(live, vault, connection, psu = null) {
   await saveConnection(live, vault, {
     ...connection, fetchedTo: today(), lastFetchAt: now, balance,
   });
+  /*
+    What a fetch actually saw, kept where it can be read back. Four fetches a
+    day and a figure that is wrong by one lunch is a question asked days
+    later, by which time the fetch that would have answered it is gone.
+  */
+  await noteOutcome(live, "fetched",
+    `${booked.length} booked, ${waiting.length} waiting, ${added.length} new, ${settled} settled, from ${from}`);
+
   return { read: incoming.length, added: added.length, pending: waiting.length, settled, from, balance };
 }
 

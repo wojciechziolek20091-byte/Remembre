@@ -1227,9 +1227,18 @@ async function pullBank({ force = false, loud = false } = {}) {
     await runCloud(() => cloudPull({ quiet: true }));
     bankChecking = false;
     moneyChanged();
+    /*
+      What the bank actually handed over, not just what was new. "Nothing new"
+      reads the same whether the bank sent a month of already-known rows or
+      sent nothing at all, and the difference is the whole question on an
+      afternoon whose spending has not appeared.
+    */
+    const waiting = typeof result.pending === "number" && result.pending > 0
+      ? ` ${result.pending} of them ${result.pending === 1 ? "is" : "are"} authorised but not booked.`
+      : " None of them are unbooked: mBank is only giving what it has settled.";
     const said = result.added === 0
-      ? `Nothing new at the bank. It read ${result.read} ${result.read === 1 ? "transaction" : "transactions"} back to ${result.from}, and had them all already.`
-      : `${result.added} new ${result.added === 1 ? "transaction" : "transactions"} from mBank.`;
+      ? `Nothing new at the bank. It read ${result.read} ${result.read === 1 ? "transaction" : "transactions"} back to ${result.from}, and had them all already.${waiting}`
+      : `${result.added} new ${result.added === 1 ? "transaction" : "transactions"} from mBank.${waiting}`;
     if (loud) {
       announce(said);
       showMoneyNotice(said, { tone: result.added === 0 ? "plain" : "good" });
