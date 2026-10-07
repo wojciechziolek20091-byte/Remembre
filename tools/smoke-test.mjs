@@ -1805,6 +1805,100 @@ console.log("\nwhat the page is made of");
   check("with nothing to say when there is nothing", tiles.empty, "");
 }
 
+console.log("\ntapping something in Upcoming");
+
+{
+  /* The complaint this answers: Upcoming opened the editor, which tells you
+     what a task is when what you wanted was to decide when to do it. */
+  await page.evaluate(() => {
+    // The block before this one leaves the chooser up; Upcoming lives inside
+    // the schoolwork half, so open it before trying to tap anything in it.
+    setArea("school");
+    state.sessions = [];
+    saveSessions();
+    state.tasks = [normaliseTask({
+      id: "ia", title: "Economics IA", type: "homework", subject: "economics",
+      date: addDays(todayISO(), 3), notes: "Section 2 of the commentary",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    })];
+    saveTasks();
+    renderAll();
+  });
+
+  await page.click("#upcoming-list .up-btn");
+  check("the editor does not open", await page.evaluate(() => $("task-dialog").open === true), false);
+  check("the sitting dialog does", await page.evaluate(() => $("plan-dialog").open === true), true);
+
+  const shown = await page.evaluate(() => ({
+    title: document.querySelector("#plan-dialog .start-what").textContent,
+    body: $("plan-dialog-body").textContent,
+    date: $("plan-date").value,
+    minutes: $("plan-minutes").value,
+  }));
+  check("it names the task", shown.title, "Economics IA");
+  check("and says when it is due", /Due /.test(shown.body), true, shown.body);
+  check("and carries the note across", /Section 2 of the commentary/.test(shown.body), true, shown.body);
+  check("the date defaults to the day it is due",
+    shown.date, await page.evaluate(() => addDays(todayISO(), 3)));
+
+  // Scheduling: a sitting in the diary, no clock running.
+  await page.click("#plan-schedule");
+  const made = await page.evaluate(() => {
+    const session = liveSessions()[0];
+    return {
+      count: liveSessions().length,
+      taskId: session.taskId,
+      date: session.date,
+      time: session.time,
+      minutes: session.minutes,
+      pinned: session.pinned,
+      name: sessionName(session),
+      open: $("plan-dialog").open === true,
+      running: Boolean(running()),
+    };
+  });
+  check("scheduling makes one sitting", made.count, 1);
+  check("against the task it came from", made.taskId, "ia");
+  check("on the day the box said", made.date, await page.evaluate(() => addDays(todayISO(), 3)));
+  check("in the evening", made.time, "19:00");
+  check("for the length chosen", made.minutes, 60);
+  check("left where it was put, not for the planner to move", made.pinned, true);
+  check("and it knows its own name", made.name, "Economics IA");
+  check("the dialog closes", made.open, false);
+  check("and nothing has started running", made.running, false);
+
+  // Starting now: the clock, and nothing but the clock.
+  await page.click("#upcoming-list .up-btn");
+  await page.click("#plan-start");
+  const went = await page.evaluate(() => {
+    const run = running();
+    const session = liveSessions().find((entry) => entry.id === run.sessionId);
+    return {
+      running: Boolean(run),
+      date: session.date,
+      taskId: session.taskId,
+      started: Boolean(session.startedAt),
+      timer: $("timer").hidden === false,
+      open: $("plan-dialog").open === true,
+    };
+  });
+  check("starting now runs a sitting", went.running, true);
+  check("dated today whatever the box said", went.date, await page.evaluate(() => todayISO()));
+  check("still against the task", went.taskId, "ia");
+  check("marked as actually begun", went.started, true);
+  check("the timer is what is on screen", went.timer, true);
+  check("and the dialog is gone", went.open, false);
+
+  await page.evaluate(() => {
+    endSession({ finished: false });
+    state.sessions = [];
+    state.tasks = [];
+    saveSessions();
+    saveTasks();
+    renderAll();
+  });
+}
+
 check("no console or page errors", problems, []);
 
 await browser.close();

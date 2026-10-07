@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.07-84";
+const APP_VERSION = "2026.10.07-85";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1383,8 +1383,8 @@ function buildUpcomingItem(task, today) {
         class: `up-btn${overdue ? " is-overdue" : ""}`,
         style: subjectVars(task.subject),
         "aria-haspopup": "dialog",
-        "aria-label": `${task.title}. ${TYPES[task.type].label}, ${subjectLabel(task)}. ${when}, ${fmtFullDate.format(fromISO(task.date))}${task.time ? `, at ${formatTime(task.time)}` : ""}. Open to edit.`,
-        dataset: { edit: task.id },
+        "aria-label": `${task.title}. ${TYPES[task.type].label}, ${subjectLabel(task)}. ${when}, ${fmtFullDate.format(fromISO(task.date))}${task.time ? `, at ${formatTime(task.time)}` : ""}. Open to put time aside for it.`,
+        dataset: { planFor: task.id },
       },
       el("span", { class: "up-title", "aria-hidden": "true" },
         el("span", { class: `glyph glyph-${task.type}` }), " ", task.title),
@@ -2965,6 +2965,17 @@ function setupSitting() {
   $("session-defer").addEventListener("click", deferSession);
   $("session-pass").addEventListener("click", passSession);
 
+  const plan = $("plan-dialog");
+  if (plan) {
+    $("plan-schedule").addEventListener("click", schedulePlannedSession);
+    $("plan-start").addEventListener("click", startPlannedSession);
+    $("plan-edit").addEventListener("click", () => {
+      const id = plan.dataset.taskId;
+      closeDialog(plan);
+      if (id) openTaskDialog({ id });
+    });
+  }
+
   $("timer-pause").addEventListener("click", () => {
     const run = running();
     if (!run) return;
@@ -3392,6 +3403,13 @@ function normaliseSession(raw) {
     id: typeof raw.id === "string" && raw.id ? raw.id : newId(),
     courseworkId: String(raw.courseworkId == null ? "" : raw.courseworkId),
     stepId: String(raw.stepId == null ? "" : raw.stepId),
+    /*
+      A sitting made from the Upcoming list belongs to a task rather than to a
+      piece of coursework. The planner only ever fills in courseworkId, so a
+      sitting carrying a taskId is one the reader made by hand; the two are
+      never both set.
+    */
+    taskId: String(raw.taskId == null ? "" : raw.taskId),
     date,
     time: /^\d{2}:\d{2}$/.test(raw.time || "") ? raw.time : SESSION_TIME_EVENING,
     minutes: Number.isFinite(Number(raw.minutes)) ? Math.max(15, Math.min(240, Number(raw.minutes))) : SESSION_MINUTES,
@@ -3916,9 +3934,17 @@ function endSession({ finished = false } = {}) {
   return { session, minutes };
 }
 
+/** The task a hand-made sitting was made for, if it was made for one. */
+function sessionTask(session) {
+  return session.taskId ? findTask(session.taskId) : null;
+}
+
 function sessionName(session) {
   const item = sessionCoursework(session);
-  if (!item) return "your work";
+  if (!item) {
+    const task = sessionTask(session);
+    return task ? task.title : "your work";
+  }
   const step = item.steps && item.steps.find((entry) => entry.id === session.stepId);
   return step ? `${item.title}: ${step.title}` : item.title;
 }
@@ -3979,14 +4005,17 @@ function offerSession({ force = false } = {}) {
 
   const item = sessionCoursework(session);
   const step = item && item.steps ? item.steps.find((entry) => entry.id === session.stepId) : null;
+  const task = sessionTask(session);
   const at = session.deferredTo || session.time;
 
   show(body, [
     el("p", { class: "start-when", text: `${at}, ${session.minutes} minutes` }),
-    el("h3", { class: "start-what", text: item ? item.title : "Study" }),
+    el("h3", { class: "start-what", text: item ? item.title : (task ? task.title : "Study") }),
     step ? el("p", { class: "start-step", text: step.title }) : null,
     session.why ? el("p", { class: "start-why", text: session.why }) : null,
-    item && item.due ? el("p", { class: "start-due", text: `Due ${whenInWords(item.due)}.` }) : null,
+    (item && item.due) || task
+      ? el("p", { class: "start-due", text: `Due ${whenInWords(item && item.due ? item.due : task.date)}.` })
+      : null,
     session.passes > 0
       ? el("p", {
           class: "start-passed",
@@ -4016,6 +4045,124 @@ function laterToday(planned) {
   next.setMinutes(next.getMinutes() >= 30 ? 30 : 0, 0, 0);
   const soon = `${twoDigits(next.getHours())}:${twoDigits(next.getMinutes())}`;
   return soon > planned ? soon : planned;
+}
+
+/* ---------- Putting time aside for a task ---------- */
+
+/*
+  From the Upcoming list, the question is when the work happens rather than
+  what the work is. This offers the two answers worth having -- an evening in
+  the diary, or the clock running now -- and leaves the editor one tap away
+  for the times the other question was meant.
+*/
+
+function openPlanDialog(taskId) {
+  const task = findTask(taskId);
+  const dialog = $("plan-dialog");
+  const body = $("plan-dialog-body");
+  if (!task || !dialog || !body) return false;
+
+  const today = todayISO();
+  const already = liveSessions()
+    .filter((entry) => entry.taskId === task.id && !entry.done)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  show(body, [
+    el("p", { class: "start-when", text: `${TYPES[task.type].label} · ${subjectLabel(task)}` }),
+    el("h3", { class: "start-what", text: task.title }),
+    el("p", { class: "start-due", text: `Due ${whenInWords(task.date)}.` }),
+    task.notes ? el("p", { class: "start-why", text: task.notes }) : null,
+    already.length > 0
+      ? el("p", {
+          class: "start-planned",
+          text: already.length === 1
+            ? `One sitting already set aside, on ${whenInWords(already[0].date)} at ${already[0].time}.`
+            : `${already.length} sittings already set aside, the first on ${whenInWords(already[0].date)}.`,
+        })
+      : null,
+  ]);
+
+  /*
+    Default to the evening of the day the work is due, or tonight if it is
+    already overdue -- the two answers that are right far more often than any
+    other, and both one tap from being changed.
+  */
+  const when = $("plan-date");
+  const at = $("plan-time");
+  const long = $("plan-minutes");
+  if (when) when.value = task.date < today ? today : task.date;
+  if (at) at.value = SESSION_TIME_EVENING;
+  if (long) long.value = String(SESSION_MINUTES);
+
+  dialog.dataset.taskId = task.id;
+  openDialog(dialog);
+  const start = $("plan-start");
+  if (start) start.focus();
+  return true;
+}
+
+/** The sitting the dialog is describing, built but not stored. */
+function plannedSitting(task, { date, time, minutes }) {
+  return normaliseSession({
+    id: newId(),
+    taskId: task.id,
+    date,
+    time,
+    minutes,
+    by: "hand",
+    // Made by hand, so the planner leaves it where it was put.
+    pinned: true,
+    why: `Set aside from Upcoming for ${task.title}.`,
+  });
+}
+
+function schedulePlannedSession() {
+  const dialog = $("plan-dialog");
+  if (!dialog) return null;
+  const task = findTask(dialog.dataset.taskId);
+  if (!task) return null;
+
+  const date = ($("plan-date") || {}).value || "";
+  const time = ($("plan-time") || {}).value || SESSION_TIME_EVENING;
+  const minutes = Number(($("plan-minutes") || {}).value || SESSION_MINUTES);
+  if (!isValidISO(date)) {
+    announce("That is not a date the diary understands.");
+    return null;
+  }
+
+  const session = plannedSitting(task, { date, time, minutes });
+  state.sessions.push(session);
+  saveSessions();
+  closeDialog(dialog);
+  renderAll();
+  announce(`${minutes} minutes on ${task.title}, ${whenInWords(date)} at ${time}.`);
+  return session;
+}
+
+/*
+  Starting now makes the sitting it is about to run. Dated today whatever the
+  box says, because "start now" is not a date: somebody who set the box to
+  Friday and then pressed Start meant to work now, and a sitting filed under
+  Friday that ran on Tuesday is a lie in the record the next plan reads.
+*/
+function startPlannedSession() {
+  const dialog = $("plan-dialog");
+  if (!dialog) return null;
+  const task = findTask(dialog.dataset.taskId);
+  if (!task) return null;
+
+  const now = new Date();
+  const minutes = Number(($("plan-minutes") || {}).value || SESSION_MINUTES);
+  const session = plannedSitting(task, {
+    date: todayISO(),
+    time: `${twoDigits(now.getHours())}:${twoDigits(now.getMinutes())}`,
+    minutes,
+  });
+  state.sessions.push(session);
+  saveSessions();
+  closeDialog(dialog);
+  // startSession draws the clock and nothing else, which is the whole point.
+  return startSession(session.id, { now });
 }
 
 function deferSession() {
@@ -5616,6 +5763,17 @@ function setupEvents() {
 
   // Task rows appear in both the agenda and the day dialog.
   document.addEventListener("click", (event) => {
+    /*
+      From Upcoming the question is when the work happens, not what it is, so
+      this one opens the sitting dialog rather than the editor. Everywhere
+      else a task row still leads to the editor, which is where the calendar
+      sends you and where it should.
+    */
+    const planButton = event.target.closest("[data-plan-for]");
+    if (planButton) {
+      openPlanDialog(planButton.dataset.planFor);
+      return;
+    }
     const editButton = event.target.closest("[data-edit]");
     if (editButton) {
       const task = findTask(editButton.dataset.edit);

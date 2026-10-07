@@ -694,6 +694,47 @@
   </div>
 </dialog>
 
+<!--
+  Tapping something in Upcoming used to open the editor, which answers "what
+  is this task" when the question being asked is "when am I doing it". This
+  asks the second one: put an evening aside for it, or sit down to it now.
+  The editor is still one tap away, for the times the first question was meant.
+-->
+<dialog class="dialog dialog-start" id="plan-dialog" aria-labelledby="plan-dialog-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="plan-dialog-title">Work on this</h2>
+    <button type="button" class="btn btn-icon dialog-close" data-close="plan-dialog">
+      <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+    </button>
+  </div>
+  <div id="plan-dialog-body"></div>
+  <div class="dialog-actions session-actions">
+    <div class="plan-row">
+      <div class="plan-field">
+        <label class="field-label" for="plan-date">On</label>
+        <input type="date" id="plan-date" class="input">
+      </div>
+      <div class="plan-field">
+        <label class="field-label" for="plan-time">At</label>
+        <input type="time" id="plan-time" class="input" step="900">
+      </div>
+      <div class="plan-field">
+        <label class="field-label" for="plan-minutes">For</label>
+        <select id="plan-minutes" class="input">
+          <option value="30">30 minutes</option>
+          <option value="45">45 minutes</option>
+          <option value="60" selected>1 hour</option>
+          <option value="90">1&frac12; hours</option>
+          <option value="120">2 hours</option>
+        </select>
+      </div>
+      <button type="button" class="btn btn-quiet" id="plan-schedule">Schedule it</button>
+    </div>
+    <button type="button" class="btn btn-primary" id="plan-start">Start now</button>
+    <button type="button" class="btn btn-quiet btn-tiny" id="plan-edit">Edit the task instead</button>
+  </div>
+</dialog>
+
 <dialog class="dialog dialog-checkin" id="checkin-dialog" aria-labelledby="checkin-title">
   <div class="dialog-head">
     <h2 class="dialog-title" id="checkin-title">Today</h2>
