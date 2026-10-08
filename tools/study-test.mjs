@@ -254,6 +254,55 @@ console.log("\nwhen the model will not answer in the shape");
   check("and says so plainly", /circles/.test(circles.body.message), circles.body.message);
 }
 
+console.log("\nchanging a plan that already exists");
+
+{
+  const work = [{ id: "c1", title: "Economics IA", due: "2026-11-01", steps: [] }];
+  const current = [
+    { date: "2026-10-12", time: "19:00", minutes: 90, courseworkId: "c1", why: "first pass" },
+  ];
+
+  // Refusing happens in the handler, before the model is reached, so these
+  // two go through call() rather than run().
+  const nothing = await call("revise", { today: "2026-10-08", work: [], sessions: current, instruction: "less history" });
+  check("with no coursework there is nothing to change", nothing.body.thin === true, JSON.stringify(nothing.body));
+  check("and nothing is sent", sent.length === 0, String(sent.length));
+
+  const unplanned = await call("revise", { today: "2026-10-08", work, sessions: [], instruction: "less history" });
+  check("and with no plan it says to plan first",
+    /Plan the study sessions first/.test(unplanned.body.message), unplanned.body.message);
+
+  script = [toolUse("revise", {
+    sessions: [{ courseworkId: "c1", date: "2026-10-13", time: "19:00", minutes: 90, why: "moved off Sunday" }],
+    changes: ["Economics IA moved from Sunday 12th to Monday 13th."],
+    note: "Your weekend is clear.",
+    refused: "",
+  })];
+  const done = await ask("revise", {
+    today: "2026-10-08", work, sessions: current, instruction: "I am away this weekend",
+    kept: [{ date: "2026-10-15", time: "18:00", minutes: 60 }],
+  });
+
+  check("the whole schedule comes back", Array.isArray(done.body.result.sessions));
+  check("with an account of what moved", done.body.result.changes.length === 1, JSON.stringify(done.body.result.changes));
+
+  const asked = sent[0].messages[0].content;
+  check("what the reader said is put to the model", /away this weekend/.test(asked), asked.slice(0, 200));
+  check("along with the plan it is changing", /"current"/.test(asked), asked.slice(0, 300));
+  check("and the sittings made by hand, to work around", /"kept"/.test(asked), asked.slice(0, 300));
+  check("the planner's own rules still apply to a change",
+    /Never more than three hours of study on a school night/.test(sent[0].system), true);
+  check("and the rule that makes a change a change",
+    /Change as little as possible/.test(sent[0].system), true);
+
+  /* With no instruction, the model is being asked to fix what it found. */
+  script = [toolUse("revise", { sessions: [], changes: [], note: "Nothing needed moving." })];
+  const own = await ask("revise", { today: "2026-10-08", work, sessions: current, instruction: "" });
+  check("it can also be asked to fix what it found itself",
+    /You found the fault yourself/.test(sent[0].messages[0].content), true);
+  check("and a change that changes nothing is allowed", own.body.result.changes.length === 0);
+}
+
 console.log("\nwithout a key");
 
 {

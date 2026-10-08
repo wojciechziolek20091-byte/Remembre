@@ -1899,6 +1899,114 @@ console.log("\ntapping something in Upcoming");
   });
 }
 
+console.log("\ntelling the planner what to change");
+
+{
+  /* The route is stubbed: what is being tested is the half of this that
+     lives on the device -- that the instruction reaches the server, that what
+     comes back replaces the plan, and that a sitting made by hand survives a
+     rewrite it did not ask for. */
+  /*
+    Stubbed inside the page rather than with page.route: a service worker sits
+    between the page and the network here, and a route installed outside it
+    never sees the request the page actually made.
+  */
+  await page.evaluate(() => {
+    const real = window.fetch;
+    window.__seen = null;
+    const plus = (iso, days) => {
+      const at = new Date(`${iso}T00:00:00Z`);
+      at.setUTCDate(at.getUTCDate() + days);
+      return at.toISOString().slice(0, 10);
+    };
+    window.fetch = async (url, options) => {
+      if (String(url).includes("action=revise")) {
+        window.__seen = JSON.parse((options && options.body) || "{}");
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            result: {
+              sessions: [{
+                courseworkId: "cw1", date: plus(todayISO(), 4),
+                time: "19:00", minutes: 90, why: "moved off the weekend",
+              }],
+              changes: ["Economics IA moved from Saturday to Tuesday."],
+              note: "Your weekend is clear.",
+              refused: "",
+              warnings: [],
+            },
+          }),
+        };
+      }
+      return real(url, options);
+    };
+  });
+
+  await page.evaluate(() => {
+    setArea("school");
+    state.coursework = [normaliseCoursework({
+      id: "cw1", title: "Economics IA", subject: "economics", due: addDays(todayISO(), 20),
+      stage: "drafting", steps: [],
+    })];
+    state.sessions = [
+      normaliseSession({ id: "byai", courseworkId: "cw1", date: addDays(todayISO(), 2), time: "19:00", minutes: 90, by: "ai" }),
+      normaliseSession({ id: "byhand", taskId: "", date: addDays(todayISO(), 3), time: "17:00", minutes: 60, by: "hand", pinned: true }),
+    ];
+    saveCoursework();
+    saveSessions();
+    writeStore("remembre.studyplan.v1", { at: new Date().toISOString(), note: "", warnings: [], by: "ai" });
+    renderAll();
+  });
+
+  check("the box is there once there is a plan to argue with",
+    await page.evaluate(() => $("revise-panel").hidden === false), true);
+
+  await page.fill("#revise-text", "I am away this weekend");
+  await page.click("#revise-go");
+  await page.waitForFunction(() => document.querySelector(".revise-changes") !== null);
+  const seen = await page.evaluate(() => window.__seen);
+
+  check("the instruction reaches the server", seen && seen.instruction, "I am away this weekend");
+  check("with the plan it is being asked to change",
+    Array.isArray(seen.sessions) && seen.sessions.length > 0, true);
+  check("and the hand-made sitting listed as one to work around",
+    Array.isArray(seen.kept) && seen.kept.length === 1, true);
+
+  const after = await page.evaluate(() => ({
+    changes: document.querySelector(".revise-changes").textContent,
+    note: document.querySelector(".revise-note").textContent,
+    asked: document.querySelector(".revise-asked").textContent,
+    dates: liveSessions().map((s) => `${s.date}|${s.by}`).sort(),
+    box: $("revise-text").value,
+  }));
+
+  check("what changed is shown, not just a count",
+    /moved from Saturday to Tuesday/.test(after.changes), true, after.changes);
+  check("with the planner's own note", /weekend is clear/.test(after.note), true, after.note);
+  check("and what was asked, kept where it can be re-read",
+    /away this weekend/.test(after.asked), true, after.asked);
+  check("the box empties, so the next instruction starts clean", after.box, "");
+
+  const expected = await page.evaluate(() => [
+    `${addDays(todayISO(), 3)}|hand`,
+    `${addDays(todayISO(), 4)}|ai`,
+  ].sort());
+  check("the planner's old sitting is gone and the new one is in", after.dates, expected);
+
+  await page.evaluate(() => {
+    state.coursework = [];
+    state.sessions = [];
+    saveCoursework();
+    saveSessions();
+    writeStore("remembre.studyplan.v1", null);
+    renderAll();
+  });
+  check("and the box goes away again with the plan",
+    await page.evaluate(() => $("revise-panel").hidden === true), true);
+}
+
 check("no console or page errors", problems, []);
 
 await browser.close();

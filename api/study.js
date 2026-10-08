@@ -1,6 +1,6 @@
 import { cors, json } from "./_store.js";
 import { aiClient, aiReport, MODEL } from "./_ai.js";
-import { CHECKIN_SYSTEM, ESTIMATE_SYSTEM, EXPLAIN_SYSTEM, SCHEDULE_SYSTEM } from "./_playbook.js";
+import { CHECKIN_SYSTEM, ESTIMATE_SYSTEM, EXPLAIN_SYSTEM, REVISE_SYSTEM, SCHEDULE_SYSTEM } from "./_playbook.js";
 
 /**
  * The study route. Three questions, all of them the model's to answer.
@@ -9,6 +9,7 @@ import { CHECKIN_SYSTEM, ESTIMATE_SYSTEM, EXPLAIN_SYSTEM, SCHEDULE_SYSTEM } from
  *   POST /api/study?action=schedule   when should I sit down, and for how long?
  *   POST /api/study?action=checkin    I did this much today. Where does that leave me?
  *   POST /api/study?action=explain    defend this plan to me
+ *   POST /api/study?action=revise     change this plan, here is what is wrong
  *
  * The planner used to be arithmetic here: spacing by an effort slider, days
  * chosen by a load score. It placed sittings, but it could not know that a
@@ -105,6 +106,33 @@ const SCHEDULE_SHAPE = {
   required: ["sessions", "note"],
 };
 
+/*
+  The schedule again, plus an account of itself. The sessions are the same
+  shape as a fresh plan because they replace it wholesale; `changes` is the
+  part that makes a rewrite reviewable rather than something that happened to
+  your week while you were reading a different sentence.
+*/
+const REVISE_SHAPE = {
+  type: "object",
+  properties: {
+    sessions: SCHEDULE_SHAPE.properties.sessions,
+    changes: {
+      type: "array",
+      maxItems: 12,
+      items: { type: "string", description: "One change, past tense, naming the piece and the date. Under twenty words." },
+      description: "Every sitting you moved, added, lengthened, shortened or dropped. Empty only if you changed nothing.",
+    },
+    note: { type: "string", description: "One or two sentences: what you did and anything you were asked for and could not do. Second person." },
+    refused: { type: "string", description: "Empty unless you declined part of the instruction. If so, the part you declined and why, in one sentence." },
+    warnings: {
+      type: "array",
+      maxItems: 3,
+      items: { type: "string", description: "Something the plan still cannot solve, under fifteen words." },
+    },
+  },
+  required: ["sessions", "changes", "note"],
+};
+
 const CHECKIN_SHAPE = {
   type: "object",
   properties: {
@@ -196,6 +224,35 @@ const ACTIONS = {
       work: body.work,
       sessions: body.sessions,
       busy: body.busy,
+      done: body.done,
+    }, null, 1)}`,
+  },
+
+  revise: {
+    system: REVISE_SYSTEM,
+    shape: REVISE_SHAPE,
+    tool: "revise",
+    about: "Return the whole schedule again, with the change made. Always answer by calling this.",
+    search: 0,
+    tokens: 12000,
+    refuse: (body) => {
+      if (!Array.isArray(body.work) || body.work.length === 0) {
+        return "There is nothing to change: add a piece of coursework first.";
+      }
+      if (!Array.isArray(body.sessions) || body.sessions.length === 0) {
+        return "There is no plan to change yet. Plan the study sessions first.";
+      }
+      return "";
+    },
+    prompt: (body) => `${String(body.instruction || "").trim()
+      ? `Change my plan. Here is what I want different:\n\n${String(body.instruction).slice(0, 1200)}`
+      : "Change my plan. You found the fault yourself; fix it."}\n\n${JSON.stringify({
+      today: String(body.today || "").slice(0, 10),
+      horizonDays: Number(body.horizonDays) || 28,
+      work: body.work,
+      current: body.sessions,
+      busy: body.busy,
+      kept: body.kept,
       done: body.done,
     }, null, 1)}`,
   },

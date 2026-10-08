@@ -216,6 +216,23 @@
       </div>
     </div>
     <section class="sense" id="sense-panel" aria-live="polite" hidden></section>
+    <!--
+      Having a plan laid out for you and having no way to answer back is the
+      worst of both: you did not choose it and you cannot argue with it. This
+      is the answering back. It appears once there is a plan, because before
+      that there is nothing to change.
+    -->
+    <section class="revise" id="revise-panel" hidden>
+      <label class="field-label" for="revise-text">Tell the planner what to change</label>
+      <textarea id="revise-text" class="input revise-text" rows="2"
+                placeholder="I am away this weekend. Less history on weeknights. Move the essay earlier."
+                aria-describedby="revise-hint"></textarea>
+      <p class="field-hint" id="revise-hint">In your own words. It changes only what you have asked about and leaves the rest of the week where it is.</p>
+      <div class="revise-actions">
+        <button type="button" class="btn btn-quiet" id="revise-go">Change the plan</button>
+      </div>
+      <div id="revise-report" aria-live="polite"></div>
+    </section>
     <div id="coursework-list" aria-describedby="organiser-hint"></div>
   </section>
 

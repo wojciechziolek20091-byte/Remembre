@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.07-85";
+const APP_VERSION = "2026.10.08-86";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -1431,6 +1431,7 @@ function renderAll() {
   renderCloudPanel();
   renderAlertsExport();
   renderCoursework();
+  renderRevise();
 }
 
 /* ---------- Which half of the app ---------- */
@@ -2868,6 +2869,81 @@ async function makeSense() {
   }
 }
 
+/* ---------- Answering back ---------- */
+
+/*
+  The box is there once there is a plan to argue with, and not before. What
+  it reports afterwards is the list of changes rather than a cheerful total:
+  "six sittings planned" is what the planner did, not what it did to you.
+*/
+function renderRevise() {
+  const panel = $("revise-panel");
+  if (!panel) return;
+
+  const hasPlan = liveSessions().some((session) => session.date >= todayISO() && !session.done);
+  panel.hidden = !hasPlan;
+  if (!hasPlan) return;
+
+  const plan = planState();
+  const report = $("revise-report");
+  if (!report) return;
+
+  if (!Array.isArray(plan.changes) || plan.changes.length === 0) {
+    show(report, [
+      plan.refused ? el("p", { class: "revise-refused", text: plan.refused }) : null,
+    ]);
+    return;
+  }
+
+  show(report, [
+    plan.asked ? el("p", { class: "revise-asked", text: `You asked: ${plan.asked}` }) : null,
+    el("p", { class: "revise-label", text: "What changed" }),
+    el("ul", { class: "revise-changes" }, plan.changes.map((one) => el("li", { text: one }))),
+    plan.note ? el("p", { class: "revise-note", text: plan.note }) : null,
+    plan.refused ? el("p", { class: "revise-refused", text: plan.refused }) : null,
+    (plan.warnings || []).length
+      ? el("ul", { class: "revise-warnings" }, plan.warnings.map((one) => el("li", { text: one })))
+      : null,
+  ]);
+}
+
+/** Shared by the box and by the argument's own "go and fix it" button. */
+async function runRevise(instruction, button) {
+  const panel = $("revise-panel");
+  const report = $("revise-report");
+  if (panel) panel.hidden = false;
+  if (report) show(report, [el("p", { class: "revise-waiting", text: "Reading the plan and making the change…" })]);
+
+  const was = button ? button.textContent : "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Changing…";
+  }
+
+  try {
+    const out = await aiRevise({ instruction });
+    if (out.thin) {
+      if (report) show(report, [el("p", { class: "revise-refused", text: out.thin })]);
+      return null;
+    }
+    const box = $("revise-text");
+    if (box) box.value = "";
+    renderRevise();
+    announce(out.changes && out.changes.length
+      ? `Changed. ${out.changes.length} ${out.changes.length === 1 ? "thing" : "things"} moved.`
+      : "Nothing needed changing.");
+    return out;
+  } catch (err) {
+    if (report) show(report, [el("p", { class: "revise-refused", text: `Could not change it: ${err.message}` })]);
+    return null;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = was;
+    }
+  }
+}
+
 function closeSense() {
   const panel = $("sense-panel");
   const button = $("make-sense");
@@ -2941,10 +3017,25 @@ function renderSense(state) {
           el("p", { class: "sense-aside-text", text: read.risk }))
       : null,
 
+    /*
+      The argument used to end here, as a paragraph about a fault nobody but
+      the reader could act on. It can reach the plan, so it is offered the
+      chance to: the fault it named becomes the instruction, and the same
+      checked path a fresh plan takes is the one the fix takes.
+    */
     read.change
       ? el("div", { class: "sense-aside" },
           el("p", { class: "sense-aside-label", text: "What it would change first" }),
-          el("p", { class: "sense-aside-text", text: read.change }))
+          el("p", { class: "sense-aside-text", text: read.change }),
+          el("button", {
+            type: "button",
+            class: "btn btn-quiet btn-tiny sense-fix",
+            text: "Make that change",
+            onclick: (event) => {
+              const fault = [read.change, read.weakest].filter(Boolean).join(" Also: ");
+              runRevise(fault, event.currentTarget).then((out) => { if (out) closeSense(); });
+            },
+          }))
       : null,
 
     state.at
@@ -3006,6 +3097,21 @@ function setupCoursework() {
   $("add-coursework").addEventListener("click", () => openCourseworkDialog());
   $("plan-sessions").addEventListener("click", () => planNow());
   $("make-sense").addEventListener("click", () => makeSense());
+
+  const reviseGo = $("revise-go");
+  if (reviseGo) {
+    reviseGo.addEventListener("click", (event) => {
+      const box = $("revise-text");
+      const said = box ? box.value.trim() : "";
+      if (!said) {
+        announce("Say what you would like changed first.");
+        if (box) box.focus();
+        return;
+      }
+      runRevise(said, event.currentTarget);
+    });
+  }
+
   $("coursework-form").addEventListener("submit", submitCourseworkForm);
   $("delete-coursework").addEventListener("click", deleteCurrentCoursework);
 
@@ -3762,6 +3868,70 @@ async function aiPlan({ today = todayISO(), quiet = false } = {}) {
       : `Planned ${laid} study ${laid === 1 ? "session" : "sessions"}.`);
   }
   return { planned: laid, note: result.note || "" };
+}
+
+/* ---------- Changing a plan that already exists ---------- */
+
+/*
+  Two ways in, one road.
+
+  Either the reader says what they want different in their own words, or the
+  argument found the fault itself and is offered the chance to go and fix it.
+  Both end here: the model is handed the plan it is being asked to change, and
+  what comes back replaces it, checked by the same layPlan that checks a fresh
+  one. An instruction is never trusted to produce a safe schedule just because
+  a person wrote it.
+*/
+async function aiRevise({ instruction = "", today = todayISO() } = {}) {
+  const payload = planPayload(today);
+  const sessions = liveSessions()
+    .filter((session) => session.date >= today && !session.done)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+    .slice(0, 60)
+    .map((session) => ({
+      date: session.date,
+      time: session.deferredTo || session.time,
+      minutes: session.minutes,
+      courseworkId: session.courseworkId,
+      stepId: session.stepId,
+      why: session.why,
+      pinned: session.pinned,
+    }));
+
+  const res = await fetch("/api/study?action=revise", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, sessions, instruction }),
+    cache: "no-store",
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || body.ok !== true) {
+    const err = new Error((body && body.message) || `The server answered ${res.status}.`);
+    err.status = res.status;
+    throw err;
+  }
+  if (body.thin) return { planned: 0, thin: body.message || "" };
+
+  const result = body.result;
+  if (!result || !Array.isArray(result.sessions)) {
+    throw new Error("The change came back in a shape nothing can read. Try again.");
+  }
+
+  const laid = layPlan(result.sessions, today);
+  const record = {
+    at: new Date().toISOString(),
+    note: String(result.note || "").slice(0, 400),
+    warnings: Array.isArray(result.warnings) ? result.warnings.slice(0, 3).map(String) : [],
+    by: "ai",
+    /* Kept on the plan rather than in a toast: what changed is the thing
+       worth being able to look at twice. */
+    changes: Array.isArray(result.changes) ? result.changes.slice(0, 12).map((one) => String(one).slice(0, 160)) : [],
+    refused: String(result.refused || "").slice(0, 300),
+    asked: String(instruction || "").slice(0, 400),
+  };
+  writeStore(PLAN_KEY, record);
+  renderAll();
+  return { planned: laid, ...record };
 }
 
 /*
