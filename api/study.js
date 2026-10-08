@@ -86,14 +86,15 @@ const SCHEDULE_SHAPE = {
       items: {
         type: "object",
         properties: {
-          courseworkId: { type: "string", description: "Exactly the id given in the work. Never one that is not there." },
+          courseworkId: { type: "string", description: "Exactly the id given in the work. Empty when this sitting is for a calendar deadline instead. Never an id that is not there." },
+          taskId: { type: "string", description: "Exactly the id given in the deadlines. Empty when this sitting is for a piece of coursework instead. Set exactly one of this and courseworkId." },
           stepId: { type: "string", description: "The step this sitting is for, or empty for the piece as a whole." },
           date: { type: "string", description: "YYYY-MM-DD. Never today or earlier." },
           time: { type: "string", description: "HH:MM, 24 hour. 19:00 unless there is a reason." },
           minutes: { type: "number", description: "30 to 180." },
           why: { type: "string", description: "Under twelve words: why this work on this evening." },
         },
-        required: ["courseworkId", "date", "time", "minutes", "why"],
+        required: ["date", "time", "minutes", "why"],
       },
     },
     note: { type: "string", description: "One or two sentences to the student about the shape of the plan, and anything that does not fit in the hours they have given. Second person." },
@@ -198,12 +199,15 @@ const ACTIONS = {
     about: "Lay out the sittings. Always answer by calling this.",
     search: 0,
     tokens: 12000,
-    refuse: (body) => (Array.isArray(body.work) && body.work.length > 0
-      ? "" : "There is nothing to plan: add a piece of coursework with a deadline first."),
+    refuse: (body) => (
+      (Array.isArray(body.work) && body.work.length > 0)
+      || (Array.isArray(body.deadlines) && body.deadlines.length > 0)
+        ? "" : "There is nothing to plan: add a deadline to the calendar, or a piece of coursework."),
     prompt: (body) => `Lay out my study sessions.\n\n${JSON.stringify({
       today: String(body.today || "").slice(0, 10),
       horizonDays: Number(body.horizonDays) || 28,
       work: body.work,
+      deadlines: body.deadlines,
       busy: body.busy,
       done: body.done,
       kept: body.kept,
@@ -217,11 +221,14 @@ const ACTIONS = {
     about: "Make the case for the plan as it stands. Always answer by calling this.",
     search: 0,
     tokens: 8000,
-    refuse: (body) => (Array.isArray(body.work) && body.work.length > 0
-      ? "" : "There is nothing to argue about yet: add a piece of coursework first."),
+    refuse: (body) => (
+      (Array.isArray(body.work) && body.work.length > 0)
+      || (Array.isArray(body.deadlines) && body.deadlines.length > 0)
+        ? "" : "There is nothing to argue about yet: add a deadline, or a piece of coursework."),
     prompt: (body) => `Defend this plan to me.\n\n${JSON.stringify({
       today: String(body.today || "").slice(0, 10),
       work: body.work,
+      deadlines: body.deadlines,
       sessions: body.sessions,
       busy: body.busy,
       done: body.done,
@@ -236,8 +243,10 @@ const ACTIONS = {
     search: 0,
     tokens: 12000,
     refuse: (body) => {
-      if (!Array.isArray(body.work) || body.work.length === 0) {
-        return "There is nothing to change: add a piece of coursework first.";
+      const anything = (Array.isArray(body.work) && body.work.length > 0)
+        || (Array.isArray(body.deadlines) && body.deadlines.length > 0);
+      if (!anything) {
+        return "There is nothing to change: add a deadline to the calendar, or a piece of coursework.";
       }
       if (!Array.isArray(body.sessions) || body.sessions.length === 0) {
         return "There is no plan to change yet. Plan the study sessions first.";
@@ -250,6 +259,7 @@ const ACTIONS = {
       today: String(body.today || "").slice(0, 10),
       horizonDays: Number(body.horizonDays) || 28,
       work: body.work,
+      deadlines: body.deadlines,
       current: body.sessions,
       busy: body.busy,
       kept: body.kept,

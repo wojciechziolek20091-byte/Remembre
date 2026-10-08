@@ -254,6 +254,41 @@ console.log("\nwhen the model will not answer in the shape");
   check("and says so plainly", /circles/.test(circles.body.message), circles.body.message);
 }
 
+console.log("\nthe calendar is a list of deadlines");
+
+{
+  const deadlines = [{ id: "t1", title: "Maths mock", kind: "Test", due: "2026-10-16", dueTime: "08:30", notes: "Paper 1 and 2" }];
+
+  /*
+    A calendar with deadlines on it is something to plan, with or without any
+    coursework behind it. Getting past the refusal is the whole assertion:
+    this one goes on to reach for the model and fail on the fake key, and the
+    401 it logs on the way past is the proof, not a fault.
+  */
+  const only = await call("schedule", { today: "2026-10-08", work: [], deadlines });
+  check("deadlines alone get past the refusal", only.body.thin !== true, JSON.stringify(only.body).slice(0, 120));
+
+  const neither = await call("schedule", { today: "2026-10-08", work: [], deadlines: [] });
+  check("and with neither there is still nothing to do", neither.body.thin === true);
+  check("which says both the things that could be added",
+    /deadline to the calendar, or a piece of coursework/.test(neither.body.message), true, neither.body.message);
+
+  script = [toolUse("schedule", {
+    sessions: [{ taskId: "t1", date: "2026-10-14", time: "19:00", minutes: 60, why: "spaced before the mock" }],
+    note: "Three evenings before the mock.",
+  })];
+  const planned = await ask("schedule", { today: "2026-10-08", work: [], deadlines });
+
+  const asked = sent[0].messages[0].content;
+  check("the deadline is put to the model", /Maths mock/.test(asked), true, asked.slice(0, 200));
+  check("with the hour it is due at", /08:30/.test(asked), true);
+  check("the rule that work goes before it",
+    /Every sitting for a deadline goes before it/.test(sent[0].system), true);
+  check("and that the hours are the model's to judge",
+    /carry\s+no stated hours/.test(sent[0].system), true);
+  check("a sitting can come back against a deadline", planned.body.result.sessions[0].taskId, "t1");
+}
+
 console.log("\nchanging a plan that already exists");
 
 {

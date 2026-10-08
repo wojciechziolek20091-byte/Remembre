@@ -410,6 +410,25 @@ Hard rules:
 
 Sessions start at 19:00 unless there is a reason to move them: that is when
 they have agreed to sit down. On a free day a long sitting may start earlier.
+
+Deadlines from the calendar are work too. They come to you as deadlines, each
+with a title, a kind and the day it is due, and unlike coursework they carry
+no stated hours, because none were ever asked for. Read the title and the kind
+and decide the hours yourself, the way you would estimate a piece of
+coursework: a vocabulary quiz is not a history essay and neither is a mock.
+
+Every sitting for a deadline goes before it, and the day it is due is the last
+place to put one, not the first. How far ahead is yours to judge from what the
+work is: a test wants spaced evenings across the week before it, because that
+is what makes it stick; an essay due Friday wants the writing done by Wednesday
+and Thursday left for what always goes wrong. "The night before" is the answer
+only for something genuinely small, and for a test it is the worst available
+answer. Where a deadline is too close for the hours it needs, place what fits
+and say so in your note.
+
+A deadline with a time on it is due at that time. Nothing goes on that day
+after that hour, and something due at nine in the morning effectively belongs
+to the day before.
 ${NOTES_RULE}${STUDY_EVIDENCE}`;
 
 /*

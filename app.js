@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.08-86";
+const APP_VERSION = "2026.10.08-87";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -556,15 +556,46 @@ function clampMinutes(value) {
   rather than putting the task back on the next merge -- and it is announced,
   because work disappearing without a word is alarming even when it is wanted.
 */
-function sweepPastTasks(today = todayISO()) {
-  const stale = state.tasks.filter((task) => !task.deleted && task.date < today);
+function sweepPastTasks(today = todayISO(), now = new Date()) {
+  const clock = `${twoDigits(now.getHours())}:${twoDigits(now.getMinutes())}`;
+
+  /*
+    A deadline passes at its own hour. An essay due at 14:00 is history at
+    14:00, not at midnight, and waiting until the day turns over leaves a
+    whole afternoon of work on the page that nothing can be done about. One
+    with no time on it has all day, so it goes when the day does.
+  */
+  const past = (task) => {
+    if (task.date < today) return true;
+    if (task.date > today) return false;
+    return Boolean(task.time) && task.time <= clock;
+  };
+
+  const stale = state.tasks.filter((task) => !task.deleted && past(task));
   if (stale.length === 0) return 0;
 
+  const gone = new Set(stale.map((task) => task.id));
   stale.forEach((task) => {
     task.deleted = true;
     touch(task);
   });
+
+  /*
+    And the evenings that were put aside for it. A sitting whose deadline has
+    been and gone is work with nothing on the other end of it: left behind it
+    would be offered tonight, counted as owed, and planned around for weeks.
+    One that was actually sat is left alone -- that time was really spent, and
+    the record of it is what the next plan is built from.
+  */
+  state.sessions.forEach((session) => {
+    if (session.deleted || !gone.has(session.taskId)) return;
+    if (session.startedAt || session.done) return;
+    session.deleted = true;
+    touch(session);
+  });
+
   saveTasks();
+  saveSessions();
   return stale.length;
 }
 
@@ -2817,8 +2848,8 @@ async function makeSense() {
   }
 
   const payload = planPayload();
-  if (payload.work.length === 0) {
-    renderSense({ error: "There is nothing to make sense of yet. Add a piece of coursework first." });
+  if (payload.work.length === 0 && payload.deadlines.length === 0) {
+    renderSense({ error: "There is nothing to make sense of yet. Add a deadline to the calendar, or a piece of coursework." });
     return;
   }
 
@@ -3480,6 +3511,16 @@ function setupReminders() {
       }
       return;
     }
+    /*
+      Deadlines pass during the day, not only at midnight, so the sweep runs
+      on every tick rather than only when the date turns over.
+    */
+    const passed = sweepPastTasks(today);
+    if (passed > 0) {
+      renderAll();
+      announce(`${passed} ${passed === 1 ? "deadline has" : "deadlines have"} passed and been cleared.`);
+      return;
+    }
     renderNowLine();
   }, REMINDER_POLL_MS);
 
@@ -3492,6 +3533,8 @@ function setupReminders() {
     // Permission may have been changed in system settings while we were away.
     renderAlertsPanel();
     deliverAllReminders();
+    // A deadline that passed while the app was shut has still passed.
+    if (sweepPastTasks() > 0) renderAll();
     renderNowLine();
   });
 }
@@ -3810,6 +3853,31 @@ function planPayload(today = todayISO(), horizonDays = 28) {
     }))
     .filter((item) => item.steps.length > 0 || item.hoursOwed > 0);
 
+  /*
+    Everything on the calendar is a deadline, not an appointment: a test on
+    Friday is a thing to be ready for by Friday, and homework due Friday is
+    work that has to happen before it. They were only ever handed over as
+    days that were busy, which told the planner where not to put an evening
+    and never that the evening was owed in the first place. They are work.
+
+    No hours are given because none were ever asked for: the model reads the
+    title and the kind and decides, which is the same judgement the estimate
+    makes for a piece of coursework.
+  */
+  const deadlines = liveTasks()
+    .filter((task) => !task.done && task.date >= today && task.date <= until)
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      subject: task.subject || "",
+      kind: TYPES[task.type] ? TYPES[task.type].label : "Other",
+      due: task.date,
+      dueTime: task.time || "",
+      notes: task.notes || "",
+      from: "calendar",
+      steps: [],
+    }));
+
   /* What the evenings already have on them, so nothing is double-booked. */
   const busy = liveTasks()
     .filter((task) => !task.done && task.date >= today && task.date <= until)
@@ -3824,14 +3892,14 @@ function planPayload(today = todayISO(), horizonDays = 28) {
     missed: (row.items || []).filter((item) => !item.done).length,
   }));
 
-  return { today, horizonDays, work, busy, kept, done };
+  return { today, horizonDays, work, deadlines, busy, kept, done };
 }
 
 /** Asks the model for a schedule and puts it on the calendar. */
 async function aiPlan({ today = todayISO(), quiet = false } = {}) {
   const payload = planPayload(today);
-  if (payload.work.length === 0) {
-    if (!quiet) announce("Nothing to plan: add coursework with a deadline first.");
+  if (payload.work.length === 0 && payload.deadlines.length === 0) {
+    if (!quiet) announce("Nothing to plan: add a deadline to the calendar, or a piece of coursework.");
     return { planned: 0, note: "" };
   }
 
@@ -3943,16 +4011,29 @@ async function aiRevise({ instruction = "", today = todayISO() } = {}) {
 */
 function layPlan(proposed, today = todayISO()) {
   const known = new Set(liveCoursework().map((item) => item.id));
+  /* Deadlines are plannable too, and each one is also a wall: a sitting for
+     a test cannot be after the test. The model is told so; this is what
+     happens when it forgets. */
+  const due = new Map(liveTasks().filter((task) => !task.done).map((task) => [task.id, task.date]));
   const horizon = addDays(today, 60);
 
   const fresh = proposed
     .map((entry) => {
-      if (!entry || !known.has(String(entry.courseworkId))) return null;
+      if (!entry) return null;
+      const courseworkId = String(entry.courseworkId || "");
+      const taskId = String(entry.taskId || "");
+      // Exactly one owner, and one that exists.
+      if (courseworkId && taskId) return null;
+      if (courseworkId ? !known.has(courseworkId) : !due.has(taskId)) return null;
+
       const date = String(entry.date || "");
       if (!isValidISO(date) || date <= today || date > horizon) return null;
+      if (taskId && date > due.get(taskId)) return null;
+
       return normaliseSession({
         id: newId(),
-        courseworkId: String(entry.courseworkId),
+        courseworkId,
+        taskId,
         stepId: String(entry.stepId || ""),
         date,
         time: /^\d{2}:\d{2}$/.test(entry.time || "") ? entry.time : SESSION_TIME_EVENING,

@@ -1023,6 +1023,101 @@ console.log("\npast work clears itself out");
 
   const again = await page.evaluate(() => sweepPastTasks(todayISO()));
   check("running it twice clears nothing the second time", again, 0);
+
+  /* A deadline passes at its own hour. Waiting for midnight leaves a whole
+     afternoon of work on the page that nothing can be done about. */
+  const timed = await page.evaluate(() => {
+    const today = todayISO();
+    const noon = new Date(`${today}T12:00:00`);
+    state.tasks = [
+      normaliseTask({ id: "morning", title: "Handed in at nine", type: "homework", date: today, time: "09:00" }),
+      normaliseTask({ id: "evening", title: "Due at eight", type: "homework", date: today, time: "20:00" }),
+      normaliseTask({ id: "allday", title: "No time on it", type: "homework", date: today, time: "" }),
+    ];
+    state.sessions = [
+      normaliseSession({ id: "forit", taskId: "morning", date: addDays(today, 0), time: "19:00", minutes: 60 }),
+      normaliseSession({ id: "ranit", taskId: "morning", date: today, time: "08:00", minutes: 60, startedAt: new Date().toISOString() }),
+      normaliseSession({ id: "other", taskId: "evening", date: today, time: "19:00", minutes: 60 }),
+    ];
+    saveTasks();
+    saveSessions();
+    const cleared = sweepPastTasks(today, noon);
+    return {
+      cleared,
+      left: liveTasks().map((task) => task.id).sort(),
+      sessions: liveSessions().map((session) => session.id).sort(),
+    };
+  });
+
+  check("a deadline whose hour has gone is cleared at that hour", timed.cleared, 1);
+  check("one later today, and one with no time, are left", timed.left, ["allday", "evening"]);
+  check("the evenings put aside for it go with it",
+    timed.sessions.includes("forit"), false, JSON.stringify(timed.sessions));
+  check("but a sitting that was actually sat is kept", timed.sessions.includes("ranit"), true);
+  check("and another deadline's evenings are untouched", timed.sessions.includes("other"), true);
+
+  await page.evaluate(() => {
+    state.tasks = [];
+    state.sessions = [];
+    saveTasks();
+    saveSessions();
+    renderAll();
+  });
+}
+
+console.log("\nthe calendar as a list of deadlines");
+
+{
+  /* Everything on the calendar is a thing to be ready for by a date, so the
+     planner is given them as work rather than only as days that are busy. */
+  const seen = await page.evaluate(() => {
+    const today = todayISO();
+    // Coursework is left exactly as the blocks before this one built it:
+    // deadlines are a separate list and later tests still need the organiser.
+    state.tasks = [normaliseTask({
+      id: "mock", title: "Maths mock", type: "test", subject: "mathematics",
+      date: addDays(today, 6), time: "08:30", notes: "Paper 1 and 2",
+    })];
+    saveTasks();
+    const payload = planPayload(today);
+    return { payload, deadline: payload.deadlines[0] };
+  });
+
+  check("a calendar entry reaches the planner as work", seen.payload.deadlines.length, 1);
+  check("with the day it is due", seen.deadline.due, await page.evaluate(() => addDays(todayISO(), 6)));
+  check("and the hour, where it has one", seen.deadline.dueTime, "08:30");
+  check("and what kind of thing it is", seen.deadline.kind, "Test");
+  check("carrying its notes, which is most of the estimate", seen.deadline.notes, "Paper 1 and 2");
+  check("no hours are claimed for it", seen.deadline.hours, undefined);
+  check("it is still listed as something making that day busy", seen.payload.busy.length, 1);
+
+  /* The guard, for when the model forgets its own rule. */
+  const laid = await page.evaluate(() => {
+    const today = todayISO();
+    const due = addDays(today, 6);
+    const n = layPlan([
+      { taskId: "mock", date: addDays(today, 3), time: "19:00", minutes: 60, why: "early pass" },
+      { taskId: "mock", date: due, time: "19:00", minutes: 60, why: "the day itself" },
+      { taskId: "mock", date: addDays(today, 7), time: "19:00", minutes: 60, why: "after the test" },
+      { taskId: "nosuch", date: addDays(today, 2), time: "19:00", minutes: 60, why: "nothing owns this" },
+      { taskId: "mock", courseworkId: "cw1", date: addDays(today, 2), time: "19:00", minutes: 60, why: "two owners" },
+    ], today);
+    return { n, dates: liveSessions().map((s) => s.date).sort(), owners: liveSessions().map((s) => s.taskId) };
+  });
+
+  check("a sitting before the deadline is laid", laid.n, 2);
+  check("the day of the deadline is still allowed",
+    laid.dates, await page.evaluate(() => [addDays(todayISO(), 3), addDays(todayISO(), 6)].sort()));
+  check("a sitting after it is refused", laid.dates.every((d) => d <= "9999"), true);
+  check("every one of them belongs to the deadline", laid.owners.every((id) => id === "mock"), true);
+
+  await page.evaluate(() => {
+    state.tasks = [];
+    state.sessions = [];
+    saveTasks();
+    saveSessions();
+    renderAll();
+  });
 }
 
 console.log("\nthe line showing where the day has got to");
