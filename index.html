@@ -365,12 +365,20 @@
     <section class="card card-wishes" aria-labelledby="money-wishes-heading">
       <div class="card-head">
         <h2 class="card-title" id="money-wishes-heading">Saving up for</h2>
+        <!--
+          Out of the way until it is wanted. The list is the thing on this
+          card; a form sitting open above it every day, for something added
+          once a month, is three empty boxes between you and what you came to
+          look at.
+        -->
+        <button type="button" class="btn btn-quiet btn-tiny" id="wish-open"
+                aria-expanded="false" aria-controls="wish-form">Add new</button>
       </div>
       <p class="chart-caption" id="money-wishes-hint">
         What a month already saves pays for these first. Only what is left over comes out
         of the spending, and never more than a tenth of it.
       </p>
-      <form class="wish-form" id="wish-form">
+      <form class="wish-form" id="wish-form" hidden>
         <label class="sr-only" for="wish-name">What it is</label>
         <input type="text" id="wish-name" class="input" maxlength="40" placeholder="a laptop">
         <label class="sr-only" for="wish-price">How much</label>

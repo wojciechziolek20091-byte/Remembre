@@ -2157,6 +2157,148 @@ console.log("\nthe guard, and where the money came from");
     ledger[3], ["Moved between your own accounts", "−100,00 zł", "kept apart"]);
 }
 
+console.log("\nthe saving panel, as a thing to use");
+
+{
+  const shape = await page.evaluate(() => {
+    writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 300");
+    writeStore("remembre.incomeplan.v1", "1 = 2500");
+    writeStore("remembre.wishes.v1", "a laptop = 4000 by 2027-04 from 2026-10");
+    state.transactions = [];
+    saveTransactions();
+    moneyChanged();
+
+    const row = document.querySelector(".wish-row");
+    return {
+      formHidden: $("wish-form").hidden,
+      buttonSays: $("wish-open").textContent,
+      /* The whole box is the target, and there is nothing else inside it to
+         miss and hit by accident. */
+      rowIsButton: row.firstElementChild.tagName,
+      inner: row.firstElementChild.querySelectorAll("button, a, input").length,
+      noRemove: row.textContent.includes("Remove"),
+    };
+  });
+
+  check("the form starts put away", shape.formHidden, true);
+  check("behind a button that says what it does", shape.buttonSays, "Add new");
+  check("the goal row is one button", shape.rowIsButton, "BUTTON");
+  check("with nothing inside it to hit by mistake", shape.inner, 0);
+  check("and no remove button on the row", shape.noRemove, false);
+
+  const opened = await page.evaluate(() => {
+    $("wish-open").click();
+    return { hidden: $("wish-form").hidden, says: $("wish-open").textContent, expanded: $("wish-open").getAttribute("aria-expanded") };
+  });
+  check("pressing it opens the form", opened.hidden, false);
+  check("and offers the way back", opened.says, "Never mind");
+  check("which is announced", opened.expanded, "true");
+
+  const added = await page.evaluate(() => {
+    $("wish-name").value = "a bike";
+    $("wish-price").value = "1200";
+    $("wish-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    return { hidden: $("wish-form").hidden, says: $("wish-open").textContent, rows: document.querySelectorAll(".wish-row").length };
+  });
+  check("adding one puts the form away again", added.hidden, true);
+  check("with the button back as it was", added.says, "Add new");
+  check("and the goal on the list", added.rows, 2);
+
+  // Anywhere in the box opens it, including the figure on the right.
+  const tapped = await page.evaluate(() => {
+    document.querySelector(".wish-price").click();
+    const open = $("wish-dialog").open === true;
+    const title = $("wish-dialog-title").textContent;
+    return { open, title };
+  });
+  check("tapping the price opens the goal", tapped.open, true);
+  check("the one it belongs to", tapped.title, "a laptop");
+
+  const removal = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll("#wish-detail .btn")].map((b) => b.textContent);
+    return { buttons };
+  });
+  check("removing it is an option inside the dialog",
+    removal.buttons.includes("Remove this goal"), true, JSON.stringify(removal.buttons));
+
+  const gone = await page.evaluate(() => {
+    const real = window.confirm;
+    window.confirm = () => true;
+    [...document.querySelectorAll("#wish-detail .btn")].find((b) => /Remove this goal/.test(b.textContent)).click();
+    window.confirm = real;
+    return { rows: document.querySelectorAll(".wish-row").length, text: wishesText(), open: $("wish-dialog").open === true };
+  });
+  check("and it takes the goal off the list", gone.rows, 1);
+  check("out of the stored list too", /a laptop/.test(gone.text), false, gone.text);
+  check("closing the dialog behind it", gone.open, false);
+
+  await page.evaluate(() => {
+    localStorage.removeItem("remembre.wishes.v1");
+    moneyChanged();
+  });
+}
+
+console.log("\nreaching the bottom of the transactions");
+
+{
+  const paged = await page.evaluate(() => {
+    resetTxPaging();
+    state.transactions = Array.from({ length: 140 }, (unused, i) => normaliseTransaction({
+      id: `p${i}`, date: shiftISO("2026-10-20", -i), amount: -1000 - i,
+      counterparty: `SHOP ${i}`, category: "food",
+    }));
+    saveTransactions();
+    renderMoney();
+    return {
+      rows: document.querySelectorAll("#money-list .tx-open").length,
+      foot: ($("tx-more") || {}).textContent || "",
+    };
+  });
+  check("a long list starts at one page", paged.rows, 60);
+  check("with the rest offered at the foot of it", /80 rows left/.test(paged.foot), true, paged.foot);
+
+  const more = await page.evaluate(() => {
+    $("tx-more").click();
+    return { rows: document.querySelectorAll("#money-list .tx-open").length, foot: ($("tx-more") || {}).textContent || "" };
+  });
+  check("reaching it brings the next page", more.rows, 120);
+  check("and says what is still below", /20 rows left/.test(more.foot), true, more.foot);
+
+  const end = await page.evaluate(() => {
+    $("tx-more").click();
+    return {
+      rows: document.querySelectorAll("#money-list .tx-open").length,
+      foot: ($("tx-more") || null) === null,
+      end: (document.querySelector(".tx-end") || {}).textContent || "",
+    };
+  });
+  check("until there is nothing left to fetch", end.rows, 140);
+  check("when the button goes", end.foot, true);
+  check("and it says so instead", /All 140 of them/.test(end.end), true, end.end);
+
+  const short = await page.evaluate(() => {
+    resetTxPaging();
+    state.transactions = state.transactions.slice(0, 5);
+    saveTransactions();
+    renderMoney();
+    return {
+      rows: document.querySelectorAll("#money-list .tx-open").length,
+      foot: ($("tx-more") || null) === null,
+      end: document.querySelector(".tx-end") === null,
+    };
+  });
+  check("a list that fits says nothing about pages", short.rows, 5);
+  check("with no button", short.foot, true);
+  check("and no total", short.end, true);
+
+  await page.evaluate(() => {
+    state.transactions = [];
+    saveTransactions();
+    resetTxPaging();
+    moneyChanged();
+  });
+}
+
 console.log("\nconnecting a goal to what bought it");
 
 {

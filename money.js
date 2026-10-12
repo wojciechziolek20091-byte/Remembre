@@ -347,6 +347,25 @@ const zloty = (grosze) => {
   return `${sign}${whole},${part} zł`;
 };
 
+/*
+  How many rows the list is showing.
+
+  Two hundred was a ceiling rather than a page: a year of statements stopped
+  at two hundred and there was no way at all to see the rest. It is a page
+  now, and reaching the bottom of the list fetches the next one -- which on a
+  touch screen is what scrolling to the bottom already means.
+
+  Kept outside the render so a redraw does not collapse a list somebody has
+  scrolled down, and reset deliberately where the data underneath changes.
+*/
+const TX_PAGE = 60;
+let txShowing = TX_PAGE;
+
+/** A new import, a different month: start at the top again. */
+function resetTxPaging() {
+  txShowing = TX_PAGE;
+}
+
 function renderMoney() {
   const list = $("money-list");
   if (!list) return;
@@ -370,8 +389,52 @@ function renderMoney() {
       `${entries[entries.length - 1].date} to ${entries[0].date}`;
   }
 
-  list.replaceChildren(el("ul", { class: "tx-list" },
-    entries.slice(0, 200).map((entry) => txRow(entry))));
+  const showing = Math.min(txShowing, entries.length);
+  const more = entries.length - showing;
+
+  list.replaceChildren(...[
+    el("ul", { class: "tx-list" }, entries.slice(0, showing).map((entry) => txRow(entry))),
+    /*
+      The foot of the list does two jobs. It is what the observer watches for,
+      so reaching it loads the next page; and it is a button, because an
+      observer that never fires -- no support, reduced data, a list shorter
+      than the screen -- must not be the only way down.
+    */
+    more > 0
+      ? el("button", {
+          type: "button",
+          class: "btn btn-quiet tx-more",
+          id: "tx-more",
+          text: `Show more (${more} ${more === 1 ? "row" : "rows"} left)`,
+          onclick: () => { txShowing += TX_PAGE; renderMoney(); },
+        })
+      : entries.length > TX_PAGE
+        ? el("p", { class: "tx-end", text: `All ${entries.length} of them.` })
+        : null,
+  ].filter(Boolean));
+
+  watchTxFoot();
+}
+
+/*
+  Scrolling to the bottom is the gesture; the button is the fallback. One
+  observer, rebuilt with the foot it watches, because the node is replaced on
+  every redraw and an observer still holding the old one watches nothing.
+*/
+let txWatcher = null;
+
+function watchTxFoot() {
+  const foot = $("tx-more");
+  if (txWatcher) txWatcher.disconnect();
+  if (!foot || typeof IntersectionObserver !== "function") return;
+
+  txWatcher = new IntersectionObserver((entries) => {
+    if (!entries.some((one) => one.isIntersecting)) return;
+    txShowing += TX_PAGE;
+    renderMoney();
+  }, { rootMargin: "240px" });
+
+  txWatcher.observe(foot);
 }
 
 /* ---------- Importing ---------- */
@@ -400,6 +463,8 @@ async function importCsvText(text, { label = "that file" } = {}) {
   // A fresh import usually brings the newest month with it, and opening on an
   // empty month would look like the import had failed.
   state.moneyMonth = latestMonth();
+  // A fresh import is a different list; start it at the top.
+  resetTxPaging();
   moneyChanged();
 
   const parts = [];
@@ -2878,6 +2943,23 @@ function openWishDialog(name) {
       : el("p", { class: "empty", text: "No spending left to attach." }),
 
     el("p", { class: "field-hint", text: "An attached payment leaves the budget and the day's figure, because the money for it was put aside over months. It is still counted as money that went out, so what has been saved does not jump when you buy something." }),
+
+    /* Last, and quietest. Taking a goal off the list is a thing you mean to
+       do, not a thing you reach past on the way to something else. */
+    el("div", { class: "dialog-actions" },
+      el("button", {
+        type: "button", class: "btn btn-pass", text: "Remove this goal",
+        onclick: () => {
+          if (!window.confirm(`Take ${name} off the list? Anything attached to it goes back into the month.`)) return;
+          liveTransactions().forEach((entry) => { if (entry.wish === name) unlinkWish(entry.id); });
+          dropWish(name);
+          closeDialog(dialog);
+          moneyChanged();
+          announce(`${name} taken off the list.`);
+        },
+      }),
+      el("span", { class: "dialog-actions-spacer" }),
+      el("button", { type: "button", class: "btn btn-quiet", text: "Done", onclick: () => closeDialog(dialog) })),
   ]);
 
   openDialog(dialog);
@@ -2886,6 +2968,17 @@ function openWishDialog(name) {
 function setupWishes() {
   const form = $("wish-form");
   if (!form) return;
+
+  const open = $("wish-open");
+  if (open) {
+    open.addEventListener("click", () => {
+      const showing = form.hidden;
+      form.hidden = !showing;
+      open.setAttribute("aria-expanded", String(showing));
+      open.textContent = showing ? "Never mind" : "Add new";
+      if (showing) $("wish-name").focus();
+    });
+  }
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -2906,6 +2999,12 @@ function setupWishes() {
     $("wish-name").value = "";
     $("wish-price").value = "";
     $("wish-by").value = "";
+    /* Put away again: the list is what the card is for. */
+    form.hidden = true;
+    if (open) {
+      open.setAttribute("aria-expanded", "false");
+      open.textContent = "Add new";
+    }
     moneyChanged();
     announce(`${name} added. The month will start putting a little aside.`);
   });
@@ -2950,32 +3049,39 @@ function renderWishes() {
     el("ul", { class: "wish-list" }, plan.wishes.map((wish) => {
       const towards = wish.paid > 0 ? wish.paid : wish.saved;
       const share = Math.max(0, Math.min(1, wish.price ? towards / wish.price : 0));
+
+      /*
+        The whole box is the target, not the name inside it. A line of text
+        four millimetres tall is a thing you aim at; a card is a thing you
+        tap. There is nothing else interactive in here any more -- removing
+        one is a choice made inside the dialog, where the rest of the choices
+        about a goal already are -- so the row can simply be the button.
+      */
       return el(
         "li",
-        { class: `wish-row${wish.overdue && !wish.bought ? " is-late" : ""}${wish.bought ? " is-bought" : wish.saved >= wish.price ? " is-there" : ""}` },
-        el("div", { class: "wish-head" },
-          el("button", {
+        { class: "wish-row" },
+        el(
+          "button",
+          {
             type: "button",
-            class: "wish-name link-btn",
+            class: `wish-open${wish.overdue && !wish.bought ? " is-late" : ""}${wish.bought ? " is-bought" : wish.saved >= wish.price ? " is-there" : ""}`,
             "aria-haspopup": "dialog",
-            text: wish.name,
+            "aria-label": `${wish.name}, ${zloty(wish.price)}. Open to connect a payment to it.`,
             onclick: () => openWishDialog(wish.name),
-          }),
-          el("span", { class: "wish-price", text: zloty(wish.price) }),
-          el("button", {
-            type: "button", class: "link-btn wish-drop", text: "Remove",
-            onclick: () => { dropWish(wish.name); moneyChanged(); announce(`${wish.name} taken off the list.`); },
-          })),
-        el("div", { class: "wish-meter", role: "img",
-          "aria-label": `${zloty(wish.saved)} of ${zloty(wish.price)} put by.` },
-          el("span", { class: "wish-meter-fill", style: `width:${Math.round(share * 100)}%` })),
-        el("p", { class: "wish-note", text: wish.bought
-          ? `Paid for, ${zloty(wish.paid)} attached. Out of the budget: the money for it was put aside over months.`
-          : wish.part
-            ? `${zloty(wish.paid)} of it paid, ${zloty(wish.price - wish.paid)} still to go. Still putting money aside for the rest.`
-            : wish.saved >= wish.price
-              ? `${zloty(wish.price)} put by. Go and get it, then attach the payment.`
-              : `${zloty(wish.saved)} put by, ${zloty(wish.left)} to go at ${zloty(wish.permonth)} a month${wish.overdue ? ", and its month has been and gone" : wish.by ? ` until ${monthName(wish.by)}` : ""}.` })
+          },
+          el("span", { class: "wish-head" },
+            el("span", { class: "wish-name", text: wish.name }),
+            el("span", { class: "wish-price", text: zloty(wish.price) })),
+          el("span", { class: "wish-meter", "aria-hidden": "true" },
+            el("span", { class: "wish-meter-fill", style: `width:${Math.round(share * 100)}%` })),
+          el("span", { class: "wish-note", text: wish.bought
+            ? `Paid for, ${zloty(wish.paid)} attached. Out of the budget: the money for it was put aside over months.`
+            : wish.part
+              ? `${zloty(wish.paid)} of it paid, ${zloty(wish.price - wish.paid)} still to go. Still putting money aside for the rest.`
+              : wish.saved >= wish.price
+                ? `${zloty(wish.price)} put by. Go and get it, then attach the payment.`
+                : `${zloty(wish.saved)} put by, ${zloty(wish.left)} to go at ${zloty(wish.permonth)} a month${wish.overdue ? ", and its month has been and gone" : wish.by ? ` until ${monthName(wish.by)}` : ""}.` })
+        )
       );
     })),
 
