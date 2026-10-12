@@ -1,6 +1,6 @@
 import { cors, json } from "./_store.js";
 import { aiCheck, aiClient, aiReport, MODEL } from "./_ai.js";
-import { ANALYSIS_SYSTEM, PLAN_SYSTEM } from "./_playbook.js";
+import { ANALYSIS_SYSTEM, CLASSIFY_SYSTEM, PLAN_SYSTEM } from "./_playbook.js";
 
 /**
  * The analysis route.
@@ -8,6 +8,7 @@ import { ANALYSIS_SYSTEM, PLAN_SYSTEM } from "./_playbook.js";
  *   GET  /api/advise?action=check     is the key usable?
  *   POST /api/advise?action=analyse   read this spending and say what it means
  *   POST /api/advise?action=plan      propose budgets from this spending
+ *   POST /api/advise?action=classify  what kind of shop is each of these names
  *
  * Checking counts tokens rather than generating any, which authenticates the
  * same way a real request does and is not billed -- so it can be run as often
@@ -48,11 +49,36 @@ export default async function handler(req, res) {
     }
   }
 
-  if (action !== "analyse" && action !== "plan") {
+  if (action !== "analyse" && action !== "plan" && action !== "classify") {
     return json(res, 400, { error: "unknown-action", message: `There is no "${action}".` });
   }
 
   const body = await readBody(req);
+
+  /*
+    Filing takes a different parcel from the other two: a list of names and
+    the categories they may go in, with no figures to reason about. It is also
+    worth doing on one unknown shop, so it is not held to the week of data the
+    analysis needs.
+  */
+  if (action === "classify") {
+    const payees = Array.isArray(body && body.payees) ? body.payees : [];
+    const categories = Array.isArray(body && body.categories) ? body.categories : [];
+    if (payees.length === 0) {
+      return json(res, 200, { ok: true, thin: true, message: "Everything already has a category." });
+    }
+    if (categories.length === 0) {
+      return json(res, 200, { ok: true, thin: true, message: "There are no categories to file anything into yet." });
+    }
+    try {
+      const answer = await ask("classify", { payees: payees.slice(0, 60), categories: categories.slice(0, 30) });
+      return json(res, 200, { ok: true, action, model: MODEL, ...answer });
+    } catch (err) {
+      console.error("ai classify failed:", err.status || "", err.message);
+      return json(res, 502, { ok: false, action, ...describe(err) });
+    }
+  }
+
   const digest = body && body.digest;
   if (!digest || typeof digest !== "object") {
     return json(res, 400, { error: "no-digest", message: "Nothing was sent to analyse." });
@@ -90,6 +116,7 @@ export default async function handler(req, res) {
 const REQUIRED = {
   analyse: ["brief", "headline", "verdict", "working", "slipping"],
   plan: ["approach", "monthly", "save"],
+  classify: ["rules"],
 };
 
 const SHAPES = {
@@ -131,6 +158,41 @@ const SHAPES = {
     required: ["brief", "headline", "verdict", "working", "slipping", "cut", "change"],
   },
 
+  classify: {
+    type: "object",
+    properties: {
+      rules: {
+        type: "array",
+        maxItems: 40,
+        items: {
+          type: "object",
+          properties: {
+            category: { type: "string", description: "One of the categories they already use. Never a new one." },
+            pattern: { type: "string", description: "The part of the payee name that repeats, upper case, long enough not to catch something else. For example PLAY is too short; PLAY SA is not." },
+            payee: { type: "string", description: "The name you read it off, so they can see what you matched." },
+          },
+          required: ["category", "pattern", "payee"],
+        },
+        description: "One per payee you are confident about. Leave out anything you are not.",
+      },
+      unsure: {
+        type: "array",
+        maxItems: 15,
+        items: {
+          type: "object",
+          properties: {
+            payee: { type: "string" },
+            guess: { type: "string", description: "The category you would lean to, or empty if you have no idea at all." },
+            why: { type: "string", description: "Under fifteen words: what it might be, or what the other reading was." },
+          },
+          required: ["payee", "why"],
+        },
+        description: "Names you could not place, and ones that could honestly be two things.",
+      },
+    },
+    required: ["rules"],
+  },
+
   plan: {
     type: "object",
     properties: {
@@ -170,7 +232,9 @@ const SHAPES = {
 /** One call to Claude, answered through the tool so the shape is guaranteed. */
 async function ask(action, digest) {
   const client = aiClient();
-  const system = action === "plan" ? PLAN_SYSTEM : ANALYSIS_SYSTEM;
+  const system = action === "plan" ? PLAN_SYSTEM
+    : action === "classify" ? CLASSIFY_SYSTEM
+      : ANALYSIS_SYSTEM;
 
   const message = await client.messages.create({
     model: MODEL,
@@ -180,16 +244,23 @@ async function ask(action, digest) {
       at the ceiling comes back as half a tool call -- a headline and nothing
       under it -- which is worse than an error because it looks like an answer.
     */
-    max_tokens: action === "plan" ? 6000 : 5000,
+    max_tokens: action === "plan" ? 6000 : action === "classify" ? 8000 : 5000,
     system,
     messages: [
-      { role: "user", content: `Here is the summary of my spending.\n\n${JSON.stringify(digest, null, 1)}` },
+      {
+        role: "user",
+        content: action === "classify"
+          ? `File these payees.\n\n${JSON.stringify(digest, null, 1)}`
+          : `Here is the summary of my spending.\n\n${JSON.stringify(digest, null, 1)}`,
+      },
     ],
     tools: [{
       name: "report",
       description: action === "plan"
         ? "Report the budget you propose. Always answer by calling this."
-        : "Report what you read in the spending. Always answer by calling this.",
+        : action === "classify"
+          ? "Report what each payee is. Always answer by calling this."
+          : "Report what you read in the spending. Always answer by calling this.",
       input_schema: SHAPES[action],
     }],
     // No tool_choice: the current Opus supports neither "tool" nor "any", so

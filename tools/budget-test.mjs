@@ -323,6 +323,40 @@ console.log("\nwhat the wishes take, and what pays for them");
   check("and a comment is not either", server.parseWishes("# laptop = 4000").length, 0);
 }
 
+console.log("\nwhere the counting starts, and what has been saved");
+
+{
+  const settings = { budgets: "food = 600\nfun = 300", income: "1 = 2500" };
+  const before = { id: "old", date: "2026-09-20", amount: -90000, category: "fun", deleted: false };
+  const after = { id: "new", date: "2026-10-05", amount: -5000, category: "food", deleted: false };
+  const gift = { id: "gift", date: "2026-10-03", amount: 30000, category: "income", branch: "", deleted: false };
+
+  const fund = server.emergencyFund([before, after, gift], settings, "2026-10-12");
+  check("the fund starts on the first of October", fund.from, "2026-10-01");
+  check("and a row from before it is not in the spending", fund.spent, 5000);
+  check("nor is an allowance counted for the days before", fund.allowed < 40000, true, String(fund.allowed));
+  check("money in after it still counts", fund.extra, 30000);
+
+  const saved = server.savingsSince([before, after, gift], settings, "2026-10-12");
+  check("savings start there too", saved.from, "2026-10-01");
+  check("and run to the day asked for", saved.to, "2026-10-12");
+  check("the budget's own saving is what the plan never allocated",
+    saved.surplus, Math.round((250000 - 90000) / 31 * 12));
+  check("the unspent budget is what the days did not take", saved.unspent, saved.allowed - 5000);
+  check("and the total is the two of them", saved.total, saved.surplus + saved.unspent);
+
+  /* Spending more than the days allowed cannot make the unspent half
+     negative: nothing was saved, which is a floor rather than a debt. */
+  const heavy = server.savingsSince(
+    [{ id: "lots", date: "2026-10-02", amount: -500000, category: "fun", deleted: false }],
+    settings, "2026-10-12");
+  check("a month that overspends saves nothing rather than minus something", heavy.unspent, 0);
+  check("but the plan's own saving is still there", heavy.surplus > 0, true);
+
+  check("asked about a day before the counting starts, it does not run backwards",
+    server.savingsSince([], settings, "2026-09-01").to, "2026-09-01");
+}
+
 check("no page errors", problems, []);
 
 await browser.close();

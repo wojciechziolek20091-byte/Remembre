@@ -154,6 +154,17 @@ export function parseWishes(text) {
   return wishes;
 }
 
+/*
+  The day the counting starts.
+
+  Everything before it is somebody else's arithmetic: statements imported to
+  fill in a history, months lived before there was a budget to live inside.
+  A fund and a savings total that reach back into them are measuring a
+  stranger. Both begin here instead, and a row dated earlier is history to
+  read rather than money to count.
+*/
+export const COUNT_FROM = "2026-10-01";
+
 /** Whole months from one YYYY-MM to another, which may be negative. */
 export const monthsBetween = (from, to) => {
   const [fy, fm] = String(from).split("-").map(Number);
@@ -386,27 +397,74 @@ export function weekendPurse(rows, settings, today) {
   already paid for.
 */
 export function emergencyFund(rows, settings, date) {
+  const from = COUNT_FROM > date ? date : COUNT_FROM;
   const live = (Array.isArray(rows) ? rows : [])
-    .filter((entry) => entry && !entry.deleted && entry.date && entry.date <= date);
-  if (live.length === 0) return { extra: 0, spent: 0, allowed: 0, over: 0, left: 0 };
+    .filter((entry) => entry && !entry.deleted && entry.date && entry.date >= COUNT_FROM && entry.date <= date);
+  if (live.length === 0) return { from, extra: 0, spent: 0, allowed: 0, over: 0, left: 0 };
 
   const extra = live.filter(extraIncome).reduce((sum, entry) => sum + entry.amount, 0);
   const spent = live.filter(counts).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
 
   /*
-    What the plan allowed over the same stretch, day by day from the first day
-    there was anything to count. Day by day rather than month by month because
-    a part-finished month has only had part of its allowance.
+    What the plan allowed over the same stretch, day by day from the day the
+    counting starts. Day by day rather than month by month because a
+    part-finished month has only had part of its allowance.
   */
-  const first = live.map((entry) => entry.date).sort()[0];
   let allowed = 0;
-  for (let day = `${monthOf(first)}-01`; day <= date; day = shiftISO(day, 1)) {
-    if (day < first) continue;
+  for (let day = from; day <= date; day = shiftISO(day, 1)) {
     allowed += baseRate(weekPlan(settings, monthOf(day)), day);
   }
 
   const over = Math.max(0, spent - allowed);
-  return { extra, spent, allowed, over, left: Math.max(0, extra - over) };
+  return { from, extra, spent, allowed, over, left: Math.max(0, extra - over) };
+}
+
+/*
+  What has been saved since the counting started, in the two halves it is
+  actually made of.
+
+  The budget's own saving is what the plan brings in that the budgets never
+  claimed: money that was never going to be spent, accruing quietly whether or
+  not anybody is careful. The unspent budget is the other half and the one
+  that is earned -- what the days were allowed and did not take.
+
+  Measured to a date rather than to now, because a figure that moves every
+  time a coffee is bought is a figure nobody can hold in their head. It rolls
+  forward when a week finishes, or when the reader asks it to.
+*/
+export function savingsSince(rows, settings, date) {
+  const from = COUNT_FROM > date ? date : COUNT_FROM;
+  const live = (Array.isArray(rows) ? rows : [])
+    .filter((entry) => entry && !entry.deleted && entry.date && entry.date >= COUNT_FROM && entry.date <= date);
+
+  let allowed = 0;
+  let surplus = 0;
+  for (let day = from; day <= date; day = shiftISO(day, 1)) {
+    const key = monthOf(day);
+    const plan = weekPlan(settings, key);
+    allowed += baseRate(plan, day);
+
+    /* The plan's own surplus, spread evenly over the month's days so a
+       part-finished month contributes only its part. */
+    const budgets = parseBudgets(settings && settings.budgets);
+    const allocated = [...budgets.values()].reduce((sum, limit) => sum + limit, 0);
+    const planned = parseIncomePlan(settings && settings.income)
+      .reduce((sum, slot) => sum + slot.amount, 0);
+    surplus += Math.max(0, planned - allocated) / daysOfMonth(key).total;
+  }
+
+  const spent = live.filter(counts).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  const unspent = Math.max(0, allowed - spent);
+
+  return {
+    from,
+    to: date,
+    allowed,
+    spent,
+    unspent,
+    surplus: Math.round(surplus),
+    total: Math.round(surplus) + unspent,
+  };
 }
 
 /* The window the load is measured over: long enough for a spike to average

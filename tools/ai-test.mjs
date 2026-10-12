@@ -250,6 +250,51 @@ console.log("\nwhat the model is told before it sees a number");
     /secondary-school student/.test(playbook) && /pension/.test(playbook));
 }
 
+console.log("\nfiling the names nothing has a rule for");
+
+{
+  const { CLASSIFY_SYSTEM } = await import("../api/_playbook.js");
+
+  check("the model is told these are Polish businesses",
+    /Polish businesses/.test(CLASSIFY_SYSTEM));
+  check("and given the examples a pattern cannot know",
+    /YEMYEMY/.test(CLASSIFY_SYSTEM) && /ZABKA/.test(CLASSIFY_SYSTEM));
+  check("it may not invent a category",
+    /[Nn]ever invent a category/.test(CLASSIFY_SYSTEM));
+  check("what it returns is a pattern rather than a verdict on one payment",
+    /pattern, not a verdict/.test(CLASSIFY_SYSTEM));
+  check("and short patterns that catch other words are warned about",
+    /PLAYSTATION/.test(CLASSIFY_SYSTEM));
+  check("it is filing, not judging",
+    /filing, not judging/.test(CLASSIFY_SYSTEM));
+  check("and an honest 'I do not know' is asked for over a guess",
+    /cannot tell what a\s+name is/.test(CLASSIFY_SYSTEM.replace(/\n/g, " ")), CLASSIFY_SYSTEM.slice(-320));
+
+  /* The route refuses before it reaches the model, which is the half that
+     costs nothing and is therefore the half worth pinning. */
+  set(LOOKS_RIGHT);
+  const advise = (await import("../api/advise.js")).default;
+  const call = async (body) => new Promise((resolve) => {
+    let code = 0;
+    const res = {
+      set statusCode(status) { code = status; },
+      get statusCode() { return code; },
+      setHeader() {},
+      end(payload) { resolve({ code, body: JSON.parse(payload) }); },
+    };
+    advise({ method: "POST", url: "/api/advise?action=classify", headers: {}, body }, res);
+  });
+
+  const none = await call({ payees: [], categories: ["food"] });
+  check("with nothing loose it does not ask", none.body.thin === true, JSON.stringify(none.body));
+  check("and says so plainly", /already has a category/.test(none.body.message), none.body.message);
+
+  const noCats = await call({ payees: [{ name: "YEMYEMY", times: 3 }], categories: [] });
+  check("with no categories there is nowhere to file", noCats.body.thin === true);
+  check("which it says rather than inventing some",
+    /no categories to file anything into/.test(noCats.body.message), noCats.body.message);
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} failed:\n` + failures.map((f) => `  - ${f}`).join("\n"));
   process.exit(1);

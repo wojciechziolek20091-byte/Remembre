@@ -4329,3 +4329,30 @@ body.is-sitting { overflow: hidden; }
   .wish-form #wish-name { grid-column: 1 / -1; }
   .wish-form .btn { grid-column: 1 / -1; }
 }
+
+/* ---------- The two halves of what has been saved ---------- */
+
+.saved-split {
+  list-style: none;
+  margin: .6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .3rem;
+}
+
+.saved-split li {
+  display: flex;
+  align-items: baseline;
+  gap: .7rem;
+  font-size: .88rem;
+}
+
+.saved-split-what { color: var(--ink-2); margin-right: auto; }
+.saved-split-sum { font-variant-numeric: tabular-nums; font-weight: 650; }
+
+.saved-when {
+  margin: .55rem 0 0;
+  font-size: .8rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}

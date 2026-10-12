@@ -854,35 +854,44 @@ console.log("\nevery payment counts, and the income decides whether it hurt");
 {
   /* And the half that makes that fair: money the plan was not counting on is
      held as a fund, and while there is anything in it the overspending it
-     paid for is not worth an alarm. */
-  const fund = await page.evaluate(() => {
-    const before = emergencyNow("2026-09-20");
-    return {
-      extra: before.extra,
-      over: before.over,
-      left: before.left,
-      // The daily figure must not move when a windfall lands.
-      rateBefore: weekPlan("2026-09").weekday,
-    };
-  });
-  check("what came in outside the plan is the fund", fund.extra, 50000);
-  check("less whatever the plan could not cover", fund.left, Math.max(0, 50000 - fund.over));
+     paid for is not worth an alarm.
 
-  const unmoved = await page.evaluate(() => {
-    const was = weekPlan("2026-09").weekday;
+     October, because that is where the counting starts: a September row is
+     history imported to fill in a picture, not money this budget had a say
+     over, and the fund does not reach back into it. */
+  const fund = await page.evaluate(() => {
+    const held = state.transactions.slice();
     state.transactions.push(normaliseTransaction({
-      id: "windfall", date: "2026-09-15", amount: 200000, counterparty: "NAGRODA", category: "income",
+      id: "octgift", date: "2026-10-03", amount: 50000, counterparty: "BABCIA", category: "income",
     }));
     saveTransactions();
     classifyIncome();
-    const out = { was, now: weekPlan("2026-09").weekday, fund: emergencyNow("2026-09-20").extra };
+    const now = emergencyNow("2026-10-20");
+    const before = emergencyNow("2026-09-20");
+    state.transactions = held;
+    saveTransactions();
+    return { extra: now.extra, over: now.over, left: now.left, from: now.from, september: before.extra };
+  });
+  check("the fund starts counting on the first of October", fund.from, "2026-10-01");
+  check("what came in outside the plan is the fund", fund.extra, 50000);
+  check("less whatever the plan could not cover", fund.left, Math.max(0, 50000 - fund.over));
+  check("and September is history rather than money it counts", fund.september, 0);
+
+  const unmoved = await page.evaluate(() => {
+    const was = weekPlan("2026-10").weekday;
+    state.transactions.push(normaliseTransaction({
+      id: "windfall", date: "2026-10-15", amount: 200000, counterparty: "NAGRODA", category: "income",
+    }));
+    saveTransactions();
+    classifyIncome();
+    const out = { was, now: weekPlan("2026-10").weekday, fund: emergencyNow("2026-10-20").extra };
 
     // The blocks after this one count on the fixture as it was.
     state.transactions = state.transactions.filter((entry) => entry.id !== "windfall");
     saveTransactions();
     return out;
   });
-  check("a windfall is in the fund", unmoved.fund, 250000);
+  check("a windfall is in the fund", unmoved.fund, 200000);
   check("and changes nothing about what a day is worth", unmoved.now, unmoved.was);
 }
 
@@ -903,14 +912,14 @@ console.log("\nevery payment counts, and the income decides whether it hurt");
     state.transactions = [];
     writeStore("remembre.moneybudgets.v1", "food = 600");
     writeStore("remembre.incomeplan.v1", "600 on the 1st");
-    const today = "2026-09-20";
+    const today = "2026-10-20";
     [0, 1, 2].forEach((back) => state.transactions.push(day(shiftISO(today, -back), -20000)));
     saveTransactions();
     const bare = pressureNow(today);
 
     // The same days, with more than enough having come in outside the plan.
     state.transactions.push(normaliseTransaction({
-      id: "gift", date: "2026-09-10", amount: 300000, counterparty: "BABCIA", category: "income",
+      id: "gift", date: "2026-10-10", amount: 300000, counterparty: "BABCIA", category: "income",
     }));
     saveTransactions();
     const paid = pressureNow(today);
@@ -1456,88 +1465,94 @@ console.log("\nthe ceiling under the saving");
 console.log("\nmoney saved");
 
 {
-  const saved = await page.evaluate(async () => {
+  /* Saving is two things added together and the card says both: the plan's
+     own surplus, which accrues whether or not anybody is careful, and the
+     budget the days were allowed and did not take. */
+  const saved = await page.evaluate(() => {
     state.transactions = [];
-    writeStore("remembre.incomeplan.v1", DEFAULT_INCOME_PLAN);
-    // The count starts where it was asked to start; this fixture is about the
-    // months before that, so it says where.
-    writeStore("remembre.savedfrom.v1", "2026-08");
-    const add = (date, amount, category) => state.transactions.push(normaliseTransaction({
-      id: `${date}-${amount}`, date, amount, category, counterparty: amount > 0 ? "MAMA" : "ZABKA",
-    }));
-
-    // Two finished months: one kept something, one did not.
-    ["2026-08", "2026-09"].forEach((month, i) => {
-      [1, 8, 15, 22].forEach((day, slot) => {
-        add(`${month}-${String(day).padStart(2, "0")}`, slot === 0 ? 70000 : 60000, "income");
-      });
-      add(`${month}-05`, i === 0 ? -100000 : -260000, "food");
-    });
+    localStorage.removeItem("remembre.savedto.v1");
+    localStorage.removeItem("remembre.wishes.v1");
+    writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 300");
+    writeStore("remembre.incomeplan.v1", "1 = 2500");
+    state.transactions = [
+      normaliseTransaction({ id: "early", date: "2026-09-20", amount: -90000, counterparty: "ZABKA", category: "food" }),
+      normaliseTransaction({ id: "inside", date: "2026-10-05", amount: -5000, counterparty: "ZABKA", category: "food" }),
+    ];
     saveTransactions();
-    classifyIncome();
     renderSaved();
 
-    const standing = savingsStanding();
+    const read = savingsNow("2026-10-12");
     return {
-      total: standing.total,
-      months: standing.months.map((row) => [row.key, row.saved]),
-      best: standing.best ? standing.best.key : "",
-      figure: document.querySelector(".saved-figure").textContent,
-      rows: document.querySelectorAll(".saved-month").length,
-      note: document.querySelector("#money-saved .kpi-note").textContent,
+      read,
+      figure: (document.querySelector(".saved-figure") || {}).textContent || "",
+      halves: [...document.querySelectorAll(".saved-split li")].map((n) => n.textContent),
+      when: (document.querySelector(".saved-when") || {}).textContent || "",
     };
   });
 
-  check("each month's saving is what came in less what went out",
-    saved.months, [["2026-08", 150000], ["2026-09", -10000]]);
-  check("the box leads with the run of them", saved.total, 140000);
-  check("and prints it", /1 400,00 zł/.test(saved.figure), true, saved.figure);
-  check("with a row per month", saved.rows, 2);
-  check("the best month is named", saved.best, "2026-08");
-  check("and it says how many months kept anything", /1 of 2 finished months/.test(saved.note), true, saved.note);
-  check("naming where the count starts", /Since August 2026/.test(saved.note), true, saved.note);
+  check("the counting starts on the first of October", saved.read.from, "2026-10-01");
+  check("so a September payment is not in the spending", saved.read.spent, 5000);
+  check("the plan's own surplus is one half", saved.read.surplus > 0, true, String(saved.read.surplus));
+  check("what the days did not take is the other", saved.read.unspent, saved.read.allowed - 5000);
+  check("and the total is the two added", saved.read.total, saved.read.surplus + saved.read.unspent);
+  check("the card prints the total", /zł/.test(saved.figure), true, saved.figure);
+  check("and names both halves",
+    saved.halves.some((one) => /budget's own saving/.test(one))
+    && saved.halves.some((one) => /left unspent/.test(one)), true, JSON.stringify(saved.halves));
+  check("with the day it was worked out to", /From October 2026 to \d{4}-\d{2}-\d{2}/.test(saved.when), true, saved.when);
+
+  /* Spending past what the days allowed saves nothing; it does not go
+     negative, because what a bad month produced is not savings of minus. */
+  const heavy = await page.evaluate(() => {
+    state.transactions.push(normaliseTransaction({
+      id: "lots", date: "2026-10-06", amount: -500000, counterparty: "LOT", category: "fun",
+    }));
+    saveTransactions();
+    return savingsNow("2026-10-12");
+  });
+  check("a run of overspending saves nothing rather than minus something", heavy.unspent, 0);
+  check("but the plan's own saving is still there", heavy.surplus > 0, true);
 }
 
 {
-  // Months before the start are not counted and not shown.
-  const later = await page.evaluate(() => {
-    writeStore("remembre.savedfrom.v1", "2026-09");
-    renderSaved();
-    const standing = savingsStanding();
-    return {
-      months: standing.months.map((row) => row.key),
-      total: standing.total,
-      rows: document.querySelectorAll(".saved-month").length,
-    };
-  });
-  check("an earlier month is left out of the rows", later.months, ["2026-09"]);
-  check("and out of the total", later.total, -10000);
-  check("with the card showing only what it counts", later.rows, 1);
+  /* It rolls on when a week finishes rather than moving under you, and there
+     is a button for the impatient. */
+  const rolled = await page.evaluate(() => {
+    localStorage.removeItem("remembre.savedto.v1");
+    const today = todayISO();
+    const weekly = savedTo(today);
+    const day = new Date(`${today}T00:00:00Z`).getUTCDay();
 
-  const fresh = await page.evaluate(() => {
-    writeStore("remembre.savedfrom.v1", "2026-12");
-    renderSaved();
-    return {
-      figure: document.querySelector(".saved-figure").textContent,
-      note: document.querySelector("#money-saved .kpi-note").textContent,
-    };
-  });
-  check("a start month with nothing in it yet reads as zero", /0,00 zł/.test(fresh.figure), true, fresh.figure);
-  check("and says what it is waiting for", /Counting from December 2026/.test(fresh.note), true, fresh.note);
-}
+    rollSavings(today);
+    const asked = savedTo(today);
 
-{
-  // A month that went backwards is not dressed up as a saving.
-  const negative = await page.evaluate(() => {
-    // Back to the start month this section built its fixture around.
-    writeStore("remembre.savedfrom.v1", "2026-08");
-    renderSaved();
-    const row = [...document.querySelectorAll(".saved-month")]
-      .find((n) => /Sep/.test(n.textContent));
-    return { marked: row.className, sum: row.querySelector(".saved-sum").textContent };
+    localStorage.removeItem("remembre.savedto.v1");
+    return { weekly, asked, today, day, back: savedTo(today) };
   });
-  check("a month that lost money is marked as one", /is-negative/.test(negative.marked), true);
-  check("and shows the loss", /−100,00 zł/.test(negative.sum), true, negative.sum);
+
+  check("on its own it only counts to the end of the last finished week",
+    rolled.weekly <= rolled.today, true, `${rolled.weekly} vs ${rolled.today}`);
+  check("which is a Sunday",
+    new Date(`${rolled.weekly}T00:00:00Z`).getUTCDay(), 0);
+  check("asking for it now brings it up to today", rolled.asked, rolled.today);
+  check("and with nothing stored it is back to the week", rolled.back, rolled.weekly);
+
+  const pressed = await page.evaluate(() => {
+    localStorage.removeItem("remembre.savedto.v1");
+    renderSaved();
+    const button = [...document.querySelectorAll("#money-saved button")]
+      .find((b) => /Work it out now/.test(b.textContent));
+    button.click();
+    return { stored: readStore("remembre.savedto.v1", ""), to: savingsNow().to };
+  });
+  check("the button on the card is what does it", pressed.stored, await page.evaluate(() => todayISO()));
+  check("and the figure then counts to today", pressed.to, await page.evaluate(() => todayISO()));
+
+  await page.evaluate(() => {
+    localStorage.removeItem("remembre.savedto.v1");
+    state.transactions = [];
+    saveTransactions();
+  });
 }
 
 console.log("\ntoday's budget on the page");
@@ -2140,6 +2155,97 @@ console.log("\nthe guard, and where the money came from");
     ledger[2], ["Out, against the month", "−750,00 zł", "in the month"]);
   check("and only a transfer is kept apart",
     ledger[3], ["Moved between your own accounts", "−100,00 zł", "kept apart"]);
+}
+
+console.log("\nletting the AI file the loose ones");
+
+{
+  /* The complaint this answers: YEMYEMY sitting under "other" for ever,
+     because a rules file written by hand cannot know what every shop is. */
+  const loose = await page.evaluate(() => {
+    writeStore("remembre.moneybudgets.v1", "food = 600\ntransport = 120\nfun = 180");
+    writeStore(MONEY_RULES_KEY, "food = ZABKA\ntransport = MPK");
+    const today = todayISO();
+    state.transactions = [
+      normaliseTransaction({ id: "y1", date: today, amount: -3200, counterparty: "YEMYEMY", category: "other" }),
+      normaliseTransaction({ id: "y2", date: today, amount: -2800, counterparty: "YEMYEMY *ORDER", category: "other" }),
+      normaliseTransaction({ id: "z1", date: today, amount: -1500, counterparty: "ZABKA Z1234", category: "food" }),
+      normaliseTransaction({ id: "k1", date: today, amount: -9000, counterparty: "KINO KIJOW", category: "other" }),
+      normaliseTransaction({ id: "mine", date: today, amount: -4000, counterparty: "SOMETHING", category: "other", fixed: true }),
+    ];
+    saveTransactions();
+    return loosePayees();
+  });
+
+  check("only what is sitting in other is asked about",
+    loose.map((one) => one.name).sort(), ["KINO KIJOW", "YEMYEMY", "YEMYEMY *ORDER"]);
+  check("with how often each turned up", loose.find((one) => one.name === "YEMYEMY").times, 1);
+  check("and what it came to, in whole zloty", loose.find((one) => one.name === "KINO KIJOW").zloty, 90);
+
+  const filed = await page.evaluate(async () => {
+    const real = window.fetch;
+    let sent = null;
+    window.fetch = async (url, options) => {
+      if (String(url).includes("action=classify")) {
+        sent = JSON.parse(options.body);
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            ok: true,
+            result: {
+              rules: [
+                { category: "food", pattern: "YEMYEMY", payee: "YEMYEMY" },
+                { category: "fun", pattern: "KINO", payee: "KINO KIJOW" },
+                /* One the reader does not have a budget for, and one already
+                   covered: neither should reach the box. */
+                { category: "holidays", pattern: "RYANAIR", payee: "RYANAIR" },
+                { category: "food", pattern: "ZABKA", payee: "ZABKA Z1234" },
+              ],
+              unsure: [{ payee: "PRZELEW", guess: "", why: "looks like a person, not a shop" }],
+            },
+          }),
+        };
+      }
+      return real(url, options);
+    };
+
+    const out = await aiClassify();
+    window.fetch = real;
+    return {
+      out,
+      sent,
+      rules: rulesText(),
+      categories: liveTransactions().map((e) => [e.id, e.category]).sort(),
+      status: ($("money-rules-status") || {}).textContent || "",
+      box: ($("money-rules") || {}).value || "",
+    };
+  });
+
+  check("the categories it may use are the ones with budgets",
+    filed.sent.categories.sort(), ["food", "fun", "transport"]);
+  check("two names are filed", filed.out.added, 2);
+  check("a category the reader has no budget for is refused",
+    /holidays/.test(filed.rules), false, filed.rules);
+  check("and a pattern already in the rules is not written twice",
+    (filed.rules.match(/ZABKA/g) || []).length, 1, filed.rules);
+  check("the new pattern joins its category's own line",
+    /food = ZABKA, YEMYEMY/.test(filed.rules), true, filed.rules);
+  check("a category with no line yet gets one", /fun = KINO/.test(filed.rules), true, filed.rules);
+
+  check("both YEMYEMY payments move to food",
+    filed.categories.filter(([id]) => id.startsWith("y")).every(([, cat]) => cat === "food"), true,
+    JSON.stringify(filed.categories));
+  check("the cinema moves to fun",
+    filed.categories.find(([id]) => id === "k1")[1], "fun");
+  check("one the reader set by hand is left alone",
+    filed.categories.find(([id]) => id === "mine")[1], "other");
+
+  check("the box on screen shows what was written", /YEMYEMY/.test(filed.box), true);
+  check("and what it could not place is said rather than guessed",
+    /PRZELEW/.test(filed.status), true, filed.status);
+
+  const again = await page.evaluate(() => loosePayees().map((one) => one.name));
+  check("asking again has nothing left to ask about", again, []);
 }
 
 console.log("\nsaving up for something");

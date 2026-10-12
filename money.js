@@ -660,7 +660,144 @@ function renderRules() {
   status.classList.toggle("is-stale", loose > 0);
 }
 
+/*
+  Filing the loose ones.
+
+  A rules file written by hand cannot keep up with a Polish statement: it is
+  full of names that mean nothing to a pattern and everything to anybody who
+  has walked past the sign. So the names still sitting in "other" go to the
+  model, which knows what the shops are, and what comes back is written as
+  rules rather than as categories on individual payments -- a rule files the
+  next YEMYEMY as well as this one, and stays visible and editable in the box
+  where every other rule lives.
+*/
+function loosePayees() {
+  const rules = parseRules(rulesText());
+  const known = new Set();
+  rules.forEach((rule) => rule.patterns.forEach((pattern) => known.add(pattern)));
+
+  const payees = new Map();
+  liveTransactions()
+    .filter((entry) => SPENT_OUT(entry) && (entry.category || "other") === "other" && !entry.fixed)
+    .forEach((entry) => {
+      const name = (entry.counterparty || entry.title || entry.description || "").trim().slice(0, 48);
+      if (!name) return;
+      /* Already matched by a rule and still "other" means the reader has
+         decided; do not ask about it again. */
+      if ([...known].some((pattern) => fold(name).includes(pattern))) return;
+      const held = payees.get(name) || { name, count: 0, total: 0 };
+      held.count += 1;
+      held.total += Math.abs(entry.amount);
+      payees.set(name, held);
+    });
+
+  return [...payees.values()]
+    .sort((a, b) => b.total - a.total || b.count - a.count)
+    .slice(0, 60)
+    .map((row) => ({ name: row.name, times: row.count, zloty: Math.round(row.total / 100) }));
+}
+
+async function aiClassify() {
+  const button = $("money-rules-sort");
+  const status = $("money-rules-status");
+  const payees = loosePayees();
+
+  if (payees.length === 0) {
+    if (status) status.textContent = "Nothing is sitting in other. There is nothing to file.";
+    return null;
+  }
+
+  const was = button ? button.textContent : "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Reading the names\u2026";
+  }
+  if (status) status.textContent = `Asking about ${payees.length} ${payees.length === 1 ? "name" : "names"}\u2026`;
+
+  try {
+    const res = await fetch("/api/advise?action=classify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payees, categories: [...parseBudgets(budgetsText()).keys()] }),
+      cache: "no-store",
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || body.ok !== true) {
+      throw new Error((body && body.message) || `The server answered ${res.status}.`);
+    }
+    if (body.thin) {
+      if (status) status.textContent = body.message;
+      return null;
+    }
+
+    const found = Array.isArray(body.result && body.result.rules) ? body.result.rules : [];
+    const unsure = Array.isArray(body.result && body.result.unsure) ? body.result.unsure : [];
+    const added = foldInRules(found);
+
+    const changed = recategorise();
+    moneyChanged();
+
+    const said = added === 0
+      ? "Nothing new to file."
+      : `${added} ${added === 1 ? "name" : "names"} filed, ${changed} ${changed === 1 ? "payment" : "payments"} moved.`;
+    const left = unsure.length
+      ? ` ${unsure.length} it could not place: ${unsure.slice(0, 4).map((one) => one.payee).join(", ")}.`
+      : "";
+    if (status) status.textContent = said + left;
+    announce(said);
+    return { added, changed, unsure };
+  } catch (err) {
+    if (status) status.textContent = `Could not file them: ${err.message}`;
+    return null;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = was;
+    }
+  }
+}
+
+/**
+ * Writes what came back into the rules text, one pattern at a time.
+ *
+ * Appended to the category's existing line where it has one, so the box stays
+ * a readable list rather than growing a second entry for every shop; and a
+ * pattern already present is skipped, because asking twice must not double it.
+ */
+function foldInRules(found) {
+  const lines = rulesText().split(/\r?\n/);
+  const allowed = new Set(parseBudgets(budgetsText()).keys());
+  let added = 0;
+
+  found.forEach((rule) => {
+    const category = String(rule && rule.category || "").trim().toLowerCase();
+    const pattern = String(rule && rule.pattern || "").trim().toUpperCase();
+    if (!category || !pattern || pattern.length < 3) return;
+    if (!allowed.has(category)) return;
+    if (parseRules(lines.join("\n")).some((held) => held.patterns.includes(fold(pattern)))) return;
+
+    const at = lines.findIndex((line) => {
+      const mark = line.indexOf("=");
+      return mark !== -1 && line.slice(0, mark).trim().toLowerCase() === category;
+    });
+    if (at === -1) lines.push(`${category} = ${pattern}`);
+    else lines[at] = `${lines[at].replace(/[\s,]+$/, "")}, ${pattern}`;
+    added += 1;
+  });
+
+  if (added > 0) {
+    writeStore(MONEY_RULES_KEY, lines.join("\n"));
+    touchMoneySettings();
+    const box = $("money-rules");
+    if (box) box.value = rulesText();
+  }
+  return added;
+}
+
 function setupRules() {
+  const sort = $("money-rules-sort");
+  if (sort) sort.addEventListener("click", () => aiClassify());
+
   $("money-rules-save").addEventListener("click", () => {
     writeStore(MONEY_RULES_KEY, $("money-rules").value);
     touchMoneySettings();
@@ -2480,6 +2617,12 @@ function weekPlan(monthKey = state.moneyMonth || latestMonth()) {
   };
 }
 
+/*
+  The day the counting starts. Everything before it is history imported to
+  fill in a picture, not money this budget ever had a say over.
+*/
+const COUNT_FROM = "2026-10-01";
+
 /* ---------- Things you are saving up for ---------- */
 
 /*
@@ -2940,10 +3083,9 @@ const MONEY_SAVED_FROM = "remembre.savedfrom.v1";
 
 function savedFrom() {
   const held = readStore(MONEY_SAVED_FROM, "");
-  if (/^\d{4}-\d{2}$/.test(held)) return held;
-  const now = monthOf(todayISO());
-  writeStore(MONEY_SAVED_FROM, now);
-  return now;
+  /* Pinned to where the counting starts rather than to whenever the app was
+     first opened, so two devices agree and a reinstall does not reset it. */
+  return /^\d{4}-\d{2}$/.test(held) && held >= monthOf(COUNT_FROM) ? held : monthOf(COUNT_FROM);
 }
 
 function savingsByMonth() {
@@ -2985,7 +3127,8 @@ function renderSaved() {
 
   const standing = savingsStanding();
   const fund = emergencyNow();
-  const since = monthName(standing.from);
+  const saved = savingsNow();
+  const since = monthName(monthOf(COUNT_FROM));
 
   if (standing.months.length === 0) {
     show(wrap, [
@@ -2998,23 +3141,31 @@ function renderSaved() {
 
   const biggest = Math.max(1, ...standing.months.map((row) => Math.abs(row.saved)));
 
-  /*
-    A box headed "money saved" showing a red negative is a box arguing with
-    its own title. What a month in deficit has produced is not savings of a
-    negative amount: it is nothing saved, and an overspend to name separately.
-  */
-  const behind = standing.total < 0;
-
   show(wrap, [
-    el("p", { class: "card-title", text: behind ? "Nothing saved yet" : "Money saved" }),
-    el("p", { class: `saved-figure${behind ? " is-waiting" : ""}`,
-      text: behind ? zloty(0) : zloty(standing.total) }),
-    el("p", { class: "kpi-note", text: behind
-      ? `Since ${since}, ${zloty(Math.abs(standing.total))} more has gone out than came in. A month that ends with money left is the one that counts here.`
-      : standing.done.length === 0
-        ? `Since ${since}. A month that ends with money left is a month saved.`
-        : `Since ${since}. ${standing.kept} of ${standing.done.length} finished months kept something.` }),
+    el("div", { class: "kpi-head" },
+      el("p", { class: "card-title", text: "Money saved" }),
+      el("button", {
+        type: "button",
+        class: "btn btn-quiet btn-tiny",
+        text: "Work it out now",
+        title: `Worked out to ${saved.to}.`,
+        onclick: () => { rollSavings(); moneyChanged(); announce("Savings worked out to today."); },
+      })),
+    el("p", { class: "saved-figure", text: zloty(saved.total) }),
 
+    /*
+      Both halves, named. One of them is the plan saving money by itself and
+      the other is the reader not spending what they were allowed, and a
+      single total hides which of the two is doing the work.
+    */
+    el("ul", { class: "saved-split" },
+      el("li", {},
+        el("span", { class: "saved-split-what", text: "The budget's own saving" }),
+        el("span", { class: "saved-split-sum", text: zloty(saved.surplus) })),
+      el("li", {},
+        el("span", { class: "saved-split-what", text: "Budget left unspent" }),
+        el("span", { class: "saved-split-sum", text: zloty(saved.unspent) }))),
+    el("p", { class: "saved-when", text: `From ${since} to ${saved.to}. It moves on when a week finishes.` }),
     /*
       The emergency budget sits here rather than on the daily card on purpose.
       It is savings -- money that came in and was not spent -- and the one
@@ -3515,23 +3666,90 @@ function pressureNow(date = todayISO()) {
   windfall nobody can point at in March.
 */
 function emergencyNow(date = todayISO()) {
-  const live = liveTransactions().filter((entry) => entry.date && entry.date <= date);
-  if (live.length === 0) return { extra: 0, spent: 0, allowed: 0, over: 0, left: 0 };
+  const from = COUNT_FROM > date ? date : COUNT_FROM;
+  const live = liveTransactions()
+    .filter((entry) => entry.date && entry.date >= COUNT_FROM && entry.date <= date);
+  if (live.length === 0) return { from, extra: 0, spent: 0, allowed: 0, over: 0, left: 0 };
 
   const extra = live.filter(EXTRA_IN).reduce((sum, entry) => sum + entry.amount, 0);
   const spent = live.filter(SPENT_OUT).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
 
-  const first = live.map((entry) => entry.date).sort()[0];
   let allowed = 0;
-  for (let day = `${monthOf(first)}-01`; day <= date; day = shiftISO(day, 1)) {
-    if (day < first) continue;
+  for (let day = from; day <= date; day = shiftISO(day, 1)) {
     const plan = weekPlan(monthOf(day));
     if (!plan.spendable) continue;
     allowed += isWeekend(day) ? plan.weekend : plan.weekday;
   }
 
   const over = Math.max(0, spent - allowed);
-  return { extra, spent, allowed, over, left: Math.max(0, extra - over) };
+  return { from, extra, spent, allowed, over, left: Math.max(0, extra - over) };
+}
+
+/* ---------- What has been saved, and when it was last worked out ---------- */
+
+/*
+  Saving is two things added together and the page should say both.
+
+  The budget's own saving is what the plan brings in that the budgets never
+  claimed -- money that was never going to be spent, accruing whether or not
+  anybody is careful. The unspent budget is the half that is earned: what the
+  days were allowed and did not take.
+
+  It is worked out to a date rather than to this second. A savings figure that
+  drops every time a coffee is bought is one nobody can hold in their head, so
+  it rolls forward when a week finishes, and there is a button for the
+  impatient.
+*/
+const MONEY_SAVED_TO = "remembre.savedto.v1";
+
+/** The Sunday that most recently finished, which is as far as a week has run. */
+function lastWeekEnd(today = todayISO()) {
+  const day = new Date(`${today}T00:00:00Z`).getUTCDay();   // 0 is Sunday
+  return shiftISO(today, -day);
+}
+
+/**
+ * How far the savings figure has been worked out to: the end of the last
+ * finished week, or further if the reader has asked for it since.
+ */
+function savedTo(today = todayISO()) {
+  const held = readStore(MONEY_SAVED_TO, "");
+  const weekly = lastWeekEnd(today);
+  const mark = /^\d{4}-\d{2}-\d{2}$/.test(held) && held > weekly ? held : weekly;
+  return mark > today ? today : mark;
+}
+
+/** The button, and the roll a finished week does on its own. */
+function rollSavings(to = todayISO()) {
+  writeStore(MONEY_SAVED_TO, to);
+}
+
+function savingsNow(date = savedTo()) {
+  const from = COUNT_FROM > date ? date : COUNT_FROM;
+  const live = liveTransactions()
+    .filter((entry) => entry.date && entry.date >= COUNT_FROM && entry.date <= date);
+
+  let allowed = 0;
+  let surplus = 0;
+  const budgets = parseBudgets(budgetsText());
+  const allocated = [...budgets.values()].reduce((sum, limit) => sum + limit, 0);
+  const planned = plannedMonthly();
+
+  for (let day = from; day <= date; day = shiftISO(day, 1)) {
+    const key = monthOf(day);
+    const plan = weekPlan(key);
+    allowed += isWeekend(day) ? plan.weekend : plan.weekday;
+    surplus += Math.max(0, planned - allocated) / daysOfMonth(key).total;
+  }
+
+  const spent = live.filter(SPENT_OUT).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  const unspent = Math.max(0, allowed - spent);
+
+  return {
+    from, to: date, allowed, spent, unspent,
+    surplus: Math.round(surplus),
+    total: Math.round(surplus) + unspent,
+  };
 }
 
 /**

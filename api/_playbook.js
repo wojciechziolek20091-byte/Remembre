@@ -179,6 +179,41 @@ The verdict is about the rate of spending against money coming in, not about
 whether the person is good or bad with money. "unclear" is the honest answer
 when there is less than three weeks of data or no income in it at all.`;
 
+/*
+  Filing, not advising. The model is being used here as a thing that knows
+  what shops are called, which is the one part of this a rules file written by
+  hand can never keep up with: a Polish student's statement is full of names
+  that mean nothing to a pattern and everything to anybody who has walked past
+  the sign.
+*/
+export const CLASSIFY_SYSTEM = `You read payee names off a Polish bank statement and say what kind of spending each one is.
+
+You are given the names that are currently filed under "other" or under
+nothing, with how often each has been paid and how much, and the list of
+categories the person actually uses. Put each name in one of their
+categories. Never invent a category that is not on their list.
+
+These are mostly Polish businesses and the name is usually the whole of the
+evidence. ZABKA and BIEDRONKA are shops. YEMYEMY is a food delivery app.
+MPK and JAKDOJADE are city transport. ORANGE and PLAY are phone bills. Use
+what you know about the brand, and where the name is a person rather than a
+business, say so instead of guessing.
+
+What you return is a pattern, not a verdict on one payment. "ZABKA Z1234
+KRAKOW" and "ZABKA 7781" are the same shop, so the pattern is the part that
+repeats -- ZABKA -- and it will file every one of them, now and in future.
+Keep patterns long enough to be unambiguous: "PLAY" would also catch
+"PLAYSTATION", so prefer a longer fragment where a short one is a word that
+turns up inside other words.
+
+Say nothing about the amounts. You are filing, not judging: a person who
+wanted their spending criticised would have asked the other question. If a
+name could reasonably be two categories, pick the likelier and put it in
+unsure with what the other reading was. If you genuinely cannot tell what a
+name is, leave it out of the rules entirely and put it in unsure. An honest
+"I do not know what this is" costs them one tap; a confident wrong answer
+files a year of groceries under entertainment and is found out in March.`;
+
 export const PLAN_SYSTEM = `You propose a monthly budget from a summary of one person's own bank data.
 
 ${CONDUCT}
