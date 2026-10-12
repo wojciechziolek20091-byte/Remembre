@@ -285,7 +285,15 @@ function normaliseTransaction(raw) {
       the figure may still move, and is cleared when the booked twin arrives.
     */
     pending: raw.pending === true,
-    source: raw.source === "api" ? "api" : "csv",
+    /*
+      Where the record came from. "api" is the bank over PSD2, "csv" is a
+      statement you exported, and "hand" is one you typed in yourself --
+      a purchase the bank's own window does not reach back far enough to
+      include, which is the only honest way to attach it to the goal it
+      bought. The page says which, because a figure you typed and a figure
+      the bank reported are not the same kind of fact.
+    */
+    source: ["api", "hand"].includes(raw.source) ? raw.source : "csv",
     deleted: raw.deleted === true,
     createdAt,
     updatedAt: typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : createdAt,
@@ -315,6 +323,7 @@ function mergeTransactions(incoming) {
   const byId = new Map(state.transactions.map((entry) => [entry.id, entry]));
   let added = 0;
   let already = 0;
+  let replaced = 0;
 
   incoming.forEach((row) => {
     if (byId.has(row.id)) {
@@ -323,12 +332,33 @@ function mergeTransactions(incoming) {
     }
     const record = normaliseTransaction({ ...row, source: "csv" });
     if (!record) return;
+    /*
+      A payment typed in by hand because no statement reached it, and then a
+      statement that does. The bank's record is the true one, so it takes the
+      place of what was typed rather than sitting beside it -- otherwise the
+      month would be charged twice for one purchase. Whatever the typed one
+      was attached to comes across, because that is the part the bank does
+      not know.
+    */
+    const typed = state.transactions.find((entry) =>
+      entry.source === "hand" && !entry.deleted
+      && entry.date === record.date && entry.amount === record.amount);
+    if (typed) {
+      if (typed.wish && !record.wish) record.wish = typed.wish;
+      if (typed.category && !record.category) {
+        record.category = typed.category;
+        record.fixed = typed.fixed;
+      }
+      typed.deleted = true;
+      typed.updatedAt = new Date().toISOString();
+      replaced += 1;
+    }
     state.transactions.push(record);
     byId.set(record.id, record);
     added += 1;
   });
 
-  return { added, already };
+  return { added, already, replaced };
 }
 
 /* ---------- Showing them ---------- */
@@ -2577,6 +2607,9 @@ function txRow(entry, { showCategory = true } = {}) {
     el("span", { class: "tx-date", text: entry.date.slice(5) }),
     el("span", { class: "tx-what" },
       el("span", { class: "tx-title", text: entry.counterparty || entry.title || entry.description || "-" }),
+      /* A figure you typed and a figure the bank reported are not the same
+         kind of fact, and the list has to be able to say which is which. */
+      entry.source === "hand" ? el("span", { class: "tx-typed", text: "typed in" }) : null,
       entry.title && entry.counterparty ? el("span", { class: "tx-note", text: entry.title }) : null),
     el("span", { class: `tx-amount${entry.amount > 0 ? " is-in" : ""}`, text: zloty(entry.amount) }),
     showCategory
@@ -2852,6 +2885,54 @@ function linkWish(name, id) {
   return true;
 }
 
+/**
+ * Records a payment nobody's statement reaches, already attached to the goal
+ * it bought.
+ *
+ * The bank only hands back ninety days, and a CSV only covers what was asked
+ * for, so a thing bought in the spring and saved for since is simply not in
+ * the list the goal offers you. Typing it in is the only way to say that the
+ * goal was answered, and the alternative -- leaving the goal open against a
+ * pair of shoes already in the wardrobe -- goes on taking money out of every
+ * month for something that is already paid for.
+ *
+ * It is a real payment and counts like one: money went out, the savings it
+ * came out of go down by what it cost, and the daily figure is left alone,
+ * which is exactly what an attached payment does when the bank reported it.
+ * It is marked as typed so the page never passes it off as the bank's word,
+ * and so a statement that later reaches it can take its place.
+ */
+function addWishPayment(name, { what, amount, date } = {}) {
+  const grosze = Math.round(Number(amount));
+  if (!Number.isFinite(grosze) || grosze <= 0) return null;
+  const when = /^\d{4}-\d{2}-\d{2}$/.test(String(date)) ? String(date) : todayISO();
+  const said = String(what || "").trim().slice(0, 200);
+  if (!said) return null;
+
+  const now = new Date().toISOString();
+  const record = normaliseTransaction({
+    id: `hand-${newId()}`,
+    date: when,
+    booked: when,
+    counterparty: said,
+    title: said,
+    description: `Typed in and attached to ${name}.`,
+    amount: -grosze,
+    category: "other",
+    fixed: true,
+    wish: name,
+    source: "hand",
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!record) return null;
+
+  state.transactions.push(record);
+  saveTransactions();
+  markBought(name);
+  return record;
+}
+
 function unlinkWish(id) {
   const entry = state.transactions.find((held) => held.id === id);
   if (!entry) return false;
@@ -2888,11 +2969,19 @@ function markBought(name) {
   saveWishes(lines.join("\n"));
 }
 
+/* What was typed into the goal dialog's search box, kept across the redraw
+   the dialog does every time something is attached or detached, and dropped
+   when a different goal is opened. */
+let wishFind = "";
+let wishFindFor = "";
+
 function openWishDialog(name) {
   const dialog = $("wish-dialog");
   const wrap = $("wish-detail");
   const wish = wishPlan().wishes.find((one) => one.name === name);
   if (!dialog || !wrap || !wish) return;
+
+  if (wishFindFor !== name) { wishFind = ""; wishFindFor = name; }
 
   const title = $("wish-dialog-title");
   if (title) title.textContent = wish.name;
@@ -2904,10 +2993,22 @@ function openWishDialog(name) {
   /* What it could plausibly have been. Spending only, nothing already
      attached to another goal, newest first: a purchase you are linking is
      one you have just made. */
-  const candidates = liveTransactions()
+  const possible = liveTransactions()
     .filter((entry) => entry.amount < 0 && !entry.wish && (entry.category || "other") !== "transfers")
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 25);
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  /*
+    Twenty-five rows is the right length for a list you are glancing down and
+    the wrong one for a purchase made in March. Typing searches all of them by
+    who was paid, so the shop's name finds the payment however far back it
+    is, and the list stays short until you ask it not to be.
+  */
+  const needle = wishFind.trim().toLowerCase();
+  const found = needle
+    ? possible.filter((entry) => [entry.counterparty, entry.title, entry.description]
+        .some((field) => String(field || "").toLowerCase().includes(needle)))
+    : possible;
+  const candidates = found.slice(0, needle ? 40 : 25);
 
   const row = (entry, action, label) => el(
     "li",
@@ -2937,10 +3038,69 @@ function openWishDialog(name) {
       : null,
 
     el("p", { class: "field-label", text: linked.length ? "Attach another payment" : "Which payment bought it" }),
+
+    el("input", {
+      type: "search",
+      class: "input pick-find",
+      id: "wish-find",
+      value: wishFind,
+      placeholder: "Search by who was paid",
+      "aria-label": "Search every payment by who was paid",
+      oninput: (event) => {
+        wishFind = event.target.value;
+        const held = event.target.selectionStart;
+        openWishDialog(name);
+        const again = $("wish-find");
+        if (again) { again.focus(); try { again.setSelectionRange(held, held); } catch (err) { /* nothing */ } }
+      },
+    }),
+
     candidates.length
       ? el("ul", { class: "pick-list" }, candidates.map((entry) =>
           row(entry, (one) => linkWish(name, one.id), "This one")))
-      : el("p", { class: "empty", text: "No spending left to attach." }),
+      : el("p", { class: "empty", text: needle
+          ? `Nothing paid to anything like "${wishFind.trim()}".`
+          : "No spending left to attach." }),
+
+    !needle && found.length > candidates.length
+      ? el("p", { class: "field-hint", text: `The ${candidates.length} most recent. Search above for anything older.` })
+      : null,
+
+    /*
+      For a purchase no statement reaches. The bank hands back ninety days and
+      a file covers what was asked for; a thing bought before either of those
+      cannot be found by searching, and the goal it answered stays open until
+      it is said out loud.
+    */
+    el("details", { class: "pick-hand" },
+      el("summary", { text: "It is not here: add it by hand" }),
+      el("form", {
+        class: "hand-form",
+        onsubmit: (event) => {
+          event.preventDefault();
+          const what = $("hand-what");
+          const sum = $("hand-sum");
+          const when = $("hand-when");
+          const grosze = Math.round(Number(String(sum.value).replace(",", ".")) * 100);
+          if (!String(what.value).trim()) { what.focus(); return; }
+          if (!Number.isFinite(grosze) || grosze <= 0) { sum.focus(); return; }
+          const made = addWishPayment(name, { what: what.value, amount: grosze, date: when.value });
+          if (!made) { sum.focus(); return; }
+          moneyChanged();
+          announce(`${zloty(-made.amount)} to ${made.counterparty} attached to ${name}.`);
+          openWishDialog(name);
+        },
+      },
+        el("label", { class: "sr-only", for: "hand-what", text: "Who was paid" }),
+        el("input", { type: "text", class: "input", id: "hand-what", maxlength: "60",
+          placeholder: "Vestiaire Collective", required: "required" }),
+        el("label", { class: "sr-only", for: "hand-sum", text: "How much it was" }),
+        el("input", { type: "number", class: "input", id: "hand-sum", inputmode: "decimal",
+          step: "0.01", min: "0.01", placeholder: "1000,00", required: "required" }),
+        el("label", { class: "sr-only", for: "hand-when", text: "When it was paid" }),
+        el("input", { type: "date", class: "input", id: "hand-when", value: todayISO() }),
+        el("button", { type: "submit", class: "btn btn-primary btn-tiny", text: "Add it" })),
+      el("p", { class: "field-hint", text: "It counts as money that went out, like any other payment, and it is marked as typed rather than reported. A statement that later reaches back this far takes its place, so nothing is counted twice." })),
 
     el("p", { class: "field-hint", text: "An attached payment leaves the budget and the day's figure, because the money for it was put aside over months. It is still counted as money that went out, so what has been saved does not jump when you buy something." }),
 
@@ -2948,7 +3108,7 @@ function openWishDialog(name) {
        do, not a thing you reach past on the way to something else. */
     el("div", { class: "dialog-actions" },
       el("button", {
-        type: "button", class: "btn btn-pass", text: "Remove this goal",
+        type: "button", class: "btn btn-remove", text: "Remove this goal",
         onclick: () => {
           if (!window.confirm(`Take ${name} off the list? Anything attached to it goes back into the month.`)) return;
           liveTransactions().forEach((entry) => { if (entry.wish === name) unlinkWish(entry.id); });

@@ -163,10 +163,10 @@ console.log("\nimporting, and importing again");
     state.transactions = [];
     return importCsvText(SAMPLE_CSV, { label: "the sample" });
   });
-  check("everything lands the first time", first, { added: 6, already: 0 });
+  check("everything lands the first time", first, { added: 6, already: 0, replaced: 0 });
 
   const second = await page.evaluate(async () => importCsvText(SAMPLE_CSV, { label: "the sample" }));
-  check("and nothing lands the second time", second, { added: 0, already: 6 });
+  check("and nothing lands the second time", second, { added: 0, already: 6, replaced: 0 });
   check("so the list has not doubled",
     await page.evaluate(() => liveTransactions().length), 6);
 
@@ -183,7 +183,7 @@ console.log("\nimporting, and importing again");
     const extra = "2026-09-30;2026-09-30;PLATNOSC KARTA;ORLEN 1234;ORLEN;;-45,00 PLN;1 797,10 PLN";
     return importCsvText([...header, extra, ...kept].join("\r\n"), { label: "an overlap" });
   });
-  check("an overlapping export adds only what is new", overlap, { added: 1, already: 3 });
+  check("an overlapping export adds only what is new", overlap, { added: 1, already: 3, replaced: 0 });
   check("leaving seven in total",
     await page.evaluate(() => liveTransactions().length), 7);
 }
@@ -432,7 +432,7 @@ const TWO_MONTHS = [
     renderMoney();
     return importCsvText(SAMPLE_CSV, { label: "what you pasted" });
   });
-  check("pasted text imports like a file", pasted, { added: 6, already: 0 });
+  check("pasted text imports like a file", pasted, { added: 6, already: 0, replaced: 0 });
 
   await page.click("#money-paste-open");
   check("the paste box opens", await page.locator("#money-paste").isVisible(), true);
@@ -2439,6 +2439,142 @@ console.log("\nconnecting a goal to what bought it");
     rich.after, rich.before, `${rich.before} -> ${rich.after}`);
   check("the purchase is still counted as money that left",
     rich.onWishes, 400000);
+
+  await page.evaluate(() => {
+    closeDialog($("wish-dialog"));
+    localStorage.removeItem("remembre.wishes.v1");
+    state.transactions = [];
+    saveTransactions();
+    moneyChanged();
+  });
+}
+
+console.log("\nfinding the payment, or saying it out loud");
+
+{
+  /*
+    The complaint this answers: a pair of shoes bought in the spring, saved
+    for ever since, and no way to say so. The picker offers the twenty-five
+    most recent payments and the bank hands back ninety days, so a purchase
+    older than either is not in the list and cannot be put there.
+  */
+  const far = await page.evaluate(() => {
+    writeStore("remembre.wishes.v1", "louboutins = 2400 by 2027-03");
+    const rows = [];
+    // Thirty recent payments, so the one we are after is well off the end.
+    for (let i = 1; i <= 30; i += 1) {
+      rows.push(normaliseTransaction({
+        id: `r${i}`, date: `2026-10-${String(i % 28 + 1).padStart(2, "0")}`,
+        amount: -2000, counterparty: `SHOP ${i}`, category: "other",
+      }));
+    }
+    rows.push(normaliseTransaction({
+      id: "old", date: "2026-04-18", amount: -149900,
+      counterparty: "VESTIAIRE COLLECTIVE", category: "other",
+    }));
+    state.transactions = rows;
+    saveTransactions();
+    moneyChanged();
+    renderWishes();
+    document.querySelector(".wish-open").click();
+    const before = [...document.querySelectorAll("#wish-detail .pick-what")].map((n) => n.textContent);
+    const find = $("wish-find");
+    find.value = "vestiaire";
+    find.dispatchEvent(new Event("input", { bubbles: true }));
+    const after = [...document.querySelectorAll("#wish-detail .pick-what")].map((n) => n.textContent);
+    return { before, after, box: Boolean(find) };
+  });
+  check("the picker has a search box", far.box, true);
+  check("a payment past the twenty-five is not offered",
+    far.before.includes("VESTIAIRE COLLECTIVE"), false, String(far.before.length));
+  check("and searching the shop's name finds it",
+    far.after.includes("VESTIAIRE COLLECTIVE"), true, JSON.stringify(far.after));
+  check("with the rest of the list out of the way", far.after.length, 1);
+
+  const attached = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#wish-detail .pick-row")]
+      .find((n) => n.textContent.includes("VESTIAIRE"));
+    row.querySelector("button").click();
+    const held = state.transactions.find((one) => one.id === "old");
+    const wish = wishPlan().wishes.find((w) => w.name === "louboutins");
+    return { wish: held.wish, paid: wish.paid, bought: wish.bought };
+  });
+  check("attaching it answers the goal", attached.wish, "louboutins");
+  check("by as much as it cost", attached.paid, 149900);
+  check("which is most of the price but not all of it", attached.bought, false);
+
+  /* And the case the search cannot reach: no statement goes back that far. */
+  const typed = await page.evaluate(() => {
+    state.transactions = [];
+    writeStore("remembre.wishes.v1", "louboutins = 2400 by 2027-03");
+    writeStore("remembre.moneybudgets.v1", "food = 420\nfun = 160");
+    saveTransactions();
+    moneyChanged();
+    renderWishes();
+    document.querySelector(".wish-open").click();
+
+    const outBefore = liveTransactions()
+      .filter((one) => one.amount < 0).reduce((sum, one) => sum + one.amount, 0);
+    const dayBefore = dayBudget().limit;
+
+    $("hand-what").value = "Vestiaire Collective";
+    $("hand-sum").value = "1499";
+    $("hand-when").value = "2026-04-18";
+    $("wish-detail").querySelector(".hand-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    const made = state.transactions.find((one) => one.source === "hand");
+    return {
+      made: made ? { amount: made.amount, wish: made.wish, date: made.date, who: made.counterparty } : null,
+      paid: wishPlan().wishes.find((w) => w.name === "louboutins").paid,
+      outBefore,
+      outAfter: liveTransactions()
+        .filter((one) => one.amount < 0).reduce((sum, one) => sum + one.amount, 0),
+      dayBefore,
+      dayAfter: dayBudget().limit,
+    };
+  });
+  check("a payment no statement reaches can be typed in", typed.made !== null, true);
+  check("for what it cost", typed.made.amount, -149900);
+  check("to whom", typed.made.who, "Vestiaire Collective");
+  check("on the day it was paid", typed.made.date, "2026-04-18");
+  check("attached to the goal it bought", typed.made.wish, "louboutins");
+  check("which the goal then counts against its price", typed.paid, 149900);
+  check("it stands in the ledger as money that went out",
+    typed.outBefore - typed.outAfter, 149900);
+  check("and the day it was typed on is left exactly as it was",
+    typed.dayAfter, typed.dayBefore);
+
+  const marked = await page.evaluate(() => {
+    renderMoney();
+    const row = [...document.querySelectorAll(".tx")]
+      .find((n) => n.textContent.includes("Vestiaire"));
+    return { typed: Boolean(row && row.querySelector(".tx-typed")) };
+  });
+  check("the list says the row was typed rather than reported", marked.typed, true);
+
+  /* A statement that does reach back takes its place, rather than joining it. */
+  const bank = await page.evaluate(async () => {
+    const before = state.transactions.filter((one) => !one.deleted).length;
+    const result = mergeTransactions(await identify([{
+      date: "2026-04-18", booked: "2026-04-18", amount: -149900,
+      title: "VESTIAIRE COLLECTIVE", counterparty: "VESTIAIRE COLLECTIVE", description: "PLATNOSC KARTA",
+    }]));
+    saveTransactions();
+    moneyChanged();
+    const live = state.transactions.filter((one) => !one.deleted);
+    return {
+      before, result,
+      live: live.length,
+      paid: wishPlan().wishes.find((w) => w.name === "louboutins").paid,
+      wish: (live.find((one) => one.source === "csv") || {}).wish,
+      handLeft: live.filter((one) => one.source === "hand").length,
+    };
+  });
+  check("a statement reaching that far back replaces what was typed", bank.result.replaced, 1);
+  check("so the goal is paid once, not twice", bank.paid, 149900);
+  check("and there is still only one row for it", bank.live, bank.before);
+  check("the goal it answered comes across to the bank's record", bank.wish, "louboutins");
+  check("and the typed one is gone", bank.handLeft, 0);
 
   await page.evaluate(() => {
     closeDialog($("wish-dialog"));

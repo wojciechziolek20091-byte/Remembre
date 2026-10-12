@@ -4273,6 +4273,23 @@ body.is-sitting { overflow: hidden; }
 
 .btn-pass:hover { color: var(--ink); background: var(--surface-2); }
 
+/*
+  Quiet like btn-pass, but not last.
+
+  It borrowed btn-pass's looks and got its `order: 3` with them, which is
+  right for passing an evening -- the eye reaches it after both answers that
+  move the work along -- and wrong here: it put taking a goal off the list
+  past "Done", on the right, where the button you press to finish lives. A
+  destructive action does not sit where the confirming one is expected.
+*/
+.btn-remove {
+  padding-inline: .6rem;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.btn-remove:hover { color: var(--danger); background: var(--surface-2); }
+
 .pass-note { font-weight: 500; opacity: .75; }
 
 /* A sitting that has been pushed before says so, before it is pushed again. */
@@ -4493,6 +4510,53 @@ body.is-sitting { overflow: hidden; }
 .pick-when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .pick-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-sum { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
+
+/* Searching comes before the list it searches, and sits on the list rather
+   than in the form below it. */
+.pick-find { width: 100%; margin: .2rem 0 .1rem; }
+
+/*
+  Adding one by hand is the way out when searching finds nothing, so it is
+  underneath the search and folded away until it is wanted. Open by default
+  it would read as the first thing to try, which it is not.
+*/
+.pick-hand { margin: .2rem 0 1rem; }
+
+.pick-hand > summary {
+  cursor: pointer;
+  padding: .4rem 0;
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.pick-hand > summary:hover { color: var(--ink); }
+.pick-hand[open] > summary { color: var(--ink); }
+
+.hand-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: .45rem;
+  margin: .3rem 0 .5rem;
+}
+
+.hand-form .input { min-width: 0; }
+.hand-form .btn { grid-column: 1 / -1; justify-self: start; }
+
+@media (max-width: 30rem) {
+  .hand-form { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Said quietly beside the name, because it qualifies the row rather than
+   labelling it. */
+.tx-typed {
+  display: inline-block;
+  margin-left: .4rem;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .01em;
+  color: var(--ink-2);
+}
 
 /* ---------- The foot of the transaction list ---------- */
 
