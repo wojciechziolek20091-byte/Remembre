@@ -4391,7 +4391,10 @@ body.is-sitting { overflow: hidden; }
 .wish-list { list-style: none; margin: .9rem 0 0; padding: 0; display: grid; gap: .9rem; }
 
 /* The row is one target, so it is one button. */
-.wish-row { display: block; }
+/* The rule belongs to the row rather than to the button, so a goal with a
+   link keeps one line under both of them instead of one between them. */
+.wish-row { display: block; border-bottom: 1px solid var(--line); }
+.wish-list li:last-child { border-bottom: 0; }
 
 .wish-open {
   display: grid;
@@ -4402,7 +4405,6 @@ body.is-sitting { overflow: hidden; }
   color: inherit;
   background: none;
   border: 0;
-  border-bottom: 1px solid var(--line);
   border-radius: var(--radius);
   padding: .55rem .5rem .8rem;
   margin: 0 -.5rem;
@@ -4411,14 +4413,61 @@ body.is-sitting { overflow: hidden; }
   -webkit-tap-highlight-color: transparent;
 }
 
-.wish-list li:last-child .wish-open { border-bottom: 0; }
+.wish-row:has(.wish-go) .wish-open { padding-bottom: .4rem; }
 .wish-open:hover { background: var(--surface-2); }
 .wish-open:active { background: var(--surface-3); }
 .wish-open:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
+/*
+  Going to the shop, under the goal rather than inside it. Quiet, because it
+  is the second thing you would want from this row and the first is the
+  dialog; named after the site, because a link that does not say where it
+  leads is one you have to follow to find out.
+*/
+.wish-go {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin: 0 0 .7rem;
+  padding: .2rem .35rem;
+  margin-left: -.35rem;
+  border-radius: var(--r-mark);
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-decoration-color: color-mix(in oklab, currentColor 40%, transparent);
+  text-underline-offset: .18em;
+}
+
+.wish-go:hover { color: var(--accent); background: var(--surface-2); }
+.wish-go:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.wish-go-mark { font-size: .9em; line-height: 1; }
+
+/* The same thing in the dialog, where it is the whole point of the row above
+   it and is allowed to look like a button. */
+.wish-link-row {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  margin: .2rem 0 .5rem;
+}
+
+.wish-link-row .input { flex: 1 1 auto; min-width: 0; }
+.wish-link-row .btn { flex: 0 0 auto; }
+
+.wish-visit {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin: 0 0 .9rem;
+  text-decoration: none;
+}
+
 .wish-head { display: flex; align-items: baseline; gap: .6rem; }
 .wish-name { font-weight: 600; margin-right: auto; }
-.wish-price { font-variant-numeric: tabular-nums; font-weight: 650; }
+/* A price that breaks after the comma, leaving "zl" alone on the next line,
+   is not a price anybody can read at a glance. */
+.wish-price { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
 
 .wish-meter {
   display: block;

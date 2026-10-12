@@ -2449,6 +2449,137 @@ console.log("\nconnecting a goal to what bought it");
   });
 }
 
+console.log("\nwhere to go and get it");
+
+{
+  /* Optional, and invisible when it is not there. */
+  const bare = await page.evaluate(() => {
+    state.transactions = [];
+    saveTransactions();
+    writeStore("remembre.wishes.v1", "louboutins = 2400 by 2027-03 from 2026-10");
+    moneyChanged();
+    renderWishes();
+    return {
+      wish: wishPlan("2026-10").wishes[0].link,
+      links: document.querySelectorAll(".wish-go").length,
+    };
+  });
+  check("a goal with no link has none", bare.wish, "");
+  check("and the row shows nothing where one would be", bare.links, 0);
+
+  const put = await page.evaluate(() => {
+    const ok = setWishLink("louboutins", "https://www.vestiairecollective.com/shoes/12345");
+    moneyChanged();
+    renderWishes();
+    const go = document.querySelector(".wish-go");
+    return {
+      ok,
+      text: wishesText(),
+      link: wishPlan("2026-10").wishes[0].link,
+      href: go && go.getAttribute("href"),
+      says: go && go.textContent,
+      rel: go && go.getAttribute("rel"),
+      target: go && go.getAttribute("target"),
+      inside: document.querySelectorAll(".wish-open a, .wish-open button").length,
+    };
+  });
+  check("a link can be put on a goal that already exists", put.ok, true);
+  check("and is kept on its line", /at https:\/\/www\.vestiairecollective\.com\/shoes\/12345/.test(put.text), true, put.text);
+  check("read back off it", put.link, "https://www.vestiairecollective.com/shoes/12345");
+  check("the row offers it", put.href, "https://www.vestiairecollective.com/shoes/12345");
+  check("saying which site it goes to", /vestiairecollective\.com/.test(put.says), true, put.says);
+  check("without the www", /www\./.test(put.says), false, put.says);
+  check("opening away from the app", put.target, "_blank");
+  check("and without handing the shop a window onto it", put.rel, "noopener noreferrer");
+  check("the row is still one target, with nothing interactive inside it", put.inside, 0);
+
+  /* The price, the date and done all still read off a line that has an
+     address on the end of it. */
+  const alongside = await page.evaluate(() => {
+    const one = wishPlan("2026-10").wishes[0];
+    return { price: one.price, by: one.by, from: one.from, permonth: one.permonth };
+  });
+  check("the price still reads off the line", alongside.price, 240000);
+  check("and the month it is wanted by", alongside.by, "2027-03");
+  check("and the month it started", alongside.from, "2026-10");
+
+  /* A URL with a date or the word done in it must not be read as either. */
+  const tricky = await page.evaluate(() => {
+    writeStore("remembre.wishes.v1",
+      "boots = 500 by 2027-01 from 2026-10 at https://shop.example/done/by/2099-12/x");
+    const one = parseWishes()[0];
+    return { price: one.price, by: one.by, done: one.done, link: one.link };
+  });
+  check("a link holding the word done does not finish the goal", tricky.done, false);
+  check("nor does a date in its path move when it is wanted", tricky.by, "2027-01");
+  check("the price is still the price", tricky.price, 50000);
+  check("and the link survives intact", tricky.link, "https://shop.example/done/by/2099-12/x");
+
+  /* Marking a goal bought rewrites its line; the address has to come through. */
+  const afterBought = await page.evaluate(() => {
+    writeStore("remembre.wishes.v1", "boots = 500 from 2026-10 at https://shop.example/boots");
+    state.transactions = [normaliseTransaction({
+      id: "b1", date: "2026-10-04", amount: -50000, counterparty: "SHOP", category: "other", wish: "boots",
+    })];
+    saveTransactions();
+    markBought("boots");
+    const one = parseWishes()[0];
+    return { done: one.done, link: one.link, text: wishesText() };
+  });
+  check("paying for it marks the goal done", afterBought.done, true);
+  check("and the link is still on the line", afterBought.link, "https://shop.example/boots", afterBought.text);
+
+  /* Nothing but http and https. A stored javascript: href would be a hole in
+     your own browser, and the line syncs between devices. */
+  const refused = await page.evaluate(() => ({
+    script: wishLink("javascript:alert(1)"),
+    data: wishLink("data:text/html,<script>alert(1)</script>"),
+    file: wishLink("file:///etc/passwd"),
+    spaced: wishLink("https://shop.example/a b"),
+    empty: wishLink(""),
+    plain: wishLink("vestiairecollective.com"),
+    http: wishLink("http://shop.example/x"),
+    https: wishLink("https://shop.example/x"),
+    stored: (() => {
+      writeStore("remembre.wishes.v1", "x = 100 from 2026-10 at javascript:alert(1)");
+      return parseWishes()[0];
+    })(),
+  }));
+  check("javascript: is not a link", refused.script, "");
+  check("nor is data:", refused.data, "");
+  check("nor file:", refused.file, "");
+  check("nor an address with a space in it", refused.spaced, "");
+  check("nor nothing at all", refused.empty, "");
+  check("nor a bare host with no scheme", refused.plain, "");
+  check("http is", refused.http, "http://shop.example/x");
+  check("and https is", refused.https, "https://shop.example/x");
+  check("a javascript: line stored by hand reads as no link",
+    refused.stored.link, "");
+  check("and the goal on that line still works", refused.stored.price, 10000);
+
+  /* Setting it to nothing takes it off again. */
+  const off = await page.evaluate(() => {
+    writeStore("remembre.wishes.v1", "boots = 500 from 2026-10 at https://shop.example/boots");
+    setWishLink("boots", "");
+    moneyChanged();
+    renderWishes();
+    return { link: parseWishes()[0].link, text: wishesText(), rows: document.querySelectorAll(".wish-go").length };
+  });
+  check("clearing the field takes the link off", off.link, "");
+  check("leaving the rest of the line alone", off.text.trim(), "boots = 500 from 2026-10");
+  check("and the row goes back to having none", off.rows, 0);
+
+  const bad = await page.evaluate(() => setWishLink("boots", "javascript:alert(1)"));
+  check("and a link that cannot be used is refused rather than stored", bad, false);
+
+  await page.evaluate(() => {
+    localStorage.removeItem("remembre.wishes.v1");
+    state.transactions = [];
+    saveTransactions();
+    moneyChanged();
+  });
+}
+
 console.log("\nfinding the payment, or saying it out loud");
 
 {

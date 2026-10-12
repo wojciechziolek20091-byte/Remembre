@@ -133,6 +133,25 @@ export function parseAmount(text) {
   what a month should hold back, which is the opposite instruction, and
   keeping them in separate boxes is what stops one being read as the other.
 */
+/*
+  A link is optional, and it is the only part of a wish line that is not ours
+  to interpret. Only http and https are let through: a line is stored text
+  that syncs between devices, and a stored "javascript:" that something later
+  puts in an href is a hole in your own browser. Anything else reads as no
+  link at all rather than as an error, because a goal with a bad address is
+  still a goal.
+*/
+export function wishLink(raw) {
+  const text = String(raw || "").trim();
+  if (!text || /\s/.test(text)) return "";
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch (err) {
+    return "";
+  }
+}
+
 export function parseWishes(text) {
   const wishes = [];
   String(text || "").split(/\r?\n/).forEach((line) => {
@@ -144,6 +163,25 @@ export function parseWishes(text) {
     const name = trimmed.slice(0, at).trim().slice(0, 40);
     let rest = trimmed.slice(at + 1).trim();
 
+    /*
+      The address comes off first, before anything else is read out of the
+      line. A shop's URL can hold the word "done" or a path that looks like a
+      date, and a goal marked finished because its link had /done/ in it would
+      be a hard thing to work out from the outside.
+    */
+    const said = (rest.match(/\bat\s+(\S+)/i) || [])[1] || "";
+    if (said) rest = rest.replace(/\bat\s+\S+/i, " ").trim();
+    /*
+      Taken off the line whether or not it turns out to be usable. Checking
+      first and only removing what passed meant a line carrying an address we
+      refuse -- a "javascript:" somebody synced from somewhere, or a typo --
+      left that text sitting where the price is read from, and the goal
+      vanished off the list entirely. A goal with a bad address is still a
+      goal; it just has no link.
+    */
+    const link = wishLink(said);
+
+
     const by = (rest.match(/\bby\s+(\d{4}-\d{2})/i) || [])[1] || "";
     const from = (rest.match(/\bfrom\s+(\d{4}-\d{2})/i) || [])[1] || "";
     rest = rest.replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").trim();
@@ -152,7 +190,7 @@ export function parseWishes(text) {
     rest = rest.replace(/\bdone\b/gi, "").trim();
 
     const price = parseAmount(rest);
-    if (name && price !== null && price > 0) wishes.push({ name, price, by, from, done });
+    if (name && price !== null && price > 0) wishes.push({ name, price, by, from, done, link });
   });
   return wishes;
 }

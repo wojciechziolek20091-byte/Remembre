@@ -2761,6 +2761,34 @@ function wishesText() {
   return typeof stored === "string" ? stored : "";
 }
 
+/*
+  A link is optional, and it is the only part of a wish line that is not ours
+  to interpret. Only http and https are let through: a line is stored text
+  that syncs between devices, and a stored "javascript:" that something later
+  puts in an href is a hole in your own browser. Anything else reads as no
+  link at all rather than as an error, because a goal with a bad address is
+  still a goal.
+*/
+/** The site a link goes to, said the way somebody would say it out loud. */
+function wishHost(href) {
+  try {
+    return new URL(href).hostname.replace(/^www\./, "");
+  } catch (err) {
+    return "the shop";
+  }
+}
+
+function wishLink(raw) {
+  const text = String(raw || "").trim();
+  if (!text || /\s/.test(text)) return "";
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch (err) {
+    return "";
+  }
+}
+
 function parseWishes(text = wishesText()) {
   const wishes = [];
   String(text || "").split(/\r?\n/).forEach((line) => {
@@ -2771,6 +2799,25 @@ function parseWishes(text = wishesText()) {
 
     const name = trimmed.slice(0, at).trim().slice(0, 40);
     let rest = trimmed.slice(at + 1).trim();
+
+    /*
+      The address comes off first, before anything else is read out of the
+      line. A shop's URL can hold the word "done" or a path that looks like a
+      date, and a goal marked finished because its link had /done/ in it would
+      be a hard thing to work out from the outside.
+    */
+    const said = (rest.match(/\bat\s+(\S+)/i) || [])[1] || "";
+    if (said) rest = rest.replace(/\bat\s+\S+/i, " ").trim();
+    /*
+      Taken off the line whether or not it turns out to be usable. Checking
+      first and only removing what passed meant a line carrying an address we
+      refuse -- a "javascript:" somebody synced from somewhere, or a typo --
+      left that text sitting where the price is read from, and the goal
+      vanished off the list entirely. A goal with a bad address is still a
+      goal; it just has no link.
+    */
+    const link = wishLink(said);
+
     const by = (rest.match(/\bby\s+(\d{4}-\d{2})/i) || [])[1] || "";
     const from = (rest.match(/\bfrom\s+(\d{4}-\d{2})/i) || [])[1] || "";
     rest = rest.replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").trim();
@@ -2779,7 +2826,7 @@ function parseWishes(text = wishesText()) {
     rest = rest.replace(/\bdone\b/gi, "").trim();
 
     const price = parseAmount(rest);
-    if (name && price !== null && price > 0) wishes.push({ name, price, by, from, done });
+    if (name && price !== null && price > 0) wishes.push({ name, price, by, from, done, link });
   });
   return wishes;
 }
@@ -2962,7 +3009,12 @@ function markBought(name) {
   const lines = wishesText().split(/\r?\n/).map((line) => {
     const at = line.indexOf("=");
     if (at === -1 || line.slice(0, at).trim() !== name) return line;
-    const price = parseAmount(line.slice(at + 1).replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").replace(/\bdone\b/gi, ""));
+    const price = parseAmount(line.slice(at + 1)
+      .replace(/\bat\s+\S+/i, " ")
+      .replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "")
+      .replace(/\bdone\b/gi, ""));
+    /* "done" goes on the end, after the address, where it cannot be mistaken
+       for part of it. */
     const bare = line.replace(/\s*\bdone\b/gi, "");
     return price !== null && paid >= price ? `${bare} done` : bare;
   });
@@ -3024,6 +3076,50 @@ function openWishDialog(name) {
 
   show(wrap, [
     el("p", { class: "tx-figure", text: zloty(wish.price) }),
+
+    /*
+      Where to go and get it. Shown as somewhere to go when there is one and
+      as somewhere to put one when there is not, because those are the two
+      things you ever want from this field, and both of them in one box with
+      a button beside it is one control instead of three.
+    */
+    el("form", {
+      class: "wish-link-row",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const field = $("wish-link-edit");
+        const typed = field.value.trim();
+        if (typed && !wishLink(typed)) {
+          announce("That link does not look like a web address. It needs to start with https://");
+          field.focus();
+          return;
+        }
+        setWishLink(name, typed);
+        moneyChanged();
+        announce(typed ? `Link saved for ${name}.` : `Link taken off ${name}.`);
+        openWishDialog(name);
+      },
+    },
+      el("label", { class: "sr-only", for: "wish-link-edit", text: "Link to the thing itself" }),
+      el("input", {
+        type: "url", class: "input", id: "wish-link-edit", value: wish.link || "",
+        inputmode: "url", autocomplete: "off", spellcheck: "false",
+        placeholder: "Link to it (optional)",
+      }),
+      el("button", { type: "submit", class: "btn btn-quiet btn-tiny",
+        text: wish.link ? "Save" : "Add link" })),
+
+    wish.link
+      ? el("a", {
+          class: "btn btn-quiet wish-visit",
+          href: wish.link,
+          target: "_blank",
+          rel: "noopener noreferrer",
+        },
+        el("span", { text: `Go to ${wishHost(wish.link)}` }),
+        el("span", { class: "wish-go-mark", "aria-hidden": "true", text: "\u2197" }))
+      : null,
+
     el("p", { class: "field-hint", text: wish.paid >= wish.price
       ? `Paid for. ${zloty(wish.paid)} of payments are attached to it.`
       : wish.paid > 0
@@ -3154,11 +3250,22 @@ function setupWishes() {
       $("wish-price").focus();
       return;
     }
-    if (!addWish({ name, price, by: $("wish-by").value || "" })) return;
+    /*
+      An address that cannot be used is worth saying so about rather than
+      swallowing: typed one and got no link, you would never find out why.
+    */
+    const typed = $("wish-link").value.trim();
+    if (typed && !wishLink(typed)) {
+      announce("That link does not look like a web address. It needs to start with https://");
+      $("wish-link").focus();
+      return;
+    }
+    if (!addWish({ name, price, by: $("wish-by").value || "", link: typed })) return;
 
     $("wish-name").value = "";
     $("wish-price").value = "";
     $("wish-by").value = "";
+    $("wish-link").value = "";
     /* Put away again: the list is what the card is for. */
     form.hidden = true;
     if (open) {
@@ -3176,14 +3283,39 @@ function saveWishes(text) {
 }
 
 /** Writes one wish into the list, with this month recorded as its start. */
-function addWish({ name, price, by }) {
+function addWish({ name, price, by, link }) {
   const clean = String(name || "").replace(/[=\n\r]/g, " ").trim().slice(0, 40);
   if (!clean || !(price > 0)) return false;
+  const href = wishLink(link);
   const line = `${clean} = ${(price / 100).toFixed(2)}`
     + (by ? ` by ${by}` : "")
-    + ` from ${monthOf(todayISO())}`;
+    + ` from ${monthOf(todayISO())}`
+    + (href ? ` at ${href}` : "");
   const held = wishesText().trim();
   saveWishes(held ? `${held}\n${line}` : line);
+  return true;
+}
+
+/**
+ * Puts an address on a goal that has not got one, changes the one it has, or
+ * takes it off when given nothing.
+ *
+ * Optional throughout: a goal without a link behaves exactly as it did before
+ * links existed, and the panel shows nothing where the link would be.
+ */
+function setWishLink(name, raw) {
+  const href = wishLink(raw);
+  if (raw && !href) return false;
+  let found = false;
+  const lines = wishesText().split(/\r?\n/).map((line) => {
+    const at = line.indexOf("=");
+    if (at === -1 || line.slice(0, at).trim() !== name) return line;
+    found = true;
+    const bare = line.replace(/\s*\bat\s+\S+/i, "").replace(/\s+$/, "");
+    return href ? `${bare} at ${href}` : bare;
+  });
+  if (!found) return false;
+  saveWishes(lines.join("\n"));
   return true;
 }
 
@@ -3217,6 +3349,26 @@ function renderWishes() {
         one is a choice made inside the dialog, where the rest of the choices
         about a goal already are -- so the row can simply be the button.
       */
+      /*
+        Where to go and get it, when the goal was given an address. A sibling
+        of the button rather than something inside it: the row is one target
+        and must stay one, and a link inside a button is a thing neither the
+        browser nor a screen reader can make sense of. It names the site it
+        goes to, because a link that does not say where it leads is one you
+        have to tap to find out.
+      */
+      const go = wish.link
+        ? el("a", {
+            class: "wish-go",
+            href: wish.link,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            "aria-label": `Open ${wish.name} at ${wishHost(wish.link)}, in a new tab`,
+          },
+          el("span", { text: `View it at ${wishHost(wish.link)}` }),
+          el("span", { class: "wish-go-mark", "aria-hidden": "true", text: "\u2197" }))
+        : null;
+
       return el(
         "li",
         { class: "wish-row" },
@@ -3241,7 +3393,8 @@ function renderWishes() {
               : wish.saved >= wish.price
                 ? `${zloty(wish.price)} put by. Go and get it, then attach the payment.`
                 : `${zloty(wish.saved)} put by, ${zloty(wish.left)} to go at ${zloty(wish.permonth)} a month${wish.overdue ? ", and its month has been and gone" : wish.by ? ` until ${monthName(wish.by)}` : ""}.` })
-        )
+        ),
+        go
       );
     })),
 

@@ -405,6 +405,12 @@
           <input type="number" id="wish-price" class="input" inputmode="decimal" step="0.01" min="0" placeholder="4000">
           <label class="sr-only" for="wish-by">By when</label>
           <input type="month" id="wish-by" class="input">
+          <!-- Optional throughout: a goal with no address behaves exactly as
+               it did before addresses existed. -->
+          <label class="sr-only" for="wish-link">Link to it (optional)</label>
+          <input type="url" id="wish-link" class="input wish-link-field"
+                 inputmode="url" autocomplete="off" spellcheck="false"
+                 placeholder="Link to it (optional)">
           <button type="submit" class="btn btn-primary btn-tiny">Add</button>
         </form>
         <div id="money-wishes" aria-describedby="money-wishes-hint"></div>

@@ -315,6 +315,20 @@ console.log("\nwhat the wishes take, and what pays for them");
   check("what has been put by is the months it has run", progress.saved, 60000);
   check("and what is left is the rest of it", progress.left, 60000);
 
+  /* An address on the line changes nothing about what the line costs, and the
+     page and the server have to agree about that as they do about the rest. */
+  const linked = server.parseWishes("bike = 1200 by 2027-04 from 2026-10 at https://shop.example/done/by/2099-01/bike")[0];
+  check("the server reads a link off a wish line", linked.link, "https://shop.example/done/by/2099-01/bike");
+  check("without taking its path for a date", linked.by, "2027-04");
+  check("or for a goal already finished", linked.done, false);
+  check("and the price is untouched by it", linked.price, 120000);
+  check("a link it will not use is dropped without the goal",
+    server.parseWishes("bike = 1200 from 2026-10 at javascript:alert(1)")[0].price, 120000);
+  check("and reads as no link", server.parseWishes("bike = 1200 from 2026-10 at javascript:alert(1)")[0].link, "");
+  check("what a month gives up is the same with a link as without",
+    server.wishPlan({ budgets, income, wishes: "bike = 1200 by 2027-04 from 2026-10 at https://shop.example/bike" }, "2026-10").taken,
+    server.wishPlan({ budgets, income, wishes: "bike = 1200 by 2027-04 from 2026-10" }, "2026-10").taken);
+
   const late = server.wishPlan({ budgets, income, wishes: "late = 500 by 2026-09 from 2026-08" }, "2026-10").wishes[0];
   check("a wish whose month has gone is marked", late.overdue, true);
   check("and still asks for something rather than dividing by nothing", late.permonth, 50000);
