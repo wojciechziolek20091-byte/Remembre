@@ -193,17 +193,15 @@
     --surface: #201A1A;
     --surface-2: #292222;
     --surface-3: #332B2B;
-  --now: #F0B429;
+    --now: #F0B429;
     --ink: #F1E8E2;
     --ink-2: #B6A9A5;
     --line: #3D3333;
     --line-strong: #857672;
 
-      --signature: #E0B48C;
+    --signature: #E0B48C;
 
-  --money-door: #A8D44A;
-
-  --money-door: #A8D44A;
+    --money-door: #A8D44A;
 
     --accent: #F08098;
     --accent-hover: #F79BAE;
@@ -400,12 +398,11 @@ kbd {
 
 .skip-link:focus { top: .75rem; }
 
-.eyebrow {
-  margin: 0;
-  font-size: .78rem;
-  font-weight: 600;
-  letter-spacing: .09em;
-  text-transform: uppercase;
+/* The date under the period heading: a caption, in the page's own voice
+   rather than in the uppercase tracked one every dashboard label wears. */
+.period-today {
+  margin: .15rem 0 0;
+  font-size: .88rem;
   color: var(--ink-2);
 }
 
@@ -656,6 +653,14 @@ kbd {
   align-items: start;
 }
 
+/*
+  Not sticky, though the ground below it is tempting. The rail's grid area is
+  the first two rows, but a sticky box in a grid area is not clamped to it the
+  way the spec reads: stuck at the top of the viewport it travelled 129px down
+  into the settings panel below, which is `position: relative` and later in
+  the document, so settings painted over it and swallowed the clicks meant for
+  the filters. A column that ends is a column that ends.
+*/
 .sidebar-rail { grid-area: rail; }
 .main { grid-area: main; }
 
@@ -846,7 +851,7 @@ kbd {
   padding: .6rem .7rem .6rem .85rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--subject-color, var(--line-strong));
+  border-left: 3px solid var(--subject-color, var(--line-strong));
   border-radius: var(--radius);
   cursor: pointer;
 }
@@ -1259,7 +1264,7 @@ kbd {
   padding: .6rem .75rem;
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--subject-color, var(--line-strong));
+  border-left: 3px solid var(--subject-color, var(--line-strong));
   border-radius: var(--radius);
 }
 
@@ -1365,7 +1370,7 @@ kbd {
   padding: 1rem;
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-top: 4px solid var(--subject-color, var(--line-strong));
+  border-top: 3px solid var(--subject-color, var(--line-strong));
   border-radius: var(--radius-lg);
 }
 
@@ -1500,7 +1505,7 @@ kbd {
   padding: .7rem .85rem;
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--subject-color, var(--line-strong));
+  border-left: 3px solid var(--subject-color, var(--line-strong));
   border-radius: var(--radius);
 }
 
@@ -1600,13 +1605,23 @@ kbd {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  padding: 0 1.25rem 1.25rem;
+  /*
+    Every dialog here opens with a sticky head that pays for its own top
+    inset, so the box itself does not. One that ever opens without a head
+    would have its first line flush against the edge, which is the guard
+    below rather than a rule anybody has to remember.
+  */
+  padding: 1.25rem 1.25rem 1.25rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .28);
+  /* Two parts: a tight contact shadow where it meets the page and a soft lift
+     above it. One forty-pixel bloom reads as fog rather than as height. */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .16), 0 18px 36px -14px rgba(0, 0, 0, .42);
 }
+
+.dialog:has(.dialog-head) { padding-top: 0; }
 
 .dialog::backdrop { background: rgba(20, 28, 26, .55); }
 
@@ -1898,8 +1913,10 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
 @media (max-width: 75rem) {
   .timetable { min-width: 38.5rem; }
   .tt-corner { width: 3.5rem; }
-  .tt-period-time { font-size: .68rem; }
-  .tt-room { font-size: .68rem; }
+  /* A room code and a period time are things you read off the grid in a
+     corridor, not smallprint: they hold at 11.5px rather than 10.9. */
+  .tt-period-time { font-size: .72rem; }
+  .tt-room { font-size: .72rem; }
 }
 
 @media (max-width: 62rem) {
@@ -1964,14 +1981,14 @@ input[aria-invalid="true"] { border-color: var(--danger); border-width: 2px; }
     gap: 1rem;
   }
   .main { padding: .9rem; }
-  .calendar th { font-size: .68rem; letter-spacing: .05em; text-align: center; }
+  .calendar th { font-size: .74rem; letter-spacing: .04em; text-align: center; }
   .calendar td { height: 4.25rem; }
   .day { min-height: 4.25rem; padding: .2rem; gap: .15rem; }
   .day-num { font-size: .85rem; }
   .chip { padding: .1rem .2rem; font-size: 0; gap: 0; justify-content: center; min-height: 1.1rem; }
   .chip-text { display: none; }
   .chip-glyph { font-size: .72rem; }
-  .chip-more { font-size: .65rem; }
+  .chip-more { font-size: .72rem; }
   .field-row { grid-template-columns: minmax(0, 1fr); }
   .dialog { padding: 0 1rem 1rem; }
   .dialog-head { margin: 0 -1rem; padding: 1rem 1rem .7rem; }
@@ -2187,9 +2204,13 @@ body.is-booting { overflow: hidden; }
   font: inherit;
   color: var(--ink);
   background: var(--surface);
-  border: 1px solid var(--line);
-  /* The cherry edge is what says "press me" without the tile shouting. */
-  border-top: 4px solid var(--accent);
+  /*
+    The door is painted on its frame, not on a bar across the lintel. A
+    four-pixel edge on one side of a fourteen-pixel radius fights the corner
+    it runs into; the same colour at a hairline all the way round says the
+    same thing and sits on the shape instead of across it.
+  */
+  border: 1px solid color-mix(in oklab, var(--door, var(--accent)) 30%, var(--line));
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition:
@@ -2221,11 +2242,11 @@ body.is-booting { overflow: hidden; }
   genuinely look different inside, and a front door that says which is which
   is more use than two identical ones.
 */
-.tile[data-area="money"] { border-top-color: var(--money-door); }
-.tile[data-area="money"] .tile-icon { color: var(--money-door); }
+.tile[data-area="money"] { --door: var(--money-door); }
+.tile-icon { color: var(--door, var(--accent)); }
 
 .tile:hover {
-  border-color: var(--line-strong);
+  border-color: color-mix(in oklab, var(--door, var(--accent)) 70%, var(--line));
   transform: translateY(-3px);
   box-shadow: 0 14px 30px -18px rgba(0, 0, 0, .45);
 }
@@ -2239,27 +2260,33 @@ body.is-booting { overflow: hidden; }
 }
 
 /*
-  The two of them arrive rather than appear. A short rise with a little
-  overshoot, the second a beat behind the first, so the eye is led across them
-  in the order they are meant to be read. `backwards` keeps them at the start
-  of the animation during the delay, which is the difference between a stagger
-  and a flicker.
+  The two of them arrive rather than appear. A short rise, the second a beat
+  behind the first, so the eye is led across them in the order they are meant
+  to be read. `backwards` keeps them at the start of the animation during the
+  delay, which is the difference between a stagger and a flicker.
+
+  They used to start from nothing and overshoot on the way in. Starting from
+  nothing means the first thing the app shows, on a cold open or a slow
+  device, is an empty page: a screenshot taken a third of a second in caught
+  one tile at thirteen per cent and the other at zero. They start from
+  something now, and the curve is an exponential ease-out, which is how a
+  thing that has weight comes to rest.
 */
-.chooser-title { animation: chooser-rise .45s cubic-bezier(.22, .9, .3, 1) backwards; }
+.chooser-title { animation: chooser-rise .34s cubic-bezier(.16, 1, .3, 1) backwards; }
 .chooser-tiles .tile {
-  animation: tile-arrive .52s cubic-bezier(.22, 1.2, .36, 1) backwards;
+  animation: tile-arrive .34s cubic-bezier(.16, 1, .3, 1) backwards;
 }
 
 .chooser-tiles .tile:nth-child(1) { animation-delay: .07s; }
 .chooser-tiles .tile:nth-child(2) { animation-delay: .15s; }
 
 @keyframes chooser-rise {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: .4; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
 
 @keyframes tile-arrive {
-  from { opacity: 0; transform: translateY(18px) scale(.97); }
+  from { opacity: .35; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
 
@@ -2682,7 +2709,14 @@ body.on-money {
   --seq-5: #8EEBA0;
 
   --card-line: var(--line);
-  --glow: 0 0 0 1px rgba(201, 244, 92, .08), 0 18px 40px -24px rgba(0, 0, 0, .9);
+  /*
+    A hairline and a shadow, not a hairline and a halo and a shadow. The ring
+    was a zero-offset lime glow sitting on top of the border, so every card
+    wore two edges and a forty-pixel bloom; eight of them down a page is a
+    default nobody chose. The shadow has an offset and a shorter blur now, so
+    it reads as height rather than as fog.
+  */
+  --glow: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 24px -16px rgba(0, 0, 0, .8);
 
   /* The class goes on the body, not on the half, so the bar at the top and
      the footer at the bottom come with it. A page that is dark in the middle
@@ -2740,6 +2774,11 @@ body.on-money .wordmark-mark { color: var(--accent); }
 /* align-items, not just align-content: a card should be as tall as what is in
    it, rather than as tall as whatever sits beside it. */
 .money-page { display: grid; gap: 1rem; align-content: start; align-items: start; }
+
+/* One column until there is room for two; the columns themselves always
+   stack, so a card is never held up waiting for the one beside it. */
+.dash-split { display: grid; gap: 1rem; align-content: start; }
+.dash-col { display: grid; gap: 1rem; align-content: start; }
 
 .card {
   background: var(--surface);
@@ -2877,6 +2916,11 @@ body.on-money .wordmark-mark { color: var(--accent); }
 
 .strip-value.is-negative { color: var(--danger); }
 
+/* The two that answer the card's question, a step above the three that
+   qualify the answer. */
+.rate-strip li.is-lead .strip-value { font-size: 1.32rem; letter-spacing: -.015em; }
+.rate-strip li.is-lead .strip-label { color: var(--ink); font-weight: 600; }
+
 /* ---------- Category bars ---------- */
 
 .chart-caption { margin: 0 0 .7rem; font-size: .82rem; color: var(--ink-2); }
@@ -2953,10 +2997,15 @@ body.on-money .wordmark-mark { color: var(--accent); }
   gap: .6rem;
   align-items: flex-start;
   padding: .7rem .8rem;
-  border: 1px solid var(--line);
-  border-left-width: 4px;
+  /*
+    The state used to be a four-pixel bar down the left edge. It is a tinted
+    edge and a tinted ground now: the same hue, around the whole block rather
+    than stacked on one side of it, which is a quieter way to say the same
+    thing and does not read as a tab somebody forgot to attach to anything.
+  */
+  border: 1px solid var(--state-line, var(--line));
   border-radius: var(--radius);
-  background: var(--surface-2);
+  background: var(--state-wash, var(--surface-2));
   margin: 0 0 .9rem;
 }
 
@@ -2970,13 +3019,22 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .verdict-label { font-size: .98rem; }
 .verdict-why { font-size: .84rem; color: var(--ink-2); }
 
-.verdict.is-sustainable { border-left-color: var(--s-ess); }
+.verdict.is-sustainable {
+  --state-line: color-mix(in oklab, var(--s-ess) 40%, var(--line));
+  --state-wash: color-mix(in oklab, var(--s-ess) 8%, var(--surface-2));
+}
 .verdict.is-sustainable .verdict-mark { color: var(--s-ess); }
-.verdict.is-tight { border-left-color: var(--now); }
+.verdict.is-tight {
+  --state-line: color-mix(in oklab, var(--now) 40%, var(--line));
+  --state-wash: color-mix(in oklab, var(--now) 8%, var(--surface-2));
+}
 .verdict.is-tight .verdict-mark { color: var(--now); }
-.verdict.is-overspending { border-left-color: var(--danger); }
+.verdict.is-overspending {
+  --state-line: color-mix(in oklab, var(--danger) 42%, var(--line));
+  --state-wash: color-mix(in oklab, var(--danger) 9%, var(--surface-2));
+}
 .verdict.is-overspending .verdict-mark { color: var(--danger); }
-.verdict.is-unclear { border-left-color: var(--line-strong); }
+.verdict.is-unclear { --state-line: var(--line-strong); }
 .verdict.is-unclear .verdict-mark { color: var(--ink-2); }
 
 /* ---------- Daily rate ---------- */
@@ -3122,22 +3180,20 @@ body.on-money .wordmark-mark { color: var(--accent); }
 /* ---------- Wide enough for two ---------- */
 
 @media (min-width: 60rem) {
-  #money-dash { grid-template-columns: 1fr 1fr; }
   /*
-    Not a uniform two-column sieve. Cards of unequal height in matched pairs
-    left holes two hundred pixels deep down the right-hand side, so the wide
-    ones take the full width and the quiet ones pair off with something of
-    their own size. Full, split, full, split, full reads as a rhythm; eight
-    equal tiles read as a list that has been folded in half.
+    Two columns, each flowing on its own.
+
+    This was a two-column grid with the wide cards spanning both tracks, which
+    makes every pair share a row: the shorter card of the pair stops where it
+    stops and the row stays as tall as the taller one, so the difference is
+    left behind as a hole. Measured on a 1024 screen the holes came to 790 of
+    2720 pixels -- most of a screen of nothing, in the middle of the page.
+
+    A column that flows has no such rows. The wide cards stay wide, and the
+    four that pair off are two stacks: what happened on the left, what is
+    being put by on the right.
   */
-  #money-dash > .card-kpi,
-  #money-dash > .card-rate,
-  #money-dash > .card-map,
-  #money-dash > .card-debrief,
-  #money-dash > .card-fold { grid-column: 1 / -1; }
-  /* The two saving cards belong together and on the same side: what has been
-     put by, and then what it is being put by for. */
-  #money-dash > .card-wishes { grid-column: 2; }
+  .dash-split { grid-template-columns: 1fr 1fr; align-items: start; }
   .fold-body { grid-template-columns: 1fr 1fr; }
   .fold-body > .subpanel:first-child { grid-column: 1 / -1; }
   #money-more .fold-body, #money-history .fold-body { grid-template-columns: 1fr; }
@@ -3158,18 +3214,23 @@ body.on-money .wordmark-mark { color: var(--accent); }
   gap: .5rem 1rem;
   margin: 0 0 .75rem;
   padding: .75rem .9rem;
-  border: 1px solid var(--line);
-  border-left-width: 4px;
+  border: 1px solid var(--state-line, var(--line));
   border-radius: var(--radius);
-  background: var(--surface-2);
+  background: var(--state-wash, var(--surface-2));
 }
 
 .notice-text { margin: 0; font-size: .9rem; line-height: 1.5; max-width: 62ch; }
 .notice-acts { display: flex; align-items: center; gap: .9rem; margin-left: auto; }
 
-.notice.is-good { border-left-color: var(--s-ess); }
-.notice.is-warn { border-left-color: var(--now); }
-.notice.is-plain { border-left-color: var(--line-strong); }
+.notice.is-good {
+  --state-line: color-mix(in oklab, var(--s-ess) 40%, var(--line));
+  --state-wash: color-mix(in oklab, var(--s-ess) 8%, var(--surface-2));
+}
+.notice.is-warn {
+  --state-line: color-mix(in oklab, var(--now) 40%, var(--line));
+  --state-wash: color-mix(in oklab, var(--now) 8%, var(--surface-2));
+}
+.notice.is-plain { --state-line: var(--line-strong); }
 
 /* The connection, on the card rather than behind a fold. */
 .kpi-bank {
@@ -3178,16 +3239,25 @@ body.on-money .wordmark-mark { color: var(--accent); }
   flex-wrap: wrap;
   gap: .4rem;
   margin: .45rem 0 0;
+  /*
+    The dot hangs beside the sentence rather than queueing with it. As a flex
+    item it was the first thing on a wrapping row, so on a phone the sentence
+    took the whole width and left the dot stranded on a line of its own,
+    reading as a bullet for nothing.
+  */
+  position: relative;
+  padding-left: .9rem;
   font-size: .82rem;
   color: var(--ink-2);
 }
 
 .kpi-dot {
-  flex: 0 0 auto;
+  position: absolute;
+  left: 0;
+  top: .5em;
   width: .5rem;
   height: .5rem;
   border-radius: 50%;
-  align-self: center;
 }
 
 /* Never the only signal: the sentence beside it says the same thing. */
@@ -3261,7 +3331,15 @@ body.on-money .wordmark-mark { color: var(--accent); }
   color: var(--ink);
 }
 
-.greeting-hello .greeting-name { color: var(--accent); }
+/*
+  The name was lime, which is this half's action colour: the colour of the
+  button you press and the figure that has gone wrong. Spending it on a word
+  that is neither leaves it meaning nothing in the two places it has to. The
+  greeting recedes instead and the name holds full strength, so the hierarchy
+  is made of value rather than of hue.
+*/
+.greeting-hello { color: var(--ink-2); }
+.greeting-hello .greeting-name { color: var(--ink); }
 
 /*
   The lead.
@@ -3298,12 +3376,19 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .lead-figure.is-close { color: var(--now); }
 .lead-figure.is-over { color: var(--accent); }
 
+/*
+  A track with nothing in it should look like a track. At full width in a
+  colour two steps up from the card it read as a rule under the figure --
+  a line the eye takes for a divider rather than a gauge standing at zero.
+  It is narrower, shorter, and barely above its ground now, so the fill is
+  the thing you see and the empty part is the thing you do not.
+*/
 .lead-meter {
-  width: min(100%, 26rem);
-  height: .4rem;
-  margin: .35rem 0 .1rem;
+  width: min(100%, 18rem);
+  height: .3rem;
+  margin: .45rem 0 .25rem;
   border-radius: var(--r-pill);
-  background: var(--surface-3);
+  background: color-mix(in oklab, var(--ink-2) 16%, transparent);
   overflow: hidden;
 }
 
@@ -3444,7 +3529,7 @@ body.on-money .wordmark-mark { color: var(--accent); }
   color: var(--ink);
 }
 
-.card-reading { border-left: 3px solid var(--accent); }
+.card-reading { border-top: 1px solid color-mix(in oklab, var(--accent) 45%, var(--card-line)); }
 
 /*
   Four pieces, each with its own heading, because the four questions are the
@@ -3508,7 +3593,9 @@ body.on-money .wordmark-mark { color: var(--accent); }
   gap: .3rem .6rem;
   margin: .9rem 0 0;
   padding: .1rem 0 .1rem .7rem;
-  border-left: 2px solid var(--accent);
+  /* A neutral rule, not the action colour. Lime is what you press and what has
+     gone wrong; a quotation is neither, and the italic already says it is one. */
+  border-left: 1px solid var(--line-strong);
   font-size: .82rem;
   font-style: italic;
   color: var(--ink-2);
@@ -3519,7 +3606,9 @@ body.on-money .wordmark-mark { color: var(--accent); }
   font-size: .76rem;
   letter-spacing: .04em;
   text-transform: uppercase;
-  color: var(--line-strong);
+  /* Was --line-strong, which is a 3:1 colour for rules and chart baselines.
+     This is twelve-pixel text and has to clear 4.5:1 like any other. */
+  color: var(--ink-2);
 }
 
 /* ---------- A transaction, and its details ---------- */
@@ -3593,7 +3682,7 @@ body.on-money .dialog-tx .dialog-title { font-family: var(--font-body); font-wei
 
 /* ---------- What the months have kept ---------- */
 
-.card-saved { border-left: 3px solid var(--s-ess); }
+.card-saved { border-top: 1px solid color-mix(in oklab, var(--s-ess) 45%, var(--card-line)); }
 
 .saved-figure {
   margin: .15rem 0 .1rem;
@@ -3673,7 +3762,7 @@ body.on-money .dialog-tx .dialog-title { font-family: var(--font-body); font-wei
 
 /* ---------- The week, read back ---------- */
 
-.card-debrief { border-left: 3px solid var(--accent); }
+.card-debrief { border-top: 1px solid color-mix(in oklab, var(--accent) 45%, var(--card-line)); }
 
 /* ---------- Sitting down ---------- */
 

@@ -130,9 +130,16 @@
   <main id="calendar-region" class="main" tabindex="-1">
 
     <div class="period-bar">
+      <!--
+        Today's date used to sit above the heading as an uppercase tracked
+        label. An eyebrow is a caption that has been promoted above the thing
+        it captions: it is read first and it is never the most important line
+        on the page. The heading goes first and the date follows it, which is
+        the order they are actually wanted in.
+      -->
       <div class="period-headings">
-        <p class="eyebrow" id="today-label"></p>
         <h2 class="period-title" id="period-title">Calendar</h2>
+        <p class="period-today" id="today-label"></p>
       </div>
 
       <div class="period-nav" id="period-nav">
@@ -342,53 +349,68 @@
       <div id="money-rate"></div>
     </section>
 
-    <section class="card card-cats" aria-labelledby="money-cats-heading">
-      <div class="card-head">
-        <h2 class="card-title" id="money-cats-heading">Where it went</h2>
-        <div class="report-nav">
-          <button type="button" class="btn btn-quiet btn-tiny" id="money-prev" aria-label="The month before">&larr;</button>
-          <span class="report-month" id="money-month" role="status"></span>
-          <button type="button" class="btn btn-quiet btn-tiny" id="money-next" aria-label="The month after">&rarr;</button>
-        </div>
-      </div>
-      <div id="money-cats"></div>
-    </section>
-
-    <section class="card card-saved" id="money-saved" aria-label="Money saved"></section>
-
     <!--
-      Saving with nothing to save for is an instruction to go without, and
-      goes without saying. This is the other half: the things the going
-      without is for, each with a price on it, each taking a little out of
-      what a month may spend.
+      Two columns that each flow on their own. Laying these four out as grid
+      cells meant a short card and a tall one shared a row, and the short one
+      left the difference behind as a hole; the holes came to a fifth of the
+      page. A column is a column: what happened on the left, what is being put
+      by on the right, each stacking to whatever height its cards need.
     -->
-    <section class="card card-wishes" aria-labelledby="money-wishes-heading">
-      <div class="card-head">
-        <h2 class="card-title" id="money-wishes-heading">Saving up for</h2>
-        <!--
-          Out of the way until it is wanted. The list is the thing on this
-          card; a form sitting open above it every day, for something added
-          once a month, is three empty boxes between you and what you came to
-          look at.
-        -->
-        <button type="button" class="btn btn-quiet btn-tiny" id="wish-open"
-                aria-expanded="false" aria-controls="wish-form">Add new</button>
+    <div class="dash-split">
+      <div class="dash-col">
+      <section class="card card-cats" aria-labelledby="money-cats-heading">
+        <div class="card-head">
+          <h2 class="card-title" id="money-cats-heading">Where it went</h2>
+          <div class="report-nav">
+            <button type="button" class="btn btn-quiet btn-tiny" id="money-prev" aria-label="The month before">&larr;</button>
+            <span class="report-month" id="money-month" role="status"></span>
+            <button type="button" class="btn btn-quiet btn-tiny" id="money-next" aria-label="The month after">&rarr;</button>
+          </div>
+        </div>
+        <div id="money-cats"></div>
+      </section>
+
+      <section class="card card-reading" id="money-reading" aria-label="What your spending says"></section>
       </div>
-      <p class="chart-caption" id="money-wishes-hint">
-        What a month already saves pays for these first. Only what is left over comes out
-        of the spending, and never more than a tenth of it.
-      </p>
-      <form class="wish-form" id="wish-form" hidden>
-        <label class="sr-only" for="wish-name">What it is</label>
-        <input type="text" id="wish-name" class="input" maxlength="40" placeholder="a laptop">
-        <label class="sr-only" for="wish-price">How much</label>
-        <input type="number" id="wish-price" class="input" inputmode="decimal" step="0.01" min="0" placeholder="4000">
-        <label class="sr-only" for="wish-by">By when</label>
-        <input type="month" id="wish-by" class="input">
-        <button type="submit" class="btn btn-primary btn-tiny">Add</button>
-      </form>
-      <div id="money-wishes" aria-describedby="money-wishes-hint"></div>
-    </section>
+
+      <div class="dash-col">
+      <section class="card card-saved" id="money-saved" aria-label="Money saved"></section>
+
+      <!--
+        Saving with nothing to save for is an instruction to go without, and
+        goes without saying. This is the other half: the things the going
+        without is for, each with a price on it, each taking a little out of
+        what a month may spend.
+      -->
+      <section class="card card-wishes" aria-labelledby="money-wishes-heading">
+        <div class="card-head">
+          <h2 class="card-title" id="money-wishes-heading">Saving up for</h2>
+          <!--
+            Out of the way until it is wanted. The list is the thing on this
+            card; a form sitting open above it every day, for something added
+            once a month, is three empty boxes between you and what you came to
+            look at.
+          -->
+          <button type="button" class="btn btn-quiet btn-tiny" id="wish-open"
+                  aria-expanded="false" aria-controls="wish-form">Add new</button>
+        </div>
+        <p class="chart-caption" id="money-wishes-hint">
+          What a month already saves pays for these first. Only what is left over comes out
+          of the spending, and never more than a tenth of it.
+        </p>
+        <form class="wish-form" id="wish-form" hidden>
+          <label class="sr-only" for="wish-name">What it is</label>
+          <input type="text" id="wish-name" class="input" maxlength="40" placeholder="a laptop">
+          <label class="sr-only" for="wish-price">How much</label>
+          <input type="number" id="wish-price" class="input" inputmode="decimal" step="0.01" min="0" placeholder="4000">
+          <label class="sr-only" for="wish-by">By when</label>
+          <input type="month" id="wish-by" class="input">
+          <button type="submit" class="btn btn-primary btn-tiny">Add</button>
+        </form>
+        <div id="money-wishes" aria-describedby="money-wishes-hint"></div>
+      </section>
+      </div>
+    </div>
 
     <section class="card card-map" aria-labelledby="money-map-heading">
       <div class="card-head">
@@ -399,8 +421,6 @@
     </section>
 
     <section class="card card-debrief" id="money-debrief" aria-label="Your week" hidden></section>
-
-    <section class="card card-reading" id="money-reading" aria-label="What your spending says"></section>
 
     <details class="card card-fold" id="money-more">
       <summary class="fold-summary">

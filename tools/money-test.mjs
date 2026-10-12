@@ -1574,8 +1574,10 @@ console.log("\ntoday's budget on the page");
     return {
       budget,
       line: (document.querySelector("#money-today") || {}).textContent || "",
+      note: (document.querySelector(".lead-note") || {}).textContent || "",
       figure: (document.querySelector(".lead-figure") || {}).textContent || "",
       limit: zloty(budget.limit),
+      base: zloty(budget.base),
       left: zloty(Math.max(0, budget.left)),
       rate,
     };
@@ -1587,9 +1589,12 @@ console.log("\ntoday's budget on the page");
   // The figure moved out of the fourth card down and into the lead, which is
   // where somebody who opens the app to check one number actually looks.
   check("the half opens on what is left of it", today.figure, today.left);
-  check("with the limit it came out of",
-    today.line.includes(`Stick to ${today.limit} today`), true, today.line);
-  check("and where the extra came from", /carried from yesterday/.test(today.line), true, today.line);
+  // The note says what the figure is made of, which is the one thing the
+  // figure cannot say. It never says the figure again.
+  check("with the rate it was built on", today.note.includes(today.base), true, today.note);
+  check("and where the extra came from", /carried from yesterday/.test(today.note), true, today.note);
+  check("without saying the day's figure a third time",
+    today.note.includes(today.limit), false, today.note);
 }
 
 {
@@ -1634,8 +1639,8 @@ console.log("\ntoday's budget on the page");
   check("it says how much moved rather than went", /600,00 zł/.test(aside.aside), true, aside.aside);
   check("and names the only reason left",
     /2 moved between your own accounts/.test(aside.aside), true, aside.aside);
-  check("the line above is the instruction, not a total",
-    /^Stick to /.test(aside.line) && !/spent/.test(aside.line), true, aside.line);
+  check("the line above is what the day is made of, not a total",
+    !/spent/.test(aside.line), true, aside.line);
   check("one line for them, not one each", aside.why.length, 1);
 
   const counted = await page.evaluate(() => {

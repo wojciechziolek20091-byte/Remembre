@@ -4137,9 +4137,16 @@ function renderRateCard() {
     el(
       "ul",
       { class: "rate-strip" },
-      el("li", {}, el("span", { class: "strip-label", text: "Average day" }),
+      /*
+        Five figures all set at one size is five figures with no answer among
+        them. The card asks how fast it is going, and the two that answer that
+        are the rate so far and the rate this week; the other three are what
+        you look at once the answer has worried you. So the two carry a step
+        of size, and the rest sit under them.
+      */
+      el("li", { class: "is-lead" }, el("span", { class: "strip-label", text: "Average day" }),
         el("span", { class: "strip-value", text: zloty(read.perDay) })),
-      el("li", {}, el("span", { class: "strip-label", text: "Last seven days" }),
+      el("li", { class: "is-lead" }, el("span", { class: "strip-label", text: "Last seven days" }),
         el("span", { class: "strip-value", text: zloty(read.perDayRecent) })),
       el("li", {}, el("span", { class: "strip-label", text: "At this rate, a month" }),
         el("span", { class: "strip-value", text: zloty(read.projected) })),
@@ -4236,8 +4243,15 @@ function renderToday() {
     stop reading the card. What the card can always say truthfully is what
     today is worth, so that is what it says, as the thing to hold to rather
     than as a score to check.
+
+    It used to open "Stick to 19,68 zl today", directly under a label reading
+    "Spend no more than" and a figure reading 19,68 zl: the same number three
+    times in three consecutive lines. The line's job is the only thing the
+    figure cannot say, which is what the figure is made of. On a day that
+    carries nothing it is made of the day's own rate, and the two rates are
+    written out a line below anyway, so there is nothing left for it to say.
   */
-  const from = `Stick to ${zloty(today.limit)} today: ${made}.`;
+  const from = today.carried === 0 ? "" : `${made}.`;
 
   const aside = setAsideOn(today.date);
   const unsettled = liveTransactions()
@@ -4273,7 +4287,7 @@ function renderToday() {
       },
       el("span", { class: "lead-meter-fill", style: `width:${Math.round(share * 100)}%` })
     ),
-    el("p", { class: "lead-note", text: from }),
+    from ? el("p", { class: "lead-note", text: from }) : null,
     note ? el("p", { class: "lead-aside", text: note }) : null,
     weekLine(),
   ]);
