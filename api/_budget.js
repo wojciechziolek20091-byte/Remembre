@@ -124,19 +124,30 @@ export function parseAmount(text) {
 /* ---------- The money that may be spent ---------- */
 
 /**
- * Spending that counts against the month.
+ * Spending that counts against the month, which is all of it.
  *
- * Not a transfer to yourself, not something somebody else covered, and not
- * something paid for out of savings. The last two are money that was never
- * part of this month's 2 500, and counting them makes a normal month look
- * reckless on the one occasion it was anything but.
+ * Two escape hatches used to sit here: a payment somebody else covered, and
+ * one taken out of savings. Both were ways of saying "this does not count",
+ * and between them any month could be made to look calm by reclassifying the
+ * thing that made it busy. Money that left the account was spent. What
+ * changes is not whether it counts but whether it was paid for, and that is a
+ * question about the income, answered against the income.
+ *
+ * A transfer between your own accounts is still not spending. That money has
+ * not gone anywhere; counting it would make a month look twice as expensive
+ * as it was.
  */
 export const counts = (entry) => entry
   && entry.amount < 0
   && !entry.deleted
+  && (entry.category || "other") !== "transfers";
+
+/** Money in that the plan was not expecting: anything not on the schedule. */
+export const extraIncome = (entry) => entry
+  && entry.amount > 0
+  && !entry.deleted
   && (entry.category || "other") !== "transfers"
-  && entry.branch !== "external"
-  && entry.branch !== "savings";
+  && entry.branch !== "plan";
 
 export const spentOn = (rows, date) => (Array.isArray(rows) ? rows : [])
   .filter((entry) => counts(entry) && entry.date === date)
@@ -246,6 +257,51 @@ export function weekendPurse(rows, settings, today) {
   small overruns with no single day that looks bad raises it.
 */
 
+/*
+  The emergency budget.
+
+  Money arrives that the plan never counted on -- a birthday, a repayment, a
+  piece of work paid for. Two things are true about it at once and the app
+  used to manage only the first. It does not raise what a Tuesday is worth:
+  the daily figure comes from the plan and from nothing else, because a
+  windfall that quietly becomes permission to spend more every day is how the
+  windfall disappears. But it is real money, and spending that it covers is
+  not overspending, however it looks against a daily rate.
+
+  So it is held as a fund. Everything that came in outside the plan, less
+  everything that has been spent above what the plan allowed. What is left is
+  not part of any day's allowance and never will be; it is there to absorb the
+  months that run long, and while it has anything in it the guard has nothing
+  to complain about. It is counted as saved, because that is what it is.
+
+  Measured once, cumulatively, over everything up to the day asked about: a
+  per-month version double-counts an overspend that a later month's windfall
+  already paid for.
+*/
+export function emergencyFund(rows, settings, date) {
+  const live = (Array.isArray(rows) ? rows : [])
+    .filter((entry) => entry && !entry.deleted && entry.date && entry.date <= date);
+  if (live.length === 0) return { extra: 0, spent: 0, allowed: 0, over: 0, left: 0 };
+
+  const extra = live.filter(extraIncome).reduce((sum, entry) => sum + entry.amount, 0);
+  const spent = live.filter(counts).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+
+  /*
+    What the plan allowed over the same stretch, day by day from the first day
+    there was anything to count. Day by day rather than month by month because
+    a part-finished month has only had part of its allowance.
+  */
+  const first = live.map((entry) => entry.date).sort()[0];
+  let allowed = 0;
+  for (let day = `${monthOf(first)}-01`; day <= date; day = shiftISO(day, 1)) {
+    if (day < first) continue;
+    allowed += baseRate(weekPlan(settings, monthOf(day)), day);
+  }
+
+  const over = Math.max(0, spent - allowed);
+  return { extra, spent, allowed, over, left: Math.max(0, extra - over) };
+}
+
 /* The window the load is measured over: long enough for a spike to average
    out, short enough to still be about now. */
 export const GUARD_WINDOW = 7;
@@ -289,15 +345,33 @@ export function pressure(rows, settings, date) {
     to two hundred -- but what it is called depends on whether the week behind
     it agrees.
   */
-  const level = load >= GUARD_OVER || run >= GUARD_RUN + 1 || (run >= GUARD_RUN && load >= GUARD_WATCH)
+  const raw = load >= GUARD_OVER || run >= GUARD_RUN + 1 || (run >= GUARD_RUN && load >= GUARD_WATCH)
     ? "over"
     : run >= GUARD_RUN || load >= GUARD_WATCH
       ? "watch"
       : "calm";
 
+  /*
+    And then the question the rate alone cannot answer: was it paid for.
+
+    Spending faster than the plan matters because the plan is what there is.
+    When more came in than the plan counted on, and enough of it is still
+    unspent to cover everything that has gone over, then the fast week was
+    bought rather than borrowed, and an alarm about it is an alarm about
+    nothing. The run is still reported -- it is a fact about the week and the
+    card still shows it -- but it stops being something to interrupt an
+    afternoon for.
+  */
+  const fund = emergencyFund(rows, settings, date);
+  const covered = raw !== "calm" && fund.left > 0;
+  const level = covered ? "calm" : raw;
+
   const worst = days.reduce((held, day) => (day.over > held.over ? day : held), days[0]);
 
-  return { days, run, spent, allowed, load, level, worst, over: Math.max(0, spent - allowed) };
+  return {
+    days, run, spent, allowed, load, level, raw, covered, fund, worst,
+    over: Math.max(0, spent - allowed),
+  };
 }
 
 /**
@@ -310,6 +384,12 @@ export function pressure(rows, settings, date) {
 export function guardWords(read) {
   if (!read || read.level === "calm") return null;
   const share = Math.round(read.load * 100);
+
+  /*
+    Overspending with nothing behind it is the one worth the strongest words,
+    because the emergency budget being empty is what makes it serious rather
+    than the rate on its own.
+  */
 
   if (read.run >= GUARD_RUN) {
     return {

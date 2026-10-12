@@ -241,16 +241,18 @@ console.log("\nthe week, looked back on");
     { id: "c", date: "2026-11-01", amount: -2000, category: "food", branch: "", deleted: false },
     { id: "d", date: "2026-10-20", amount: -4000, category: "food", branch: "", deleted: false },
     { id: "e", date: "2026-10-28", amount: 60000, category: "income", branch: "", deleted: false },
-    { id: "f", date: "2026-10-29", amount: -50000, category: "fun", branch: "external", deleted: false },
+    /* This used to be marked as somebody else's money and left out. There is
+         no such mark any more: everything that went out is spending. */
+    { id: "f", date: "2026-10-29", amount: -50000, category: "fun", branch: "", deleted: false },
   ];
   const review = server.weekReview(rows, SETTINGS, "2026-11-01");
 
   check("the week runs Monday to Sunday", [review.monday, review.sunday], ["2026-10-26", "2026-11-01"]);
   check("and holds seven days", review.now.days.length, 7);
-  check("what was spent in it", review.now.out, 14000);
+  check("what was spent in it", review.now.out, 64000);
   check("the week before is there to compare with", review.before.out, 4000);
   check("money in is counted", review.in, 60000);
-  check("money outside the plan is not", review.now.count, 3);
+  check("and every payment in it is counted, with no escape hatch", review.now.count, 4);
 
   // Friday and the weekend are budgeted higher, and judged separately.
   check("weekdays and the weekend are kept apart",

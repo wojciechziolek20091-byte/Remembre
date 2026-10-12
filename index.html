@@ -334,7 +334,6 @@
 
     <section class="card card-kpi" id="money-balance" aria-label="Current balance"></section>
 
-    <section class="card card-asks" id="money-asks" aria-label="Worth asking about" hidden></section>
 
     <section class="card card-rate" aria-labelledby="money-rate-heading">
       <div class="card-head">
@@ -368,27 +367,6 @@
     <section class="card card-debrief" id="money-debrief" aria-label="Your week" hidden></section>
 
     <section class="card card-reading" id="money-reading" aria-label="What your spending says"></section>
-
-    <section class="card card-outside" aria-labelledby="money-outside-heading">
-      <div class="card-head">
-        <h2 class="card-title" id="money-outside-heading">Outside the plan</h2>
-      </div>
-      <p class="chart-caption">
-        Money that is not part of your 2&nbsp;500 and whatever it pays for. Tell the app
-        what is coming and it is kept out of the month by itself, and nothing here is
-        counted as spending or as income.
-      </p>
-      <form class="expect-form" id="expect-form">
-        <label class="sr-only" for="expect-amount">How much</label>
-        <input type="number" id="expect-amount" class="input" inputmode="decimal" step="0.01" min="0" placeholder="500">
-        <label class="sr-only" for="expect-date">When</label>
-        <input type="date" id="expect-date" class="input">
-        <label class="sr-only" for="expect-what">What for</label>
-        <input type="text" id="expect-what" class="input" maxlength="60" placeholder="what it is for">
-        <button type="submit" class="btn btn-primary btn-tiny">Add</button>
-      </form>
-      <div id="money-outside"></div>
-    </section>
 
     <details class="card card-fold" id="money-more">
       <summary class="fold-summary">

@@ -252,18 +252,17 @@ function normaliseTransaction(raw) {
       Which side of the income plan this sits on.
 
       Money in is one of two things and never a third: "plan" is the 2 500 that
-      arrives on schedule, "external" is anything else that turned up. Money out
-      is one of three: part of the month, "external" when somebody else's money
-      paid for it, or "savings" when it came out of what had been put by.
+      Which side of the income plan a payment in sits on, and nothing else.
+      "plan" is the 2 500 that arrives on schedule; empty is everything else
+      that turned up, which is what the emergency budget is made of.
 
-      The last one is the one that was missing. A 400 zl one-off paid for out of
-      savings was landing in the month as ordinary spending and making an
-      ordinary month look reckless, and the only way out of it was to call it
-      external, which said somebody else had paid -- a different and untrue
-      thing. Empty means nobody has decided yet, which for anything large is a
-      question the page asks rather than a guess it makes.
+      Spending carries no branch at all any more. It used to carry two -- one
+      for what somebody else paid for and one for what came out of savings --
+      and between them any month could be made to look calm by reclassifying
+      the thing that made it busy. Everything that goes out is spending. What
+      changes is whether the income covered it.
     */
-    branch: ["plan", "external", "savings"].includes(raw.branch) ? raw.branch : "",
+    branch: raw.branch === "plan" ? "plan" : "",
     linkedTo: String(raw.linkedTo || "").slice(0, 40),
     // Set when a payment was put back into the month by hand, so the linker
     // does not quietly take it out again on the next pass.
@@ -766,13 +765,10 @@ const monthName = (key) => {
  */
 function monthReport(key) {
   /*
-    The month, with the external branch left out of both sides.
-
-    This used to count external spending in the categories and in the month's
-    total while the rate and the verdict left it out, so a 300 ticket paid for
-    by a 300 wire turned up as a transport overspend on one card and nowhere
-    on another. Money from outside the plan is not the month's money, and that
-    has to mean the same thing everywhere.
+    The month, whole. Everything that went out is in the spending and in the
+    categories; everything that came in is in the income, with the part the
+    plan was not counting on named separately, because that part is what the
+    emergency budget is built from.
   */
   const entries = liveTransactions().filter((entry) => monthOf(entry.date) === key);
   const out = entries.filter(SPENT_OUT);
@@ -799,10 +795,8 @@ function monthReport(key) {
     key,
     count: entries.length,
     spent: sum(out),
-    received: sum(all((entry) => entry.amount > 0 && entry.branch !== "external")),
-    extra: sum(all((entry) => entry.amount > 0 && entry.branch === "external")),
-    fromSavings: sum(all((entry) => entry.amount < 0 && entry.branch === "savings")),
-    covered: sum(all((entry) => entry.amount < 0 && entry.branch === "external")),
+    received: sum(all((entry) => entry.amount > 0 && (entry.category || "other") !== "transfers")),
+    extra: sum(all(EXTRA_IN)),
     transfers: sum(all((entry) => entry.amount < 0 && (entry.category || "other") === "transfers")),
     byCategory,
     biggest: out.slice().sort((a, b) => a.amount - b.amount).slice(0, 5),
@@ -859,21 +853,18 @@ function latestMonth() {
 /*
   Every zloty of the month, on one side or the other.
 
-  The figure above this is what the month cost against its own budget, which
-  deliberately leaves three things out: money that arrived from outside the
-  plan, spending somebody else covered, and spending taken out of savings.
-  Leaving them out of that figure is right. Leaving them off the page was not,
-  and it is how a month stops adding up with nobody able to say where the
-  difference went. So everything is listed, with what is and is not counted
-  said plainly.
+  The figure above this is what the month cost, and it now leaves out exactly
+  one thing: money moved between your own accounts, which did not go anywhere.
+  Everything else that went out is spending, counted. Everything that came in
+  is income, with the part the plan was not counting on named separately --
+  not because it is apart from the month, but because it is what the emergency
+  budget is built from.
 */
 function ledger(now) {
   const rows = [
-    ["In, on the plan", now.received, "counted"],
-    ["In, from outside it", now.extra, "apart"],
+    ["In, on the plan", now.received - now.extra, "counted"],
+    ["In, outside the plan", now.extra, "counted"],
     ["Out, against the month", now.spent, "counted"],
-    ["Out, from savings", now.fromSavings, "apart"],
-    ["Out, covered by someone else", now.covered, "apart"],
     ["Moved between your own accounts", now.transfers, "apart"],
   ].filter(([, amount]) => amount !== 0);
 
@@ -1560,13 +1551,13 @@ function balanceMovement(current) {
   -- not the median of what happened to land, which was a guess made because
   nothing better was known.
 
-  Anything else that arrives is external: a wire for a specific thing, and
+  Anything else that arrives is outside the plan: a wire, a repayment, and
   the spending it pays for is not part of the cycle either. Both sides are
   left out of the rate and the verdict, because counting a 500 that came in
   for a ticket and the 500 that bought the ticket makes a month look first
   rich and then reckless, and it was neither.
 
-  Nothing is guessed about external money. A payment that does not match the
+  Nothing is guessed about it. A payment that does not match the
   schedule is a question, and the question is asked on the page.
 */
 
@@ -1669,10 +1660,9 @@ const near = (entry, slot) =>
 /**
  * Files every payment in, and asks nothing.
  *
- * What matches the schedule is the plan. What does not is external -- noted
- * against what you said was coming, when you said anything. Then whatever
- * each external payment paid for is linked to it, by the same rule and with
- * the same silence.
+ * What matches the schedule is the plan. What does not is left unmarked,
+ * which is what "outside the plan" means, and the emergency budget is the
+ * sum of everything unmarked less whatever the plan could not cover.
  */
 function classifyIncome() {
   const months = new Set(liveTransactions().filter((entry) => entry.amount > 0).map((entry) => monthOf(entry.date)));
@@ -1691,7 +1681,7 @@ function classifyIncome() {
   /*
     Everything else came from outside the cycle, which is all that needs
     deciding about it -- but only where there is a cycle. With no schedule set
-    there is nothing to be outside of, and calling every payment external
+    there is nothing to be outside of, and treating every payment as extra
     would empty the month of its income and then wonder where it went.
   */
   if (incomePlan().length === 0) {
@@ -1699,24 +1689,12 @@ function classifyIncome() {
     return changed;
   }
 
-  const held = expectations();
-  let noted = false;
-  liveTransactions()
-    .filter((entry) => entry.amount > 0 && !entry.branch && !entry.counted)
-    .forEach((entry) => {
-      entry.branch = "external";
-      entry.updatedAt = now;
-      changed += 1;
-
-      const expected = expectationFor(entry);
-      if (expected) {
-        const row = held.find((one) => one.id === expected.id);
-        if (row) { row.metBy = entry.id; noted = true; }
-      }
-    });
-  if (noted) saveExpectations(held);
-
-  changed += linkExternalSpending();
+  /*
+    Anything that did not match the schedule is left exactly as it is: with no
+    branch, which is what "not on the plan" means. Nothing further is decided
+    about it here, because there is nothing further to decide -- it is money
+    that came in, and the emergency budget is the sum of it.
+  */
   if (changed > 0) saveTransactions();
   return changed;
 }
@@ -1740,11 +1718,11 @@ function incomeStanding(monthKey, today = todayISO()) {
   const next = waiting.find((slot) => slot.date >= today) || null;
   const late = waiting.filter((slot) => slot.date < today);
 
-  const external = liveTransactions()
-    .filter((entry) => entry.amount > 0 && entry.branch === "external" && monthOf(entry.date) === monthKey)
+  const extra = liveTransactions()
+    .filter((entry) => EXTRA_IN(entry) && monthOf(entry.date) === monthKey)
     .reduce((sum, entry) => sum + entry.amount, 0);
 
-  return { planned, arrived, toCome: planned - arrived, next, late, external, filled };
+  return { planned, arrived, toCome: planned - arrived, next, late, extra, filled };
 }
 
 /* ---------- How fast it is going ---------- */
@@ -1756,14 +1734,17 @@ function incomeStanding(monthKey, today = todayISO()) {
   account and where it went afterwards is not something a statement knows.
 */
 /*
-  Spending that counts against the month: not a transfer between your own
-  accounts, not something somebody else's money paid for, and not something
-  taken out of savings. The same rule the server uses, in the same words.
+  Spending that counts against the month, which is all of it. Only a transfer
+  between your own accounts is left out, because that money has moved rather
+  than gone. The same rule the server uses, in the same words.
 */
 const SPENT_OUT = (entry) => entry.amount < 0
+  && (entry.category || "other") !== "transfers";
+
+/** Money in the plan was not counting on: what the emergency budget is made of. */
+const EXTRA_IN = (entry) => entry.amount > 0
   && (entry.category || "other") !== "transfers"
-  && entry.branch !== "external"
-  && entry.branch !== "savings";
+  && entry.branch !== "plan";
 
 /** Every day in the window, including the ones nothing happened on. */
 function dailySpending(days = 28) {
@@ -1911,7 +1892,7 @@ const VERDICTS = {
 
 /*
   Nothing here asks about what already happened. A payment that did not land
-  on the schedule is external, that is all -- the app files it and moves on,
+  on the schedule is outside it, that is all -- the app files it and moves on,
   because a queue of questions about last Tuesday is work, and work is the
   thing a money app is supposed to be saving you.
 
@@ -1926,256 +1907,11 @@ const LINK_DAYS = 21;       // how long after a wire its spending may turn up
 const LINK_SLACK = 0.05;    // and how far the amounts may differ
 const EXPECT_DAYS = 7;      // how far off its day an expected payment may be
 
-function expectations() {
-  const held = readStore(MONEY_EXPECTED_KEY, []);
-  return (Array.isArray(held) ? held : []).filter((row) => row && row.id && row.amount > 0);
-}
 
-const saveExpectations = (rows) => writeStore(MONEY_EXPECTED_KEY, rows);
 
-function addExpectation({ amount, date, what }) {
-  const rows = expectations();
-  rows.push({
-    id: `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    amount: Math.round(amount),
-    date: String(date || todayISO()).slice(0, 10),
-    what: String(what || "").slice(0, 60),
-    metBy: "",
-  });
-  saveExpectations(rows);
-  // It may already have arrived, in which case it is placed at once.
-  classifyIncome();
-  moneyChanged();
-}
 
-function dropExpectation(id) {
-  saveExpectations(expectations().filter((row) => row.id !== id));
-  moneyChanged();
-}
-
-/** The expectation an arrival answers, if any. */
-function expectationFor(entry) {
-  return expectations().find((row) =>
-    !row.metBy
-    && Math.abs(dayGap(entry.date, row.date)) <= EXPECT_DAYS
-    && Math.abs(entry.amount - row.amount) <= Math.max(100, row.amount * LINK_SLACK)) || null;
-}
-
-/** The one payment out that most looks like what this money came in for. */
-function spendingFor(income) {
-  const until = shiftISO(income.date, LINK_DAYS);
-  return liveTransactions()
-    .filter((entry) => entry.amount < 0 && !entry.branch && !entry.counted
-      && entry.date >= income.date && entry.date <= until
-      && Math.abs(Math.abs(entry.amount) - income.amount) <= Math.max(100, income.amount * LINK_SLACK))
-    .sort((a, b) =>
-      Math.abs(Math.abs(a.amount) - income.amount) - Math.abs(Math.abs(b.amount) - income.amount)
-      || a.date.localeCompare(b.date))[0] || null;
-}
-
-/**
- * Puts the external money and its spending together, without asking. One
- * payment out per payment in, the closest in amount: a wire for a thing is
- * followed by the thing, and two things are a coincidence rather than a rule.
- */
-function linkExternalSpending() {
-  const linked = new Set(liveTransactions().map((entry) => entry.linkedTo).filter(Boolean));
-  const now = new Date().toISOString();
-  let changed = 0;
-
-  liveTransactions()
-    .filter((entry) => entry.amount > 0 && entry.branch === "external" && !linked.has(entry.id))
-    .forEach((income) => {
-      const paidFor = spendingFor(income);
-      if (!paidFor) return;
-      paidFor.branch = "external";
-      paidFor.linkedTo = income.id;
-      paidFor.updatedAt = now;
-      linked.add(income.id);
-      changed += 1;
-    });
-
-  return changed;
-}
-
-/** Puts a payment back into the month, when the link was the wrong guess. */
-function countItAgain(id) {
-  const entry = state.transactions.find((held) => held.id === id);
-  if (!entry) return;
-  entry.branch = "";
-  entry.linkedTo = "";
-  entry.counted = true;     // and the linker does not take it back
-  entry.updatedAt = new Date().toISOString();
-  saveTransactions();
-  moneyChanged();
-  announce("Counted as part of the month again.");
-}
 
 /* ---------- The ones worth asking about ---------- */
-
-/*
-  A big one-off is a question, not a category.
-
-  Four hundred zloty on a plane ticket is not the same kind of event as four
-  hundred zloty of shopping, and the difference is not what it was for: it is
-  where the money came from. Out of the month, and the month is wrecked; out of
-  what was put by, and the month is fine and the savings are smaller; out of
-  somebody else's pocket, and neither is true.
-
-  The app used to have no way to say the middle one. Anything large either
-  wrecked the month's figures or had to be called external, which claims
-  somebody else paid and is a different and untrue thing. So it is asked, once,
-  about anything big enough to matter, and never guessed.
-*/
-
-/* A payment is big when it is three days' spending, or 120 zl, whichever is
-   more. Below that it is a Tuesday and nobody wants to be asked. */
-const BIG_FLOOR = 12000;
-const BIG_TIMES = 3;
-
-function bigEnoughToAsk(date = todayISO()) {
-  const plan = weekPlan(monthOf(date));
-  const rate = plan.spendable ? (isWeekend(date) ? plan.weekend : plan.weekday) : 0;
-  return Math.max(BIG_FLOOR, rate * BIG_TIMES);
-}
-
-/** Big one-offs this month that nobody has placed yet, newest first. */
-function worthAsking(monthKey) {
-  return liveTransactions()
-    .filter((entry) => entry.amount < 0
-      && !entry.branch
-      && !entry.counted
-      && (entry.category || "other") !== "transfers"
-      && monthOf(entry.date) === monthKey
-      && Math.abs(entry.amount) >= bigEnoughToAsk(entry.date))
-    .sort((a, b) => b.date.localeCompare(a.date) || a.amount - b.amount);
-}
-
-function renderAsks() {
-  const card = $("money-asks");
-  if (!card) return;
-
-  const monthKey = state.moneyMonth || latestMonth();
-  const asking = worthAsking(monthKey);
-  card.hidden = asking.length === 0;
-  if (asking.length === 0) {
-    card.replaceChildren();
-    return;
-  }
-
-  show(card, [
-    el("div", { class: "card-head" },
-      el("h2", { class: "card-title", text: asking.length === 1 ? "One worth asking about" : `${asking.length} worth asking about` })),
-    el("p", { class: "chart-caption", text:
-      "Where did the money come from? Nothing here is counted either way until you say." }),
-    el("ul", { class: "ask-list" }, asking.map((entry) => el(
-      "li",
-      { class: "ask-row" },
-      el("div", { class: "ask-what" },
-        el("span", { class: "ask-sum", text: zloty(entry.amount) }),
-        el("span", { class: "ask-who", text: entry.counterparty || entry.title || entry.description || "a payment" }),
-        el("span", { class: "ask-when", text: entry.date })),
-      el("div", { class: "ask-acts" },
-        el("button", {
-          type: "button", class: "btn btn-quiet btn-tiny",
-          text: "Part of the month",
-          onclick: () => moveTransaction(entry.id, ""),
-        }),
-        el("button", {
-          type: "button", class: "btn btn-quiet btn-tiny",
-          text: "From savings",
-          onclick: () => moveTransaction(entry.id, "savings"),
-        }),
-        el("button", {
-          type: "button", class: "btn btn-quiet btn-tiny",
-          text: "Someone else paid",
-          onclick: () => moveTransaction(entry.id, "external"),
-        }))
-    ))),
-  ]);
-}
-
-/* ---------- What is coming, and what came ---------- */
-
-function renderOutside() {
-  const wrap = $("money-outside");
-  if (!wrap) return;
-
-  const monthKey = state.moneyMonth || latestMonth();
-  const waiting = expectations().filter((row) => !row.metBy);
-  const arrived = liveTransactions()
-    .filter((entry) => entry.amount > 0 && entry.branch === "external" && monthOf(entry.date) === monthKey)
-    .sort((a, b) => b.date.localeCompare(a.date));
-
-  if (waiting.length === 0 && arrived.length === 0) {
-    show(wrap, [el("p", { class: "empty", text: "Nothing outside the plan this month." })]);
-    return;
-  }
-
-  const paidBy = new Map(liveTransactions()
-    .filter((entry) => entry.linkedTo)
-    .map((entry) => [entry.linkedTo, entry]));
-
-  show(wrap, [
-    waiting.length
-      ? el("ul", { class: "outside-list" }, waiting.map((row) => el(
-          "li",
-          { class: "outside-row is-waiting" },
-          el("span", { class: "outside-when", text: row.date.slice(5) }),
-          el("span", { class: "outside-what", text: row.what || "coming" }),
-          el("span", { class: "outside-sum", text: zloty(row.amount) }),
-          el("button", {
-            type: "button", class: "link-btn", text: "Remove",
-            onclick: () => dropExpectation(row.id),
-          })
-        )))
-      : null,
-    arrived.length
-      ? el("ul", { class: "outside-list" }, arrived.map((entry) => {
-          const spent = paidBy.get(entry.id);
-          return el(
-            "li",
-            { class: "outside-row" },
-            el("span", { class: "outside-when", text: entry.date.slice(5) }),
-            el("span", { class: "outside-what" },
-              el("span", { text: entry.counterparty || entry.title || "-" }),
-              spent
-                ? el("span", { class: "outside-paid", text: `paid for ${spent.counterparty || spent.title || "something"}, ${zloty(spent.amount)}` })
-                : el("span", { class: "outside-paid", text: "nothing matched to it yet" })),
-            el("span", { class: "outside-sum", text: zloty(entry.amount) }),
-            spent
-              ? el("button", {
-                  type: "button", class: "link-btn", text: "Not that one",
-                  onclick: () => countItAgain(spent.id),
-                })
-              : null
-          );
-        }))
-      : null,
-  ]);
-}
-
-function setupOutside() {
-  const form = $("expect-form");
-  if (!form) return;
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const amount = parseAmount($("expect-amount").value);
-    if (amount === null || amount <= 0) {
-      announce("Put in how much is coming.");
-      $("expect-amount").focus();
-      return;
-    }
-    addExpectation({
-      amount,
-      date: $("expect-date").value || todayISO(),
-      what: $("expect-what").value,
-    });
-    form.reset();
-    announce("Noted. It will be kept out of the month when it arrives.");
-  });
-}
 
 /* ---------- Hello ---------- */
 
@@ -2541,22 +2277,15 @@ function renderTransaction(entry) {
   const title = $("tx-dialog-title");
   if (title) title.textContent = entry.counterparty || entry.title || entry.description || "Transaction";
 
-  const external = entry.branch === "external";
-  const paidFor = entry.linkedTo
-    ? liveTransactions().find((held) => held.id === entry.linkedTo)
-    : liveTransactions().find((held) => held.linkedTo === entry.id);
-
   const facts = [
     ["Amount", zloty(entry.amount)],
     ["When", entry.date],
     entry.booked && entry.booked !== entry.date ? ["Booked", entry.booked] : null,
     entry.title && entry.counterparty ? ["Description", entry.title] : null,
     entry.description ? ["Kind", entry.description] : null,
-    ["Where it counts", external
-      ? "Outside the plan, left out of the month"
-      : entry.amount > 0 ? "Money in, part of the plan" : "In this month's spending"],
-    paidFor ? [entry.amount > 0 ? "Paid for" : "Covered by",
-      `${paidFor.counterparty || paidFor.title || "-"} · ${zloty(paidFor.amount)}`] : null,
+    ["Where it counts", entry.amount < 0
+      ? "In this month's spending"
+      : entry.branch === "plan" ? "Money in, on the plan" : "Money in, outside the plan"],
     ["Where it came from", entry.source === "api" ? "mBank, automatically" : "a CSV you imported"],
   ].filter(Boolean);
 
@@ -2576,23 +2305,18 @@ function renderTransaction(entry) {
     el(
       "div",
       { class: "dialog-actions" },
-      el("button", {
-        type: "button",
-        class: external ? "btn btn-quiet" : "btn btn-primary",
-        text: external ? "Count it in the month" : "Move it outside the plan",
-        onclick: () => {
-          moveTransaction(entry.id, external ? "" : "external");
-          const again = liveTransactions().find((held) => held.id === entry.id);
-          if (again) renderTransaction(again);
-        },
-      }),
       el("span", { class: "dialog-actions-spacer" }),
-      el("button", { type: "button", class: "btn btn-quiet", text: "Done", onclick: () => closeDialog($("tx-dialog")) })
+      el("button", { type: "button", class: "btn btn-primary", text: "Done", onclick: () => closeDialog($("tx-dialog")) })
     ),
 
-    el("p", { class: "field-hint", text: external
-      ? "Outside the plan, it is in neither the day-to-day budget nor the rate. The 2 500 is untouched by it."
-      : "Moving it out takes it off the budget and out of the daily rate, for the one-off that somebody else was covering." }),
+    /* There used to be a button here for taking a payment out of the month.
+       Everything that goes out is spending now; what decides whether a big
+       one was affordable is the money that came in, not a label on it. */
+    el("p", { class: "field-hint", text: entry.amount < 0
+      ? "Every payment counts against the month. A big one is covered by the emergency budget where there is money in it."
+      : entry.branch === "plan"
+        ? "On the schedule, so this is the money the daily figure is worked out from."
+        : "Not on the schedule, so it goes to the emergency budget rather than raising what a day is worth." }),
   ]);
 }
 
@@ -2617,29 +2341,6 @@ function categoryPicker(entry) {
   return picker;
 }
 
-function moveTransaction(id, branch) {
-  const entry = state.transactions.find((held) => held.id === id);
-  if (!entry) return;
-
-  entry.branch = branch;
-  entry.updatedAt = new Date().toISOString();
-  if (branch === "") {
-    // Put back on purpose: the linker must not take it away again.
-    entry.counted = true;
-    entry.linkedTo = "";
-  } else {
-    entry.counted = false;
-  }
-
-  saveTransactions();
-  moneyChanged();
-  announce(
-    branch === "external" ? "Moved outside the plan: somebody else's money paid for it."
-    : branch === "savings" ? "Taken out of savings, not out of the month."
-    : "Counted in the month again."
-  );
-}
-
 function setTransactionCategory(id, category) {
   const entry = state.transactions.find((held) => held.id === id);
   if (!entry) return;
@@ -2657,7 +2358,7 @@ function txRow(entry, { showCategory = true } = {}) {
     "button",
     {
       type: "button",
-      class: `tx-open${entry.branch === "external" ? " is-outside" : ""}`,
+      class: "tx-open",
       onclick: () => openTransaction(entry.id, button),
     },
     el("span", { class: "tx-date", text: entry.date.slice(5) }),
@@ -2667,8 +2368,8 @@ function txRow(entry, { showCategory = true } = {}) {
     el("span", { class: `tx-amount${entry.amount > 0 ? " is-in" : ""}`, text: zloty(entry.amount) }),
     showCategory
       ? el("span", {
-          class: `tx-cat${(entry.category || "other") === "other" ? " is-loose" : ""}${entry.branch === "external" ? " is-outside" : ""}`,
-          text: entry.branch === "external" ? "outside" : (entry.category || "other"),
+          class: `tx-cat${(entry.category || "other") === "other" ? " is-loose" : ""}`,
+          text: entry.category || "other",
         })
       : null
   );
@@ -2860,21 +2561,15 @@ function setAsideOn(date) {
   const out = liveTransactions()
     .filter((entry) => entry.amount < 0 && entry.date === date && !SPENT_OUT(entry));
 
-  const reason = (entry) => ((entry.category || "other") === "transfers"
-    ? "moved between your own accounts"
-    : entry.branch === "savings" ? "taken out of savings"
-      : "paid for by somebody else");
-
-  const kinds = new Map();
-  out.forEach((entry) => {
-    const what = reason(entry);
-    kinds.set(what, (kinds.get(what) || 0) + 1);
-  });
-
+  /* One reason left, now that nothing else can be set aside: money moved
+     between your own accounts has not gone anywhere. */
+  const count = out.length;
   return {
     entries: out,
     amount: out.reduce((sum, entry) => sum + Math.abs(entry.amount), 0),
-    why: [...kinds].map(([what, count]) => (count === 1 ? what : `${count} ${what}`)),
+    why: count === 0 ? [] : [count === 1
+      ? "moved between your own accounts"
+      : `${count} moved between your own accounts`],
   };
 }
 
@@ -3075,6 +2770,7 @@ function renderSaved() {
   if (!wrap) return;
 
   const standing = savingsStanding();
+  const fund = emergencyNow();
   const since = monthName(standing.from);
 
   if (standing.months.length === 0) {
@@ -3104,6 +2800,21 @@ function renderSaved() {
       : standing.done.length === 0
         ? `Since ${since}. A month that ends with money left is a month saved.`
         : `Since ${since}. ${standing.kept} of ${standing.done.length} finished months kept something.` }),
+
+    /*
+      The emergency budget sits here rather than on the daily card on purpose.
+      It is savings -- money that came in and was not spent -- and the one
+      place it must never appear is next to the figure for today, where it
+      would read as permission.
+    */
+    fund.left > 0
+      ? el("div", { class: "saved-fund" },
+          el("p", { class: "saved-fund-label", text: "Emergency budget" }),
+          el("p", { class: "saved-fund-figure", text: zloty(fund.left) }),
+          el("p", { class: "saved-fund-note", text: fund.over > 0
+            ? `${zloty(fund.extra)} came in outside the plan and ${zloty(fund.over)} of it has gone on months that ran long. The rest is not part of any day's budget; it is what covers one when it stretches.`
+            : "Money that arrived outside the plan and has not been spent. It is not part of any day's budget: it is there to cover a month that stretches." }))
+      : null,
 
     el("ul", { class: "saved-months" }, standing.months.slice(-6).map((row) => {
       const share = Math.round((Math.abs(row.saved) / biggest) * 100);
@@ -3329,7 +3040,7 @@ function planLine(monthKey) {
   const when = standing.next
     ? `, ${zloty(standing.toCome)} to come · next ${zloty(standing.next.amount)} on the ${ordinal(standing.next.day)}`
     : "";
-  const outside = standing.external ? `, ${zloty(standing.external)} from outside the plan` : "";
+  const outside = standing.extra ? `, ${zloty(standing.extra)} from outside the plan` : "";
 
   const owed = standing.late.reduce((sum, slot) => sum + slot.amount, 0);
   const days = standing.late.map((slot) => ordinal(slot.day));
@@ -3559,13 +3270,54 @@ function pressureNow(date = todayISO()) {
     else break;
   }
 
-  const level = load >= GUARD_OVER || run >= GUARD_RUN + 1 || (run >= GUARD_RUN && load >= GUARD_WATCH)
+  const raw = load >= GUARD_OVER || run >= GUARD_RUN + 1 || (run >= GUARD_RUN && load >= GUARD_WATCH)
     ? "over"
     : run >= GUARD_RUN || load >= GUARD_WATCH
       ? "watch"
       : "calm";
 
-  return { days, run, spent, allowed, load, level };
+  /*
+    And then the question the rate on its own cannot answer: was it paid for.
+    Spending faster than the plan matters because the plan is what there is.
+    Where more came in than the plan counted on and enough of it is still
+    unspent to cover the excess, the fast week was bought rather than
+    borrowed, and an alarm about it is an alarm about nothing. The run is
+    still reported -- it happened -- it just stops being worth interrupting
+    an afternoon for.
+  */
+  const fund = emergencyNow(date);
+  const covered = raw !== "calm" && fund.left > 0;
+
+  return { days, run, spent, allowed, load, level: covered ? "calm" : raw, raw, covered, fund };
+}
+
+/*
+  The emergency budget, worked out on the device exactly as the server works
+  it out: everything that came in outside the plan, less everything spent
+  above what the plan allowed, from the first day there was anything to count.
+
+  It is never part of a day's allowance, and that is the whole point of it. A
+  windfall that turns into permission to spend a little more every day is a
+  windfall nobody can point at in March.
+*/
+function emergencyNow(date = todayISO()) {
+  const live = liveTransactions().filter((entry) => entry.date && entry.date <= date);
+  if (live.length === 0) return { extra: 0, spent: 0, allowed: 0, over: 0, left: 0 };
+
+  const extra = live.filter(EXTRA_IN).reduce((sum, entry) => sum + entry.amount, 0);
+  const spent = live.filter(SPENT_OUT).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+
+  const first = live.map((entry) => entry.date).sort()[0];
+  let allowed = 0;
+  for (let day = `${monthOf(first)}-01`; day <= date; day = shiftISO(day, 1)) {
+    if (day < first) continue;
+    const plan = weekPlan(monthOf(day));
+    if (!plan.spendable) continue;
+    allowed += isWeekend(day) ? plan.weekend : plan.weekday;
+  }
+
+  const over = Math.max(0, spent - allowed);
+  return { extra, spent, allowed, over, left: Math.max(0, extra - over) };
 }
 
 /**
@@ -3580,13 +3332,20 @@ function guardLine() {
   if (read.allowed <= 0) return null;
   const share = Math.round(read.load * 100);
 
-  const words = read.level === "calm"
-    ? read.run === 1
-      ? `One day over, and the week at ${share}% of its rate. Nothing in that.`
-      : `The last seven days are at ${share}% of their rate.`
-    : read.run >= GUARD_RUN
-      ? `${read.run} days over in a row, with the week at ${share}% of its rate.`
-      : `The week is at ${share}% of its rate, with no single day that looks bad.`;
+  /*
+    A week that ran long and was paid for says both halves. Hiding the run
+    would be as wrong as alarming about it: it happened, and the thing that
+    makes it fine is a figure the reader should watch going down.
+  */
+  const words = read.covered
+    ? `${read.run >= GUARD_RUN ? `${read.run} days over in a row, ` : ""}the week at ${share}% of its rate, covered by the ${zloty(read.fund.left)} outside the plan.`
+    : read.level === "calm"
+      ? read.run === 1
+        ? `One day over, and the week at ${share}% of its rate. Nothing in that.`
+        : `The last seven days are at ${share}% of their rate.`
+      : read.run >= GUARD_RUN
+        ? `${read.run} days over in a row, with the week at ${share}% of its rate.`
+        : `The week is at ${share}% of its rate, with no single day that looks bad.`;
 
   return el(
     "p",
@@ -3851,8 +3610,6 @@ function renderDashboard() {
   renderBalanceCard();
   renderDebrief();
   renderSaved();
-  renderAsks();
-  renderOutside();
   renderBudgetMap();
   renderCategoryBars();
   renderRateCard();
@@ -3932,9 +3689,7 @@ function buildDigest() {
     });
 
   const standing = incomeStanding(thisMonth);
-  const externalOut = liveTransactions()
-    .filter((entry) => entry.amount < 0 && entry.branch === "external" && monthOf(entry.date) === thisMonth)
-    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  const fund = emergencyNow();
 
   const payees = new Map();
   liveTransactions()
@@ -3961,10 +3716,11 @@ function buildDigest() {
       stillToCome: zl(standing.toCome),
       schedule: incomePlan().map((slot) => ({ day: slot.day, amount: zl(slot.amount) })),
     },
-    external: {
-      note: "Money from outside the schedule and the spending it paid for. Counted apart from the plan: mention it only if it is large or frequent, and never as overspending.",
-      inThisMonth: zl(standing.external),
-      outThisMonth: zl(externalOut),
+    emergency: {
+      note: "The emergency budget: money that arrived outside the schedule, less everything spent above what the plan allowed. It is never part of a day's allowance, and while it has anything in it a fast week was paid for rather than borrowed. Treat spending covered by it as affordable, not as overspending.",
+      fromOutsideThePlanThisMonth: zl(standing.extra),
+      spentAboveThePlanToDate: zl(fund.over),
+      leftInTheFund: zl(fund.left),
     },
     week: {
       note: "The month's spending money, split so weekdays are cheaper and the weekend is worth looking forward to. Both rates come to the same monthly total. What is not spent Monday to Thursday is carried onto the weekend.",
@@ -4362,7 +4118,6 @@ function watchWidth() {
 
 function setupInsight() {
   if (!$("money-reading")) return;
-  setupOutside();
   fetchDebrief();
   if ($("map-rebalance")) {
     $("map-rebalance").addEventListener("click", () => {

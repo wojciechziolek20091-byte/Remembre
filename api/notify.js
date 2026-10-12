@@ -382,15 +382,16 @@ export function moneyAlerts(vault, clock) {
   if (guard) due.push(alert(`guard:${clock.today}`, guard.title, guard.body, clock));
 
   /* And a payment nothing was budgeted for, which is the one that would
-     otherwise quietly become a category of its own. The page asks where the
-     money came from; this is the nudge to go and answer it. */
+     otherwise quietly become a category of its own. Nothing is asked about
+     where it came from any more -- it counts either way -- so this says what
+     it is and leaves the budget as the thing to go and change. */
   const loose = unbudgeted(rows, settings, clock.today).filter((entry) => Math.abs(entry.amount) >= UNBUDGETED_FLOOR);
   if (loose.length > 0) {
     const worst = loose[0];
     const what = worst.counterparty || worst.title || worst.description || "something";
     due.push(alert(`loose:${clock.today}:${worst.id}`,
       `${money(Math.abs(worst.amount))} with no budget behind it`,
-      `${what}, filed under ${worst.category || "other"}. Open the app and say where it came from: the month, savings, or somebody else.`, clock));
+      `${what}, filed under ${worst.category || "other"}. It counts against the month either way; give it a budget if it is going to keep happening.`, clock));
   }
 
   return due;

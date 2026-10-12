@@ -2501,8 +2501,6 @@ body.is-booting { overflow: hidden; }
 /* The pile nothing has claimed is the one worth a rule, so it says so. */
 .tally-row.is-loose .tally-name { color: var(--accent); font-weight: 600; }
 
-
-
 .tx-date { grid-area: date; }
 .tx-what { grid-area: what; }
 .tx-amount { grid-area: amount; }
@@ -3480,47 +3478,8 @@ body.on-money .wordmark-mark { color: var(--accent); }
 
 /* ---------- Money from outside the plan ---------- */
 
-.expect-form {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: .45rem;
-  margin: .6rem 0 .2rem;
-}
-
-.expect-form .input { padding: .5rem .65rem; font-size: .9rem; }
-.expect-form #expect-what { grid-column: 1 / -1; }
-.expect-form .btn { grid-column: 1 / -1; justify-self: start; }
-
 @media (min-width: 34rem) {
-  .expect-form { grid-template-columns: 7rem 10rem 1fr auto; align-items: center; }
-  .expect-form #expect-what { grid-column: auto; }
-  .expect-form .btn { grid-column: auto; }
 }
-
-.outside-list {
-  list-style: none;
-  margin: .7rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: .5rem;
-}
-
-.outside-row {
-  display: grid;
-  grid-template-columns: 2.6rem 1fr auto auto;
-  gap: .3rem .7rem;
-  align-items: baseline;
-  padding-bottom: .5rem;
-  border-bottom: 1px solid var(--line);
-  font-size: .88rem;
-}
-
-.outside-list:last-child .outside-row:last-child { border-bottom: 0; padding-bottom: 0; }
-.outside-row.is-waiting { opacity: .75; }
-.outside-when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.outside-what { display: grid; gap: .1rem; min-width: 0; }
-.outside-paid { font-size: .78rem; color: var(--ink-2); }
-.outside-sum { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---------- The week, and the one quotation ---------- */
 
@@ -3597,9 +3556,6 @@ body.on-money .wordmark-mark { color: var(--accent); }
 .tx-open .tx-amount.is-in { color: var(--s-ess); }
 
 /* Out of the month: still there, visibly set aside. */
-.tx-open.is-outside .tx-title { color: var(--ink-2); }
-.tx-open.is-outside .tx-amount { color: var(--ink-2); }
-.tx-cat.is-outside { color: var(--accent); border-color: var(--accent); }
 
 .bar-detail.tx-list { padding-left: .6rem; }
 
@@ -4000,7 +3956,6 @@ body.is-sitting { overflow: hidden; }
   one, because the app does not know which is true and guessing is the thing
   this card exists to stop.
 */
-.card-asks { border-left: 3px solid var(--accent); }
 
 /*
   One card on this page is the one you came to look at. Seven cards of
@@ -4014,28 +3969,12 @@ body.is-sitting { overflow: hidden; }
   border-color: var(--line);
 }
 
-.ask-list { list-style: none; margin: .6rem 0 0; padding: 0; display: grid; gap: .5rem; }
-
-.ask-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .5rem .9rem;
-  padding: .6rem .7rem;
-  border: 1px solid var(--card-line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-
-.ask-what { display: grid; gap: .1rem; min-width: 0; margin-right: auto; }
-.ask-sum { font-size: 1.05rem; font-weight: 650; font-variant-numeric: tabular-nums; }
 .ask-who {
   font-size: .9rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ask-when { font-size: .76rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .ask-acts { display: flex; flex-wrap: wrap; gap: .4rem; }
 
 /*
@@ -4293,4 +4232,40 @@ body.is-sitting { overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   .refresh-btn.is-turning .refresh-mark { animation: none; }
+}
+
+/* ---------- The emergency budget ---------- */
+
+/*
+  On the savings card, not the daily one. It is money that came in and was not
+  spent, which is what saving is; putting it next to today's figure would read
+  as permission, and the whole point of it is that it is not.
+*/
+.saved-fund {
+  margin: .9rem 0 0;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line);
+}
+
+.saved-fund-label {
+  margin: 0;
+  font-size: .78rem;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.saved-fund-figure {
+  margin: .15rem 0 .3rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.saved-fund-note {
+  margin: 0;
+  font-size: .84rem;
+  color: var(--ink-2);
+  max-width: 54ch;
 }

@@ -787,16 +787,16 @@ console.log("\nthe income plan");
       toCome: standing.toCome,
       next: standing.next ? standing.next.day : null,
       late: standing.late.map((slot) => slot.day),
-      external: liveTransactions().filter((e) => e.amount > 0 && e.branch === "external").length,
+      extra: liveTransactions().filter(EXTRA_IN).length,
     };
   }, month);
 
   check("a payment on its day is counted as the plan", rows.branches[0], ["01", 70000, "plan"]);
   check("and one a couple of days late still is", rows.branches.find((r) => r[0] === "10"), ["10", 60000, "plan"]);
-  // Nothing is asked about what already happened: off the schedule is
-  // external, and that is the whole of the decision.
-  check("one that is not on the schedule is external, without a question",
-    rows.branches.find((r) => r[0] === "11"), ["11", 50000, "external"]);
+  /* Nothing is asked and nothing is marked: off the schedule simply has no
+     branch, which is what "outside the plan" means. */
+  check("one that is not on the schedule is left unmarked",
+    rows.branches.find((r) => r[0] === "11"), ["11", 50000, ""]);
   check("the month is measured against the plan, not against what landed", rows.planned, 250000);
   check("what has arrived is what matched it", rows.arrived, 190000);
   check("the rest is still to come", rows.toCome, 60000);
@@ -804,21 +804,7 @@ console.log("\nthe income plan");
   // than next. "Next" wearing a date in the past is not a forecast.
   check("an instalment whose day has gone is not called next", rows.next, null);
   check("it is late", rows.late, [22]);
-  check("and it is counted apart from the plan", rows.external, 1);
-  // With no schedule there is nothing to be outside of, and calling every
-  // payment external would empty the month of its income.
-  check("but with no schedule set, nothing is external",
-    await page.evaluate(() => {
-      const before = readStore("remembre.incomeplan.v1", null);
-      writeStore("remembre.incomeplan.v1", "# none");
-      state.transactions.forEach((entry) => { if (entry.amount > 0) entry.branch = ""; });
-      classifyIncome();
-      const any = liveTransactions().filter((e) => e.branch === "external").length;
-      writeStore("remembre.incomeplan.v1", before);
-      state.transactions.forEach((entry) => { if (entry.amount > 0) entry.branch = ""; });
-      classifyIncome();
-      return any;
-    }), 0);
+  check("and what came in outside the plan is named as that", rows.extra, 1);
 }
 
 {
@@ -826,8 +812,9 @@ console.log("\nthe income plan");
     renderDashboard();
     return {
       plan: (document.querySelector(".kpi-plan") || {}).textContent || "",
-      outside: (document.querySelector(".outside-row") || {}).textContent || "",
       asked: document.querySelectorAll(".review-row").length,
+      gone: document.querySelector("#money-outside") === null
+        && document.querySelector("#money-asks") === null,
     };
   });
   check("the card leads with the plan",
@@ -836,59 +823,117 @@ console.log("\nthe income plan");
     /600,00 z\u0142 due on the 22nd never arrived/.test(card.plan), true, card.plan);
   check("without calling a date in the past the next payment",
     /next/.test(card.plan), false, card.plan);
-  check("what came from outside it is listed apart", /BABCIA/.test(card.outside), true, card.outside);
-  check("and nothing on the page asks about it", card.asked, 0);
+  check("the outside-the-plan card is gone from the page", card.gone, true);
+  check("and nothing on the page asks where money came from", card.asked, 0);
 }
 
+console.log("\nevery payment counts, and the income decides whether it hurt");
+
 {
-  // And whatever the money paid for is linked to it, also without asking.
-  const linked = await page.evaluate(() => {
+  /* The old model had two ways of saying "this does not count": somebody else
+     paid, or it came out of savings. Between them any month could be made to
+     look calm by relabelling the thing that made it busy. */
+  const counted = await page.evaluate(() => {
     state.transactions.push(normaliseTransaction({
       id: "the-ticket", date: "2026-09-13", amount: -50000, counterparty: "EBILET", category: "fun",
     }));
     saveTransactions();
     classifyIncome();
-    renderDashboard();
     const ticket = liveTransactions().find((e) => e.id === "the-ticket");
     return {
       branch: ticket.branch,
-      linkedTo: Boolean(ticket.linkedTo),
       counted: liveTransactions().filter(SPENT_OUT).length,
-      row: (document.querySelector(".outside-paid") || {}).textContent || "",
+      spent: Math.abs(monthReport("2026-09").spent),
     };
   });
-  check("the spending it paid for is linked to it", linked.branch, "external");
-  check("and remembers which payment it belonged to", linked.linkedTo, true);
-  check("neither side is counted as the month's spending", linked.counted, 0);
-  check("and the card says what it paid for", /paid for EBILET/.test(linked.row), true, linked.row);
-
-  // When the guess is wrong, putting it back is an action rather than a
-  // question, and it stays put.
-  const back = await page.evaluate(() => {
-    countItAgain("the-ticket");
-    classifyIncome();
-    const ticket = liveTransactions().find((e) => e.id === "the-ticket");
-    return { branch: ticket.branch, counted: ticket.counted, spending: liveTransactions().filter(SPENT_OUT).length };
-  });
-  check("putting it back counts it again", back.branch, "");
-  check("and the linker does not take it away a second time", back.counted, true);
-  check("so it is the month's spending now", back.spending, 1);
+  check("spending carries no branch to hide behind", counted.branch, "");
+  check("and is counted, whatever paid for it", counted.counted, 1);
+  check("so the month's total has it in", counted.spent, 50000);
 }
 
 {
-  // The whole point of the branch: it must not move the verdict.
-  const kept = await page.evaluate(() => {
-    const before = sustainability();
+  /* And the half that makes that fair: money the plan was not counting on is
+     held as a fund, and while there is anything in it the overspending it
+     paid for is not worth an alarm. */
+  const fund = await page.evaluate(() => {
+    const before = emergencyNow("2026-09-20");
+    return {
+      extra: before.extra,
+      over: before.over,
+      left: before.left,
+      // The daily figure must not move when a windfall lands.
+      rateBefore: weekPlan("2026-09").weekday,
+    };
+  });
+  check("what came in outside the plan is the fund", fund.extra, 50000);
+  check("less whatever the plan could not cover", fund.left, Math.max(0, 50000 - fund.over));
+
+  const unmoved = await page.evaluate(() => {
+    const was = weekPlan("2026-09").weekday;
     state.transactions.push(normaliseTransaction({
-      id: "outside-spend", date: "2026-09-14", amount: -120000,
-      counterparty: "SOMETHING BIG", category: "other", branch: "external",
+      id: "windfall", date: "2026-09-15", amount: 200000, counterparty: "NAGRODA", category: "income",
     }));
     saveTransactions();
-    const after = sustainability();
-    return { before: before.perDay, after: after.perDay, typical: after.typical };
+    classifyIncome();
+    const out = { was, now: weekPlan("2026-09").weekday, fund: emergencyNow("2026-09-20").extra };
+
+    // The blocks after this one count on the fixture as it was.
+    state.transactions = state.transactions.filter((entry) => entry.id !== "windfall");
+    saveTransactions();
+    return out;
   });
-  check("external spending does not touch the rate", kept.after, kept.before);
-  check("and the plan is what the rate is measured against", kept.typical, 250000);
+  check("a windfall is in the fund", unmoved.fund, 250000);
+  check("and changes nothing about what a day is worth", unmoved.now, unmoved.was);
+}
+
+{
+  /* The guard: a fast week that the fund paid for is reported and not alarmed
+     about; the same week with an empty fund is an alarm. */
+  const guard = await page.evaluate(() => {
+    const day = (iso, amount) => normaliseTransaction({
+      id: `g${iso}${amount}`, date: iso, amount, counterparty: "SHOP", category: "food",
+    });
+
+    /* This block needs a fixture of its own and the ones after it need the
+       old one back, so everything it touches is put back at the end. */
+    const heldRows = state.transactions.slice();
+    const heldBudgets = readStore("remembre.moneybudgets.v1", null);
+    const heldIncome = readStore("remembre.incomeplan.v1", null);
+
+    state.transactions = [];
+    writeStore("remembre.moneybudgets.v1", "food = 600");
+    writeStore("remembre.incomeplan.v1", "600 on the 1st");
+    const today = "2026-09-20";
+    [0, 1, 2].forEach((back) => state.transactions.push(day(shiftISO(today, -back), -20000)));
+    saveTransactions();
+    const bare = pressureNow(today);
+
+    // The same days, with more than enough having come in outside the plan.
+    state.transactions.push(normaliseTransaction({
+      id: "gift", date: "2026-09-10", amount: 300000, counterparty: "BABCIA", category: "income",
+    }));
+    saveTransactions();
+    const paid = pressureNow(today);
+
+    const out = {
+      bareLevel: bare.level, bareRun: bare.run,
+      paidLevel: paid.level, paidRaw: paid.raw, paidCovered: paid.covered,
+      paidRun: paid.run, left: paid.fund.left,
+    };
+
+    state.transactions = heldRows;
+    writeStore("remembre.moneybudgets.v1", heldBudgets);
+    writeStore("remembre.incomeplan.v1", heldIncome);
+    saveTransactions();
+    return out;
+  });
+
+  check("three days over with nothing behind them is an alarm", guard.bareLevel, "over");
+  check("the same three days are still counted as a run", guard.paidRun, guard.bareRun);
+  check("but with the fund behind them there is nothing to alarm about", guard.paidLevel, "calm");
+  check("the rate itself has not changed, only what it means", guard.paidRaw, "over");
+  check("and the card can say so", guard.paidCovered, true);
+  check("with what is left in the fund", guard.left > 0, true);
 }
 
 {
@@ -905,9 +950,10 @@ console.log("\nthe income plan");
   check("the plan is in the summary", digest.income.planPerMonth, 2500);
   check("with what has arrived of it", digest.income.arrivedThisMonth, 1900);
   check("and the schedule itself", digest.income.schedule.length, 4);
-  check("the external branch is named, apart", digest.external.inThisMonth, 500);
-  check("so the model cannot read it as overspending",
-    /never as overspending/.test(digest.external.note), true);
+  check("what came in outside the plan is named", digest.emergency.fromOutsideThePlanThisMonth, 500);
+  check("with what is left in the fund", typeof digest.emergency.leftInTheFund, "number");
+  check("and the model is told what it means",
+    /not as overspending/.test(digest.emergency.note), true);
   check("earlier months are two numbers each",
     Object.keys(digest.earlierMonths[0]).sort(), ["in", "month", "out"]);
   check("and are not broken down by category",
@@ -1157,18 +1203,15 @@ const CANNED = {
 console.log("\nmoney from outside the plan");
 
 {
-  const told = await page.evaluate(async () => {
-    localStorage.removeItem("remembre.expected.v1");
+  /* Telling the app what was coming existed to keep a wire out of the month.
+     Nothing is kept out of the month any more, so there is nothing to declare
+     in advance: a payment in that did not match the schedule is simply the
+     fund, the moment it lands. */
+  const told = await page.evaluate(() => {
     state.transactions = [];
     const when = (back) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - back); return d.toISOString().slice(0, 10); };
-
-    // Looking at the month the wire lands in, which on the 1st or 2nd is not
-    // the month the app happens to be showing.
     state.moneyMonth = monthOf(when(2));
-    addExpectation({ amount: 50000, date: when(2), what: "concert ticket" });
-    const waiting = document.querySelectorAll(".outside-row.is-waiting").length;
 
-    // And then it turns up.
     state.transactions.push(normaliseTransaction({
       id: "the-wire", date: when(2), amount: 50000, counterparty: "BABCIA", category: "income",
     }));
@@ -1178,19 +1221,17 @@ console.log("\nmoney from outside the plan");
 
     const wire = liveTransactions().find((e) => e.id === "the-wire");
     return {
-      waiting,
       branch: wire.branch,
-      met: readStore("remembre.expected.v1", [])[0].metBy,
-      stillWaiting: document.querySelectorAll(".outside-row.is-waiting").length,
-      listed: (document.querySelector(".outside-row:not(.is-waiting)") || {}).textContent || "",
+      extra: emergencyNow(when(0)).extra,
+      counted: monthReport(monthOf(when(2))).received,
+      noForm: document.querySelector("#expect-form") === null,
     };
   });
 
-  check("what is coming can be said in advance", told.waiting, 1);
-  check("and when it lands it is outside the plan", told.branch, "external");
-  check("without anybody being asked", told.met, "the-wire");
-  check("and it stops being something you are waiting for", told.stillWaiting, 0);
-  check("the card lists it", /BABCIA/.test(told.listed), true, told.listed);
+  check("a payment that did not match the schedule carries no branch", told.branch, "");
+  check("it goes straight into the fund", told.extra, 50000);
+  check("and is counted as money that came in", told.counted, 50000);
+  check("there is nothing left to declare in advance", told.noForm, true);
 }
 
 /* ---------- One transaction, up close ---------- */
@@ -1244,45 +1285,34 @@ console.log("\nopening a transaction");
     opened.facts.join(","));
   check("it says where it counts now", /this month's spending/.test(opened.where), true, opened.where);
   check("and where it came from", /mBank, automatically/.test(opened.source), true, opened.source);
-  check("the action offered is to move it out", opened.action, "Move it outside the plan");
+  check("and the only action left is to close it", opened.action, "Done");
   check("its category is pickable", opened.categories.includes("food") && opened.categories.includes("fun"), true);
   check("and starts where it is", opened.picked, "fun");
 }
 
 {
-  // The whole point: the one-off goes out and the day-to-day stops reading wrong.
-  const moved = await page.evaluate(() => {
+  /* There used to be a button here that took a payment out of the month, and
+     the test below it proved the month's figures moved when it was pressed.
+     That is the behaviour this change removes: a big one-off is spending, and
+     what decides whether it was affordable is the income, not a label. */
+  const stuck = await page.evaluate(() => {
     const month = monthOf(shiftISO(todayISO(), -14));
-    const before = { spent: monthReport(month).spent, rate: sustainability().perDay };
-    document.querySelector(".dialog-tx .btn-primary").click();
+    const before = monthReport(month).spent;
+    const buttons = [...document.querySelectorAll(".dialog-tx .dialog-actions .btn")].map((b) => b.textContent);
     const entry = liveTransactions().find((e) => e.id === "the-big-one");
     return {
-      before,
-      after: { spent: monthReport(month).spent, rate: sustainability().perDay },
+      buttons,
       branch: entry.branch,
-      action: document.querySelector(".dialog-tx .dialog-actions .btn").textContent,
-      where: [...document.querySelectorAll(".tx-facts dd")].find((n) => /Outside the plan/.test(n.textContent)),
+      spent: before,
+      hint: (document.querySelector(".dialog-tx .field-hint:last-of-type") || {}).textContent || "",
     };
   });
 
-  check("moving it out takes it off the branch", moved.branch, "external");
-  check("the month's spending drops by it", moved.before.spent - moved.after.spent, -90000);
-  check("and so does the daily rate", moved.after.rate < moved.before.rate, true);
-  check("the dialog now offers the way back", moved.action, "Count it in the month");
-  check("and says where it counts now", Boolean(moved.where), true);
-
-  const back = await page.evaluate(() => {
-    document.querySelector(".dialog-tx .dialog-actions .btn").click();
-    const entry = liveTransactions().find((e) => e.id === "the-big-one");
-    classifyIncome();
-    return {
-      branch: entry.branch, counted: entry.counted,
-      spent: monthReport(monthOf(shiftISO(todayISO(), -14))).spent,
-    };
-  });
-  check("counting it back in puts it back", back.branch, "");
-  check("and it stays back", back.counted, true);
-  check("with the month's spending restored", back.spent, -98000);
+  check("there is no way to move a payment out of the month", stuck.buttons, ["Done"]);
+  check("spending carries no branch at all", stuck.branch, "");
+  check("and the month keeps every zloty of it", stuck.spent, -98000);
+  check("the dialog says what covers a big one instead",
+    /emergency budget/.test(stuck.hint), true, stuck.hint);
 }
 
 {
@@ -1566,10 +1596,13 @@ console.log("\ntoday's budget on the page");
   const aside = await page.evaluate(() => {
     const today = todayISO();
     state.transactions = [];
+    /* Only one thing can be set aside now: a transfer between your own
+       accounts. What used to be "somebody else paid" and "out of savings" is
+       ordinary spending, and counts. */
     [
-      { id: "cover", amount: -12000, counterparty: "TICKETS", branch: "external" },
-      { id: "save", amount: -40000, counterparty: "LAPTOP", branch: "savings" },
+      { id: "cover", amount: -12000, counterparty: "TICKETS", category: "fun" },
       { id: "move", amount: -20000, counterparty: "MY OTHER ACCOUNT", category: "transfers" },
+      { id: "move2", amount: -40000, counterparty: "MY SAVINGS", category: "transfers" },
     ].forEach((row) => state.transactions.push(normaliseTransaction({ ...row, date: today })));
     saveTransactions();
     renderDashboard();
@@ -1581,15 +1614,14 @@ console.log("\ntoday's budget on the page");
     };
   });
 
-  check("none of the three counts against the day", aside.spent, 0);
+  check("the one that is really spending counts against the day", aside.spent, 12000);
   check("but the card no longer pretends nothing happened", aside.aside !== "", true, aside.aside);
-  check("it says how much left the account", /720,00 zł/.test(aside.aside), true, aside.aside);
-  check("and names every reason it was set aside",
-    ["paid for by somebody else", "taken out of savings", "moved between your own accounts"]
-      .every((why) => aside.aside.includes(why)), true, aside.aside);
+  check("it says how much moved rather than went", /600,00 zł/.test(aside.aside), true, aside.aside);
+  check("and names the only reason left",
+    /2 moved between your own accounts/.test(aside.aside), true, aside.aside);
   check("the line above is the instruction, not a total",
     /^Stick to /.test(aside.line) && !/spent/.test(aside.line), true, aside.line);
-  check("one line per reason, not one per payment", aside.why.length, 3);
+  check("one line for them, not one each", aside.why.length, 1);
 
   const counted = await page.evaluate(() => {
     state.transactions.push(normaliseTransaction({
@@ -1602,8 +1634,8 @@ console.log("\ntoday's budget on the page");
       aside: (document.querySelector(".lead-aside") || {}).textContent || "",
     };
   });
-  check("ordinary spending on the same day still counts", counted.spent, 3000);
-  check("and the aside keeps only what is set apart", /720,00 zł/.test(counted.aside), true, counted.aside);
+  check("ordinary spending on the same day still counts", counted.spent, 15000);
+  check("and the aside keeps only what moved", /600,00 zł/.test(counted.aside), true, counted.aside);
 
   // A card payment the bank has authorised and not yet settled spends like
   // any other, and the card says the figure may still move.
@@ -2037,8 +2069,10 @@ console.log("\nthe guard, and where the money came from");
 }
 
 {
-  // A big one-off is a question, not a category.
-  const asked = await page.evaluate(() => {
+  /* A big one-off used to be a question with three answers, two of which took
+     it out of the month. Both of those are gone: it is spending, and the
+     emergency budget is what decides whether it hurt. */
+  const big = await page.evaluate(() => {
     const today = todayISO();
     state.transactions = [
       normaliseTransaction({ id: "big", date: today, amount: -40000, counterparty: "LOT", category: "other" }),
@@ -2048,37 +2082,31 @@ console.log("\nthe guard, and where the money came from");
     saveTransactions();
     renderDashboard();
     return {
-      shown: document.getElementById("money-asks").hidden === false,
-      rows: document.querySelectorAll(".ask-row").length,
-      who: (document.querySelector(".ask-who") || {}).textContent || "",
-      answers: [...document.querySelectorAll(".ask-acts .btn")].map((b) => b.textContent),
-      countedBefore: monthReport(monthOf(today)).spent,
-    };
-  });
-
-  check("a big one-off is asked about", asked.shown, true);
-  check("and only the big one", asked.rows, 1);
-  check("naming who took it", asked.who, "LOT");
-  check("with the three answers it can have",
-    asked.answers, ["Part of the month", "From savings", "Someone else paid"]);
-  check("and it counts against the month until it is answered", asked.countedBefore, -41500);
-
-  const savings = await page.evaluate(() => {
-    const today = todayISO();
-    moveTransaction("big", "savings");
-    const report = monthReport(monthOf(today));
-    return {
-      spent: report.spent,
-      fromSavings: report.fromSavings,
-      gone: document.getElementById("money-asks").hidden,
+      noCard: document.getElementById("money-asks") === null,
+      spent: monthReport(monthOf(today)).spent,
       day: dayBudget(today).spent,
     };
   });
 
-  check("answering 'from savings' takes it out of the month", savings.spent, -1500);
-  check("and out of the day's own figure", savings.day, 1500);
-  check("but it is still on the page, counted apart", savings.fromSavings, -40000);
-  check("and the question goes away", savings.gone, true);
+  check("nothing is asked about a big payment any more", big.noCard, true);
+  check("it simply counts against the month", big.spent, -41500);
+  check("and against the day it happened on", big.day, 41500);
+
+  const covered = await page.evaluate(() => {
+    const today = todayISO();
+    state.transactions.push(normaliseTransaction({
+      id: "gift", date: shiftISO(today, -1), amount: 300000, counterparty: "BABCIA", category: "income",
+    }));
+    saveTransactions();
+    classifyIncome();
+    const fund = emergencyNow(today);
+    return { left: fund.left, extra: fund.extra, spent: monthReport(monthOf(today)).spent, day: dayBudget(today).spent };
+  });
+
+  check("money arriving does not take the payment out of the month", covered.spent, -41500);
+  check("nor out of the day", covered.day, 41500);
+  check("it goes to the fund instead", covered.extra, 300000);
+  check("which is what covers the big one", covered.left > 0, true);
 }
 
 {
@@ -2088,10 +2116,10 @@ console.log("\nthe guard, and where the money came from");
     const month = monthOf(today);
     state.transactions = [
       normaliseTransaction({ id: "in", date: `${month}-01`, amount: 70000, counterparty: "MAMA", branch: "plan" }),
-      normaliseTransaction({ id: "extra", date: `${month}-02`, amount: 30000, counterparty: "BABCIA", branch: "external" }),
+      normaliseTransaction({ id: "extra", date: `${month}-02`, amount: 30000, counterparty: "BABCIA" }),
       normaliseTransaction({ id: "out", date: `${month}-03`, amount: -5000, counterparty: "ZABKA", category: "food" }),
-      normaliseTransaction({ id: "saved", date: `${month}-04`, amount: -40000, counterparty: "LOT", branch: "savings" }),
-      normaliseTransaction({ id: "paid", date: `${month}-05`, amount: -30000, counterparty: "APPLE", branch: "external" }),
+      normaliseTransaction({ id: "wasSaved", date: `${month}-04`, amount: -40000, counterparty: "LOT", category: "other" }),
+      normaliseTransaction({ id: "wasPaid", date: `${month}-05`, amount: -30000, counterparty: "APPLE", category: "other" }),
       normaliseTransaction({ id: "moved", date: `${month}-06`, amount: -10000, counterparty: "ME", category: "transfers" }),
     ];
     state.moneyMonth = month;
@@ -2104,15 +2132,14 @@ console.log("\nthe guard, and where the money came from");
     ]);
   });
 
-  check("every zloty of the month is on the page", ledger.length, 6);
+  check("every zloty of the month is on the page", ledger.length, 4);
   check("the plan's income is counted", ledger[0], ["In, on the plan", "700,00 zł", "in the month"]);
-  check("money from outside it is kept apart", ledger[1], ["In, from outside it", "300,00 zł", "kept apart"]);
-  check("spending against the month is counted", ledger[2], ["Out, against the month", "−50,00 zł", "in the month"]);
-  check("spending out of savings is kept apart", ledger[3], ["Out, from savings", "−400,00 zł", "kept apart"]);
-  check("so is spending somebody else covered",
-    ledger[4], ["Out, covered by someone else", "−300,00 zł", "kept apart"]);
-  check("and so is money moved between your own accounts",
-    ledger[5], ["Moved between your own accounts", "−100,00 zł", "kept apart"]);
+  check("money from outside it is counted too, and named",
+    ledger[1], ["In, outside the plan", "300,00 zł", "in the month"]);
+  check("all three payments out are one line of spending",
+    ledger[2], ["Out, against the month", "−750,00 zł", "in the month"]);
+  check("and only a transfer is kept apart",
+    ledger[3], ["Moved between your own accounts", "−100,00 zł", "kept apart"]);
 }
 
 console.log("\nopening the half is the refresh");

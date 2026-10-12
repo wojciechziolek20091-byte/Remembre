@@ -473,8 +473,8 @@ const shareOf = (rows, date, share) => {
     loose.some((one) => one.key.startsWith("loose")), keysOf(loose));
   const note = loose.find((one) => one.key.startsWith("loose"));
   check("naming what it was", /ZABKA/.test(note.message.body), note.message.body);
-  check("and what to do about it",
-    /the month, savings, or somebody else/.test(note.message.body), note.message.body);
+  check("and what to do about it, now that nothing is asked",
+    /give it a budget/.test(note.message.body), note.message.body);
 
   // Small change is not worth a buzz.
   const small = moneyAlerts(vaultOf([spend("2026-10-08", -800, "clothes")]), clockAt("2026-10-08", 15 * 60));
