@@ -4269,3 +4269,63 @@ body.is-sitting { overflow: hidden; }
   color: var(--ink-2);
   max-width: 54ch;
 }
+
+/* ---------- Saving up for something ---------- */
+
+.wish-form {
+  display: grid;
+  grid-template-columns: 1fr 7rem 9rem auto;
+  gap: .5rem;
+  margin: .8rem 0 0;
+}
+
+.wish-list { list-style: none; margin: .9rem 0 0; padding: 0; display: grid; gap: .9rem; }
+
+.wish-row {
+  display: grid;
+  gap: .35rem;
+  padding-bottom: .9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wish-list .wish-row:last-child { border-bottom: 0; padding-bottom: 0; }
+
+.wish-head { display: flex; align-items: baseline; gap: .6rem; }
+.wish-name { font-weight: 600; margin-right: auto; }
+.wish-price { font-variant-numeric: tabular-nums; font-weight: 650; }
+.wish-drop { flex: 0 0 auto; }
+
+.wish-meter {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.wish-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--s-ess);
+}
+
+.wish-row.is-there .wish-meter-fill { background: var(--good, var(--s-ess)); }
+.wish-row.is-late .wish-meter-fill { background: var(--accent); }
+
+.wish-note { margin: 0; font-size: .84rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.wish-sum {
+  margin: .9rem 0 0;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line);
+  font-size: .86rem;
+  color: var(--ink-2);
+  max-width: 60ch;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .wish-form { grid-template-columns: 1fr 1fr; }
+  .wish-form #wish-name { grid-column: 1 / -1; }
+  .wish-form .btn { grid-column: 1 / -1; }
+}

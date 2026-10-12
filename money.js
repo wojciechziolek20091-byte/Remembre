@@ -459,6 +459,7 @@ function setupMoney() {
   setupBank();
   setupInsight();
   setupTransactionDialog();
+  setupWishes();
 
   /*
     An installed app is resumed far more often than it is launched, and a
@@ -2465,7 +2466,9 @@ function daysOfMonth(monthKey) {
 function weekPlan(monthKey = state.moneyMonth || latestMonth()) {
   const budgets = parseBudgets(budgetsText());
   const allocated = [...budgets.values()].reduce((sum, limit) => sum + limit, 0);
-  const spendable = allocated > 0 ? allocated : plannedMonthly();
+  const base = allocated > 0 ? allocated : plannedMonthly();
+  /* The wishes take their small bite, and nothing else ever reduces this. */
+  const spendable = Math.max(0, base - wishPlan(monthKey).taken);
   const days = daysOfMonth(monthKey);
 
   const weekdayRate = spendable / (days.week + WEEKEND_RATIO * days.weekend);
@@ -2475,6 +2478,213 @@ function weekPlan(monthKey = state.moneyMonth || latestMonth()) {
     weekday: Math.round(weekdayRate),
     weekend: Math.round(weekdayRate * WEEKEND_RATIO),
   };
+}
+
+/* ---------- Things you are saving up for ---------- */
+
+/*
+  One line per wish: a name, a price, and optionally the month you want it by
+  and the month you started putting money aside for it.
+
+    laptop = 4000 by 2027-03 from 2026-10
+
+  A wish is not a budget. A budget says what a month may cost; a wish says
+  what a month should hold back, which is the opposite instruction, and
+  keeping them in separate boxes is what stops one being read as the other.
+
+  Worked out here exactly as the server works it out, because the daily figure
+  depends on it and a figure that disagrees with the one that sends the
+  notifications is worse than no figure.
+*/
+const MONEY_WISHES_KEY = "remembre.wishes.v1";
+
+/* A wish with no date by it gets this long, so "I want a laptop" is a plan
+   rather than a mood. */
+const WISH_MONTHS = 6;
+/* And the cap that keeps this gentle: a wishlist that halves the grocery
+   budget is a wishlist that gets deleted. */
+const WISH_SHARE = 0.1;
+
+function wishesText() {
+  const stored = readStore(MONEY_WISHES_KEY, null);
+  return typeof stored === "string" ? stored : "";
+}
+
+function parseWishes(text = wishesText()) {
+  const wishes = [];
+  String(text || "").split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const at = trimmed.indexOf("=");
+    if (at === -1) return;
+
+    const name = trimmed.slice(0, at).trim().slice(0, 40);
+    let rest = trimmed.slice(at + 1).trim();
+    const by = (rest.match(/\bby\s+(\d{4}-\d{2})/i) || [])[1] || "";
+    const from = (rest.match(/\bfrom\s+(\d{4}-\d{2})/i) || [])[1] || "";
+    rest = rest.replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").trim();
+
+    const price = parseAmount(rest);
+    if (name && price !== null && price > 0) wishes.push({ name, price, by, from });
+  });
+  return wishes;
+}
+
+const monthsBetween = (from, to) => {
+  const [fy, fm] = String(from).split("-").map(Number);
+  const [ty, tm] = String(to).split("-").map(Number);
+  if (!fy || !ty) return 0;
+  return (ty * 12 + tm) - (fy * 12 + fm);
+};
+
+/**
+ * What the wishes ask of a month, and how much of it the spending gives up.
+ *
+ * The saving the month already does pays first: what the plan brings in less
+ * what the budgets allow is money that was never going to be spent anyway,
+ * and a wish inside it costs the daily figure nothing. Only what is left over
+ * comes out of the spending, and only up to a tenth of it.
+ */
+function wishPlan(monthKey = state.moneyMonth || latestMonth()) {
+  const wishes = parseWishes();
+  const budgets = parseBudgets(budgetsText());
+  const allocated = [...budgets.values()].reduce((sum, limit) => sum + limit, 0);
+  const planned = plannedMonthly();
+  const base = allocated > 0 ? allocated : planned;
+
+  const lines = wishes.map((wish) => {
+    /*
+      The share is worked out over the whole run from the month it was started
+      to the month it is wanted, not over what is left. A figure recomputed
+      from the months remaining climbs every month a wish is behind, which
+      turns falling behind into a thing that accelerates away from you; and it
+      cannot be squared with what has been put by, because the two would be
+      counting in different units.
+    */
+    const total = wish.by && wish.from
+      ? Math.max(1, monthsBetween(wish.from, wish.by))
+      : WISH_MONTHS;
+    const permonth = Math.round(wish.price / total);
+    const elapsed = wish.from ? Math.max(0, monthsBetween(wish.from, monthKey)) : 0;
+    const saved = Math.min(wish.price, permonth * elapsed);
+    return {
+      ...wish,
+      months: Math.max(0, total - elapsed),
+      permonth,
+      saved,
+      left: Math.max(0, wish.price - saved),
+      /* Its month has been and gone and it is still on the list, which is
+         the only sense of "late" that is reachable: by the time the date
+         passes, the months elapsed have always covered the price. */
+      overdue: Boolean(wish.by) && wish.by < monthKey,
+    };
+  });
+
+  const asked = lines.reduce((sum, wish) => sum + wish.permonth, 0);
+  const surplus = Math.max(0, planned - allocated);
+  const fromSaving = Math.min(asked, surplus);
+  const cap = Math.round(base * WISH_SHARE);
+  const taken = Math.min(Math.max(0, asked - fromSaving), cap);
+
+  return { wishes: lines, asked, surplus, fromSaving, cap, taken, capped: asked - fromSaving > cap };
+}
+
+/* ---------- The wishlist on the page ---------- */
+
+function setupWishes() {
+  const form = $("wish-form");
+  if (!form) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = $("wish-name").value.trim();
+    const price = parseAmount($("wish-price").value);
+    if (!name) {
+      announce("Give it a name first.");
+      $("wish-name").focus();
+      return;
+    }
+    if (price === null || price <= 0) {
+      announce("Put in what it costs.");
+      $("wish-price").focus();
+      return;
+    }
+    if (!addWish({ name, price, by: $("wish-by").value || "" })) return;
+
+    $("wish-name").value = "";
+    $("wish-price").value = "";
+    $("wish-by").value = "";
+    moneyChanged();
+    announce(`${name} added. The month will start putting a little aside.`);
+  });
+}
+
+function saveWishes(text) {
+  writeStore(MONEY_WISHES_KEY, text);
+  touchMoneySettings();
+}
+
+/** Writes one wish into the list, with this month recorded as its start. */
+function addWish({ name, price, by }) {
+  const clean = String(name || "").replace(/[=\n\r]/g, " ").trim().slice(0, 40);
+  if (!clean || !(price > 0)) return false;
+  const line = `${clean} = ${(price / 100).toFixed(2)}`
+    + (by ? ` by ${by}` : "")
+    + ` from ${monthOf(todayISO())}`;
+  const held = wishesText().trim();
+  saveWishes(held ? `${held}\n${line}` : line);
+  return true;
+}
+
+function dropWish(name) {
+  const keep = wishesText().split(/\r?\n/).filter((line) => {
+    const at = line.indexOf("=");
+    return at === -1 ? line.trim() !== "" : line.slice(0, at).trim() !== name;
+  });
+  saveWishes(keep.join("\n"));
+}
+
+function renderWishes() {
+  const wrap = $("money-wishes");
+  if (!wrap) return;
+
+  const plan = wishPlan();
+  if (plan.wishes.length === 0) {
+    show(wrap, [el("p", { class: "empty", text: "Nothing on the list. Add something and the month will start putting a little aside." })]);
+    return;
+  }
+
+  show(wrap, [
+    el("ul", { class: "wish-list" }, plan.wishes.map((wish) => {
+      const share = Math.max(0, Math.min(1, wish.price ? wish.saved / wish.price : 0));
+      return el(
+        "li",
+        { class: `wish-row${wish.overdue ? " is-late" : ""}${wish.saved >= wish.price ? " is-there" : ""}` },
+        el("div", { class: "wish-head" },
+          el("span", { class: "wish-name", text: wish.name }),
+          el("span", { class: "wish-price", text: zloty(wish.price) }),
+          el("button", {
+            type: "button", class: "link-btn wish-drop", text: "Remove",
+            onclick: () => { dropWish(wish.name); moneyChanged(); announce(`${wish.name} taken off the list.`); },
+          })),
+        el("div", { class: "wish-meter", role: "img",
+          "aria-label": `${zloty(wish.saved)} of ${zloty(wish.price)} put by.` },
+          el("span", { class: "wish-meter-fill", style: `width:${Math.round(share * 100)}%` })),
+        el("p", { class: "wish-note", text: wish.saved >= wish.price
+          ? `${zloty(wish.price)} put by. Go and get it, then take it off the list.`
+          : `${zloty(wish.saved)} put by, ${zloty(wish.left)} to go at ${zloty(wish.permonth)} a month${wish.overdue ? ", and its month has been and gone" : wish.by ? ` until ${monthName(wish.by)}` : ""}.` })
+      );
+    })),
+
+    /*
+      Where the money is coming from, which is the part worth being honest
+      about: most of it is saving that was happening anyway, and only the
+      remainder is anybody going without.
+    */
+    el("p", { class: "wish-sum", text: plan.taken === 0
+      ? `${zloty(plan.asked)} a month, all of it out of what the month already saves. The daily figure is untouched.`
+      : `${zloty(plan.asked)} a month: ${zloty(plan.fromSaving)} from what the month already saves, ${zloty(plan.taken)} out of the spending.${plan.capped ? ` That is the most it will take -- a tenth -- so the rest waits.` : ""}` }),
+  ]);
 }
 
 /**
@@ -2593,6 +2803,9 @@ function moneySettings() {
     budgets: budgetsText(),
     rules: rulesText(),
     income: incomePlanText(),
+    /* The wishes decide the daily figure now, so the run that writes the
+       notifications has to be able to see them. */
+    wishes: wishesText(),
     updatedAt: readStore(MONEY_SETTINGS_AT, "") || "1970-01-01T00:00:00.000Z",
   };
 }
@@ -2611,6 +2824,7 @@ function adoptMoneySettings(held) {
   if (typeof held.budgets === "string") writeStore(MONEY_BUDGETS_KEY, held.budgets);
   if (typeof held.rules === "string") writeStore(MONEY_RULES_KEY, held.rules);
   if (typeof held.income === "string") writeStore(MONEY_INCOME_KEY, held.income);
+  if (typeof held.wishes === "string") writeStore(MONEY_WISHES_KEY, held.wishes);
   writeStore(MONEY_SETTINGS_AT, held.updatedAt);
 
   const budgets = $("money-budgets");
@@ -3610,6 +3824,7 @@ function renderDashboard() {
   renderBalanceCard();
   renderDebrief();
   renderSaved();
+  renderWishes();
   renderBudgetMap();
   renderCategoryBars();
   renderRateCard();

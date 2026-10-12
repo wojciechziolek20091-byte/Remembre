@@ -121,6 +121,110 @@ export function parseAmount(text) {
   return negative ? -grosze : grosze;
 }
 
+/* ---------- Things you are saving up for ---------- */
+
+/*
+  One line per wish: a name, a price, and optionally the month you want it by
+  and the month you started putting money aside for it.
+
+    laptop = 4000 by 2027-03 from 2026-10
+
+  A wish is not a budget. A budget says what a month may cost; a wish says
+  what a month should hold back, which is the opposite instruction, and
+  keeping them in separate boxes is what stops one being read as the other.
+*/
+export function parseWishes(text) {
+  const wishes = [];
+  String(text || "").split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const at = trimmed.indexOf("=");
+    if (at === -1) return;
+
+    const name = trimmed.slice(0, at).trim().slice(0, 40);
+    let rest = trimmed.slice(at + 1).trim();
+
+    const by = (rest.match(/\bby\s+(\d{4}-\d{2})/i) || [])[1] || "";
+    const from = (rest.match(/\bfrom\s+(\d{4}-\d{2})/i) || [])[1] || "";
+    rest = rest.replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").trim();
+
+    const price = parseAmount(rest);
+    if (name && price !== null && price > 0) wishes.push({ name, price, by, from });
+  });
+  return wishes;
+}
+
+/** Whole months from one YYYY-MM to another, which may be negative. */
+export const monthsBetween = (from, to) => {
+  const [fy, fm] = String(from).split("-").map(Number);
+  const [ty, tm] = String(to).split("-").map(Number);
+  if (!fy || !ty) return 0;
+  return (ty * 12 + tm) - (fy * 12 + fm);
+};
+
+/* A wish with no date by it gets this long to happen, so that "I want a
+   laptop" is a plan rather than a mood. */
+export const WISH_MONTHS = 6;
+
+/* And the cap that keeps this gentle. However much the wishes want, no more
+   than a tenth of what a month was going to spend is taken from it: a
+   wishlist that halves the grocery budget is a wishlist that gets deleted. */
+export const WISH_SHARE = 0.1;
+
+/**
+ * What the wishes ask of a month, and how much of it the spending gives up.
+ *
+ * The money a month already saves pays first. That is the general saving the
+ * reader is doing anyway -- what the plan brings in less what the budgets
+ * allow -- and a wish inside it costs the daily figure nothing at all. Only
+ * what is left over is taken out of the spending, and only up to the cap.
+ */
+export function wishPlan(settings, monthKey) {
+  const wishes = parseWishes(settings && settings.wishes);
+  const budgets = parseBudgets(settings && settings.budgets);
+  const allocated = [...budgets.values()].reduce((sum, limit) => sum + limit, 0);
+  const planned = parseIncomePlan(settings && settings.income)
+    .reduce((sum, slot) => sum + slot.amount, 0);
+  const base = allocated > 0 ? allocated : planned;
+
+  const lines = wishes.map((wish) => {
+    /*
+      The share is worked out over the whole run from the month it was started
+      to the month it is wanted, not over what is left. A figure recomputed
+      from the months remaining climbs every month a wish is behind, which
+      turns falling behind into a thing that accelerates away from you; and it
+      cannot be squared with what has been put by, because the two would be
+      counting in different units.
+    */
+    const total = wish.by && wish.from
+      ? Math.max(1, monthsBetween(wish.from, wish.by))
+      : WISH_MONTHS;
+    const permonth = Math.round(wish.price / total);
+    const elapsed = wish.from ? Math.max(0, monthsBetween(wish.from, monthKey)) : 0;
+    const saved = Math.min(wish.price, permonth * elapsed);
+    return {
+      ...wish,
+      months: Math.max(0, total - elapsed),
+      permonth,
+      saved,
+      left: Math.max(0, wish.price - saved),
+      /* Its month has been and gone and it is still on the list, which is
+         the only sense of "late" that is reachable: by the time the date
+         passes, the months elapsed have always covered the price. */
+      overdue: Boolean(wish.by) && wish.by < monthKey,
+    };
+  });
+
+  const asked = lines.reduce((sum, wish) => sum + wish.permonth, 0);
+  /* What the plan saves of its own accord, before anything is given up. */
+  const surplus = Math.max(0, planned - allocated);
+  const fromSaving = Math.min(asked, surplus);
+  const cap = Math.round(base * WISH_SHARE);
+  const taken = Math.min(Math.max(0, asked - fromSaving), cap);
+
+  return { wishes: lines, asked, surplus, fromSaving, cap, taken, capped: asked - fromSaving > cap };
+}
+
 /* ---------- The money that may be spent ---------- */
 
 /**
@@ -164,7 +268,10 @@ export function weekPlan(settings, monthKey) {
   const planned = parseIncomePlan(settings && settings.income)
     .reduce((sum, slot) => sum + slot.amount, 0);
 
-  const spendable = allocated > 0 ? allocated : planned;
+  /* And then the wishes take their small bite, which is the only thing that
+     ever reduces this figure. */
+  const base = allocated > 0 ? allocated : planned;
+  const spendable = Math.max(0, base - wishPlan(settings, monthKey).taken);
   const days = daysOfMonth(monthKey);
   const weekdayRate = spendable / (days.week + WEEKEND_RATIO * days.weekend);
 

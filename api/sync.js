@@ -16,7 +16,7 @@ const COLLECTIONS = ["tasks", "coursework", "sessions", "transactions"];
   standing guard over a case that does not arise.
 */
 const SETTINGS = "moneySettings";
-const SETTINGS_FIELDS = ["budgets", "rules", "income"];
+const SETTINGS_FIELDS = ["budgets", "rules", "income", "wishes"];
 
 /**
  * The meeting point for a reader's devices.

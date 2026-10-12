@@ -356,6 +356,32 @@
 
     <section class="card card-saved" id="money-saved" aria-label="Money saved"></section>
 
+    <!--
+      Saving with nothing to save for is an instruction to go without, and
+      goes without saying. This is the other half: the things the going
+      without is for, each with a price on it, each taking a little out of
+      what a month may spend.
+    -->
+    <section class="card card-wishes" aria-labelledby="money-wishes-heading">
+      <div class="card-head">
+        <h2 class="card-title" id="money-wishes-heading">Saving up for</h2>
+      </div>
+      <p class="chart-caption" id="money-wishes-hint">
+        What a month already saves pays for these first. Only what is left over comes out
+        of the spending, and never more than a tenth of it.
+      </p>
+      <form class="wish-form" id="wish-form">
+        <label class="sr-only" for="wish-name">What it is</label>
+        <input type="text" id="wish-name" class="input" maxlength="40" placeholder="a laptop">
+        <label class="sr-only" for="wish-price">How much</label>
+        <input type="number" id="wish-price" class="input" inputmode="decimal" step="0.01" min="0" placeholder="4000">
+        <label class="sr-only" for="wish-by">By when</label>
+        <input type="month" id="wish-by" class="input">
+        <button type="submit" class="btn btn-primary btn-tiny">Add</button>
+      </form>
+      <div id="money-wishes" aria-describedby="money-wishes-hint"></div>
+    </section>
+
     <section class="card card-map" aria-labelledby="money-map-heading">
       <div class="card-head">
         <h2 class="card-title" id="money-map-heading">Where the plan goes</h2>

@@ -38,6 +38,9 @@ const SETTINGS = {
   budgets: "food = 620\ncoffee = 200\ntransport = 140\nfun = 150\nsubscriptions = 150",
   rules: "",
   income: "1 = 700\n8 = 600\n15 = 600\n22 = 600",
+  /* A wish big enough to outrun the saving the plan already does, so the
+     trim is live in every case below and both sides have to agree about it. */
+  wishes: "laptop = 9000 by 2026-12 from 2026-09",
 };
 
 const tx = (date, amount, category = "food", extra = {}) => ({
@@ -146,6 +149,7 @@ for (const one of CASES) {
     state.transactions = rows.map(normaliseTransaction).filter(Boolean);
     writeStore("remembre.moneybudgets.v1", settings.budgets);
     writeStore("remembre.incomeplan.v1", settings.income);
+    writeStore("remembre.wishes.v1", settings.wishes);
 
     const day = dayBudget(on);
     const purse = weekendPurse(new Date(`${on}T12:00:00`));
@@ -165,12 +169,17 @@ for (const one of CASES) {
       guardSpent: guard.spent,
       guardAllowed: guard.allowed,
       guardLevel: guard.level,
+      wishAsked: wishPlan(monthOf(on)).asked,
+      wishFromSaving: wishPlan(monthOf(on)).fromSaving,
+      wishTaken: wishPlan(monthOf(on)).taken,
+      spendable: day.plan.spendable,
     };
   }, { rows: one.rows, settings: SETTINGS, on: one.on });
 
   const day = server.dayBudget(one.rows, SETTINGS, one.on);
   const purse = server.weekendPurse(one.rows, SETTINGS, one.on);
   const guard = server.pressure(one.rows, SETTINGS, one.on);
+  const wish = server.wishPlan(SETTINGS, one.on.slice(0, 7));
   const fromServer = {
     weekday: day.plan.weekday,
     weekendRate: day.plan.weekend,
@@ -186,6 +195,10 @@ for (const one of CASES) {
     guardSpent: guard.spent,
     guardAllowed: guard.allowed,
     guardLevel: guard.level,
+    wishAsked: wish.asked,
+    wishFromSaving: wish.fromSaving,
+    wishTaken: wish.taken,
+    spendable: day.plan.spendable,
   };
 
   check(one.name, fromPage, fromServer);
@@ -268,6 +281,46 @@ console.log("\nthe week, looked back on");
 
   check("a day over its limit is named", review.daysOver.includes("2026-10-31"), true);
   check("and a day inside it is not", review.daysOver.includes("2026-10-26"), false);
+}
+
+console.log("\nwhat the wishes take, and what pays for them");
+
+{
+  const budgets = "food = 600\nfun = 300";          // 900 a month
+  const income = "1 = 2500";                        // and 1600 of surplus
+
+  const inside = server.wishPlan({ budgets, income, wishes: "bike = 1200 by 2027-04 from 2026-10" }, "2026-10");
+  check("a wish the month already saves for asks its share", inside.asked, 20000);
+  check("all of it comes out of the saving", inside.fromSaving, 20000);
+  check("and the spending gives up nothing", inside.taken, 0);
+  check("so the daily figure does not move",
+    server.weekPlan({ budgets, income, wishes: "bike = 1200 by 2027-04 from 2026-10" }, "2026-10").spendable,
+    server.weekPlan({ budgets, income }, "2026-10").spendable);
+
+  const over = { budgets, income, wishes: "laptop = 9000 by 2026-12 from 2026-10" };
+  const bite = server.wishPlan(over, "2026-10");
+  check("a wish beyond it asks far more", bite.asked, 450000);
+  check("the saving pays what it can", bite.fromSaving, 160000);
+  check("the spending gives up the rest, up to a tenth", bite.taken, 9000);
+  check("which is the cap, and it says so", bite.capped, true);
+  check("the month spends a tenth less", server.weekPlan(over, "2026-10").spendable, 81000);
+
+  /* Not heavily: the whole point of the cap is that a wishlist cannot empty
+     a month however much is put on it. */
+  const greedy = { budgets, income, wishes: "a = 50000 by 2026-11 from 2026-10\nb = 50000 by 2026-11 from 2026-10" };
+  check("two impossible wishes still only take a tenth",
+    server.wishPlan(greedy, "2026-10").taken, 9000);
+
+  const progress = server.wishPlan({ budgets, income, wishes: "bike = 1200 by 2027-04 from 2026-10" }, "2027-01").wishes[0];
+  check("what has been put by is the months it has run", progress.saved, 60000);
+  check("and what is left is the rest of it", progress.left, 60000);
+
+  const late = server.wishPlan({ budgets, income, wishes: "late = 500 by 2026-09 from 2026-08" }, "2026-10").wishes[0];
+  check("a wish whose month has gone is marked", late.overdue, true);
+  check("and still asks for something rather than dividing by nothing", late.permonth, 50000);
+
+  check("a line with no price is not a wish", server.parseWishes("nonsense").length, 0);
+  check("and a comment is not either", server.parseWishes("# laptop = 4000").length, 0);
 }
 
 check("no page errors", problems, []);

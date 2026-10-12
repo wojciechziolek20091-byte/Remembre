@@ -2142,6 +2142,90 @@ console.log("\nthe guard, and where the money came from");
     ledger[3], ["Moved between your own accounts", "−100,00 zł", "kept apart"]);
 }
 
+console.log("\nsaving up for something");
+
+{
+  const added = await page.evaluate(() => {
+    localStorage.removeItem("remembre.wishes.v1");
+    writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 300");
+    writeStore("remembre.incomeplan.v1", "1 = 2500");
+    state.transactions = [];
+    saveTransactions();
+
+    const before = weekPlan(monthOf(todayISO())).weekday;
+    $("wish-name").value = "a laptop";
+    $("wish-price").value = "4000";
+    $("wish-by").value = "";
+    $("wish-form").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+
+    return {
+      before,
+      after: weekPlan(monthOf(todayISO())).weekday,
+      text: wishesText(),
+      rows: document.querySelectorAll(".wish-row").length,
+      name: (document.querySelector(".wish-name") || {}).textContent || "",
+      price: (document.querySelector(".wish-price") || {}).textContent || "",
+      sum: (document.querySelector(".wish-sum") || {}).textContent || "",
+    };
+  });
+
+  check("a wish is added from the panel", added.rows, 1);
+  check("named", added.name, "a laptop");
+  check("with its price", /4\u00a0000,00 zł/.test(added.price), true, added.price);
+  check("and the month it was started, so progress has somewhere to count from",
+    /from \d{4}-\d{2}/.test(added.text), true, added.text);
+  /* 4000 over six months is 666 a month, and the plan already saves 1600, so
+     this one costs the daily figure nothing. */
+  check("a wish the month already saves for does not touch the daily figure", added.after, added.before);
+  check("and the panel says so", /daily figure is untouched/.test(added.sum), true, added.sum);
+
+  const bites = await page.evaluate(() => {
+    const before = weekPlan(monthOf(todayISO())).weekday;
+    const by = monthOf(addDays(todayISO(), 60));
+    writeStore("remembre.wishes.v1", `a car = 40000 by ${by} from ${monthOf(todayISO())}`);
+    const plan = wishPlan(monthOf(todayISO()));
+    renderWishes();
+    return {
+      before,
+      after: weekPlan(monthOf(todayISO())).weekday,
+      taken: plan.taken,
+      fromSaving: plan.fromSaving,
+      capped: plan.capped,
+      sum: (document.querySelector(".wish-sum") || {}).textContent || "",
+    };
+  });
+
+  check("a wish beyond it does move the daily figure", bites.after < bites.before, true,
+    `${bites.before} -> ${bites.after}`);
+  check("the saving it already does pays first", bites.fromSaving, 160000);
+  check("the spending gives up a tenth and no more", bites.taken, 9000);
+  check("which the panel calls the most it will take", bites.capped, true);
+  check("and says where both halves came from",
+    /from what the month already saves/.test(bites.sum) && /out of the spending/.test(bites.sum),
+    true, bites.sum);
+
+  const gone = await page.evaluate(() => {
+    dropWish("a car");
+    moneyChanged();
+    return { rows: document.querySelectorAll(".wish-row").length, text: wishesText().trim() };
+  });
+  check("a wish can be taken off the list", gone.rows, 0);
+  check("and the list is left empty rather than ragged", gone.text, "");
+
+  // The settings that travel to the server have to carry it, or the daily
+  // figure in the morning text disagrees with the one on the card.
+  const synced = await page.evaluate(() => {
+    writeStore("remembre.wishes.v1", "a bike = 1200");
+    return moneySettings().wishes;
+  });
+  check("the wishlist is part of what is synced", synced, "a bike = 1200");
+
+  await page.evaluate(() => {
+    localStorage.removeItem("remembre.wishes.v1");
+    moneyChanged();
+  });
+}
+
 console.log("\nopening the half is the refresh");
 
 {
