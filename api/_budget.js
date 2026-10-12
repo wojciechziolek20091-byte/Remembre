@@ -148,8 +148,11 @@ export function parseWishes(text) {
     const from = (rest.match(/\bfrom\s+(\d{4}-\d{2})/i) || [])[1] || "";
     rest = rest.replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").trim();
 
+    const done = /\bdone\b/i.test(rest);
+    rest = rest.replace(/\bdone\b/gi, "").trim();
+
     const price = parseAmount(rest);
-    if (name && price !== null && price > 0) wishes.push({ name, price, by, from });
+    if (name && price !== null && price > 0) wishes.push({ name, price, by, from, done });
   });
   return wishes;
 }
@@ -226,7 +229,8 @@ export function wishPlan(settings, monthKey) {
     };
   });
 
-  const asked = lines.reduce((sum, wish) => sum + wish.permonth, 0);
+  /* A wish that has been bought stops taking money out of the month. */
+  const asked = lines.reduce((sum, wish) => sum + (wish.done ? 0 : wish.permonth), 0);
   /* What the plan saves of its own accord, before anything is given up. */
   const surplus = Math.max(0, planned - allocated);
   const fromSaving = Math.min(asked, surplus);
@@ -255,7 +259,12 @@ export function wishPlan(settings, monthKey) {
 export const counts = (entry) => entry
   && entry.amount < 0
   && !entry.deleted
-  && (entry.category || "other") !== "transfers";
+  && (entry.category || "other") !== "transfers"
+  /* And a payment that bought a saving goal, which is the one thing that
+     legitimately leaves the month: the money was put aside for months so
+     that paying it would not land on a single week. The savings total drops
+     by the same amount, so nothing is hidden, only moved. */
+  && !entry.wish;
 
 /** Money in that the plan was not expecting: anything not on the schedule. */
 export const extraIncome = (entry) => entry
@@ -453,7 +462,18 @@ export function savingsSince(rows, settings, date) {
     surplus += Math.max(0, planned - allocated) / daysOfMonth(key).total;
   }
 
-  const spent = live.filter(counts).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  /*
+    Every zloty that left, including the ones that bought a saving goal. Those
+    are out of the budget -- that is the point of attaching them -- but they
+    are not out of the saving: the money went, and a total that ignored it
+    would rise by the price of the thing bought. Attaching therefore moves
+    nothing here, by design, and moves the budget, which is what was asked.
+  */
+  const went = live.filter((entry) => entry.amount < 0 && (entry.category || "other") !== "transfers");
+  const spent = went.reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  const onWishes = went
+    .filter((entry) => entry.wish)
+    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
   const unspent = Math.max(0, allowed - spent);
 
   return {
@@ -462,6 +482,7 @@ export function savingsSince(rows, settings, date) {
     allowed,
     spent,
     unspent,
+    onWishes,
     surplus: Math.round(surplus),
     total: Math.round(surplus) + unspent,
   };

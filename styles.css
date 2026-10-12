@@ -4356,3 +4356,40 @@ body.is-sitting { overflow: hidden; }
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- Picking the payment that bought a goal ---------- */
+
+.pick-list {
+  list-style: none;
+  margin: .4rem 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: .1rem;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.pick-row {
+  display: grid;
+  grid-template-columns: 3rem 1fr auto auto;
+  gap: .3rem .8rem;
+  align-items: baseline;
+  padding: .45rem .1rem;
+  border-bottom: 1px solid var(--line);
+  font-size: .88rem;
+}
+
+.pick-list .pick-row:last-child { border-bottom: 0; }
+.pick-when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pick-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-sum { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
+
+/* The goal's name is the way in, so it reads as one. */
+.wish-name.link-btn {
+  font-weight: 600;
+  text-align: left;
+  padding: 0;
+}
+
+.wish-row.is-bought .wish-meter-fill { background: var(--s-ess); opacity: .55; }
+.wish-row.is-bought .wish-name { text-decoration: line-through; text-decoration-thickness: 1px; }

@@ -2157,6 +2157,151 @@ console.log("\nthe guard, and where the money came from");
     ledger[3], ["Moved between your own accounts", "−100,00 zł", "kept apart"]);
 }
 
+console.log("\nconnecting a goal to what bought it");
+
+{
+  const set = async () => page.evaluate(() => {
+    localStorage.removeItem("remembre.savedto.v1");
+    writeStore("remembre.moneybudgets.v1", "food = 600\nfun = 300");
+    writeStore("remembre.incomeplan.v1", "1 = 2500");
+    writeStore("remembre.wishes.v1", "a laptop = 4000 by 2027-04 from 2026-10");
+    state.transactions = [
+      normaliseTransaction({ id: "lap", date: "2026-10-09", amount: -400000, counterparty: "X-KOM", category: "other" }),
+      normaliseTransaction({ id: "half", date: "2026-10-09", amount: -150000, counterparty: "X-KOM RATA", category: "other" }),
+      normaliseTransaction({ id: "lunch", date: "2026-10-09", amount: -3000, counterparty: "ZABKA", category: "food" }),
+    ];
+    state.moneyMonth = "2026-10";
+    saveTransactions();
+    moneyChanged();
+  });
+
+  await set();
+  const before = await page.evaluate(() => ({
+    spent: Math.abs(monthReport("2026-10").spent),
+    day: dayBudget("2026-10-09").spent,
+    saved: savingsNow("2026-10-12").total,
+    asked: wishPlan("2026-10").asked,
+  }));
+  check("before it is attached the purchase is ordinary spending", before.spent, 553000);
+
+  const linked = await page.evaluate(() => {
+    linkWish("a laptop", "lap");
+    moneyChanged();
+    const wish = wishPlan("2026-10").wishes[0];
+    return {
+      spent: Math.abs(monthReport("2026-10").spent),
+      day: dayBudget("2026-10-09").spent,
+      saved: savingsNow("2026-10-12").total,
+      asked: wishPlan("2026-10").asked,
+      paid: wish.paid,
+      bought: wish.bought,
+      text: wishesText(),
+      aside: setAsideOn("2026-10-09"),
+    };
+  });
+
+  check("attaching it takes it out of the month", before.spent - linked.spent, 400000);
+  check("and out of the day's own figure", before.day - linked.day, 400000);
+  check("the goal counts what was really paid", linked.paid, 400000);
+  check("and is marked as bought", linked.bought, true);
+  check("which is written where the server can see it", /\bdone\b/.test(linked.text), true, linked.text);
+  check("so it stops taking money out of the month", linked.asked, 0);
+  /* Attaching moves the budget, not the saving. The money left either way,
+     and a savings total that stopped counting it would rise by the price of
+     the laptop -- buying one reading as a month of unusual thrift. */
+  check("the savings are untouched by attaching it", linked.saved, before.saved);
+  check("and the day still says the money left the account",
+    linked.aside.why, ["paid for a laptop"]);
+  check("with the amount on it", linked.aside.amount, 400000);
+
+  /* Partly paid: the goal keeps going, and keeps asking. */
+  await set();
+  const part = await page.evaluate(() => {
+    linkWish("a laptop", "half");
+    moneyChanged();
+    const wish = wishPlan("2026-10").wishes[0];
+    return {
+      paid: wish.paid, part: wish.part, bought: wish.bought,
+      asked: wishPlan("2026-10").asked,
+      text: wishesText(),
+      note: (document.querySelector(".wish-note") || {}).textContent || "",
+    };
+  });
+  check("a payment short of the price is partly paid", part.part, true);
+  check("and not yet bought", part.bought, false);
+  check("so it is not marked done", /\bdone\b/.test(part.text), false, part.text);
+  check("and it keeps putting money aside", part.asked > 0, true);
+  check("the row says how much is still to go",
+    /2\u00a0500,00 zł still to go/.test(part.note), true, part.note);
+
+
+  const undone = await page.evaluate(() => {
+    linkWish("a laptop", "lap");
+    moneyChanged();
+    const after = { bought: wishPlan("2026-10").wishes[0].bought, text: wishesText() };
+    unlinkWish("lap");
+    unlinkWish("half");
+    moneyChanged();
+    const wish = wishPlan("2026-10").wishes[0];
+    return {
+      after,
+      paid: wish.paid,
+      bought: wish.bought,
+      text: wishesText(),
+      spent: Math.abs(monthReport("2026-10").spent),
+    };
+  });
+  check("two payments together can pay for one goal", undone.after.bought, true);
+  check("taking them off puts the money back", undone.paid, 0);
+  check("the goal is live again", undone.bought, false);
+  check("and done is taken off the line", /\bdone\b/.test(undone.text), false, undone.text);
+  check("with the payments back in the month", undone.spent, 553000);
+
+  const dialog = await page.evaluate(() => {
+    renderWishes();
+    document.querySelector(".wish-name").click();
+    return {
+      open: $("wish-dialog").open === true,
+      title: $("wish-dialog-title").textContent,
+      rows: document.querySelectorAll("#wish-detail .pick-row").length,
+      names: [...document.querySelectorAll("#wish-detail .pick-what")].map((n) => n.textContent),
+    };
+  });
+  check("clicking the goal opens the dialog", dialog.open, true);
+  check("named after it", dialog.title, "a laptop");
+  check("listing the spending it could have been", dialog.rows, 3);
+  check("newest first, and nothing already attached elsewhere",
+    dialog.names.includes("X-KOM"), true, JSON.stringify(dialog.names));
+
+  /* And with enough actually saved, the fall is exactly the price. */
+  const rich = await page.evaluate(() => {
+    state.transactions = [
+      normaliseTransaction({ id: "lap", date: "2026-10-09", amount: -400000, counterparty: "X-KOM", category: "other" }),
+    ];
+    saveTransactions();
+    const before = savingsNow("2027-06-30").total;
+    linkWish("a laptop", "lap");
+    moneyChanged();
+    return {
+      before,
+      after: savingsNow("2027-06-30").total,
+      onWishes: savingsNow("2027-06-30").onWishes,
+    };
+  });
+  check("and that holds where there is plenty saved, too",
+    rich.after, rich.before, `${rich.before} -> ${rich.after}`);
+  check("the purchase is still counted as money that left",
+    rich.onWishes, 400000);
+
+  await page.evaluate(() => {
+    closeDialog($("wish-dialog"));
+    localStorage.removeItem("remembre.wishes.v1");
+    state.transactions = [];
+    saveTransactions();
+    moneyChanged();
+  });
+}
+
 console.log("\nletting the AI file the loose ones");
 
 {

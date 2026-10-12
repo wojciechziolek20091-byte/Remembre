@@ -249,9 +249,6 @@ function normaliseTransaction(raw) {
     balance: Number.isFinite(Number(raw.balance)) ? Math.round(Number(raw.balance)) : null,
     category: String(raw.category || "").slice(0, 40),
     /*
-      Which side of the income plan this sits on.
-
-      Money in is one of two things and never a third: "plan" is the 2 500 that
       Which side of the income plan a payment in sits on, and nothing else.
       "plan" is the 2 500 that arrives on schedule; empty is everything else
       that turned up, which is what the emergency budget is made of.
@@ -263,6 +260,18 @@ function normaliseTransaction(raw) {
       changes is whether the income covered it.
     */
     branch: raw.branch === "plan" ? "plan" : "",
+    /*
+      The saving goal this payment bought, by name.
+
+      The one thing that legitimately leaves the month. Everything else that
+      goes out is spending against the budget, and the escape hatches that
+      used to say otherwise were removed for good reason. This is different in
+      kind: the money was deliberately put aside for months precisely so that
+      paying it would not land on a single week. Taking it out of the budget
+      here is not hiding it -- it is spending the savings it was saved into,
+      and the savings total goes down by exactly as much.
+    */
+    wish: String(raw.wish || "").slice(0, 40),
     linkedTo: String(raw.linkedTo || "").slice(0, 40),
     // Set when a payment was put back into the month by hand, so the linker
     // does not quietly take it out again on the next pass.
@@ -1877,7 +1886,8 @@ function incomeStanding(monthKey, today = todayISO()) {
   than gone. The same rule the server uses, in the same words.
 */
 const SPENT_OUT = (entry) => entry.amount < 0
-  && (entry.category || "other") !== "transfers";
+  && (entry.category || "other") !== "transfers"
+  && !entry.wish;
 
 /** Money in the plan was not counting on: what the emergency budget is made of. */
 const EXTRA_IN = (entry) => entry.amount > 0
@@ -2667,8 +2677,11 @@ function parseWishes(text = wishesText()) {
     const from = (rest.match(/\bfrom\s+(\d{4}-\d{2})/i) || [])[1] || "";
     rest = rest.replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").trim();
 
+    const done = /\bdone\b/i.test(rest);
+    rest = rest.replace(/\bdone\b/gi, "").trim();
+
     const price = parseAmount(rest);
-    if (name && price !== null && price > 0) wishes.push({ name, price, by, from });
+    if (name && price !== null && price > 0) wishes.push({ name, price, by, from, done });
   });
   return wishes;
 }
@@ -2695,6 +2708,14 @@ function wishPlan(monthKey = state.moneyMonth || latestMonth()) {
   const planned = plannedMonthly();
   const base = allocated > 0 ? allocated : planned;
 
+  /* What has actually been paid towards each, which is the only progress
+     that is not a projection. */
+  const bought = new Map();
+  liveTransactions().forEach((entry) => {
+    if (!entry.wish || entry.amount >= 0) return;
+    bought.set(entry.wish, (bought.get(entry.wish) || 0) + Math.abs(entry.amount));
+  });
+
   const lines = wishes.map((wish) => {
     /*
       The share is worked out over the whole run from the month it was started
@@ -2710,11 +2731,17 @@ function wishPlan(monthKey = state.moneyMonth || latestMonth()) {
     const permonth = Math.round(wish.price / total);
     const elapsed = wish.from ? Math.max(0, monthsBetween(wish.from, monthKey)) : 0;
     const saved = Math.min(wish.price, permonth * elapsed);
+    const paid = bought.get(wish.name) || 0;
     return {
       ...wish,
       months: Math.max(0, total - elapsed),
       permonth,
       saved,
+      /* Put by is a projection; paid is a fact. Where something has actually
+         been bought, the fact is what the bar shows. */
+      paid,
+      part: paid > 0 && paid < wish.price,
+      bought: paid >= wish.price || wish.done,
       left: Math.max(0, wish.price - saved),
       /* Its month has been and gone and it is still on the list, which is
          the only sense of "late" that is reachable: by the time the date
@@ -2723,7 +2750,8 @@ function wishPlan(monthKey = state.moneyMonth || latestMonth()) {
     };
   });
 
-  const asked = lines.reduce((sum, wish) => sum + wish.permonth, 0);
+  /* A wish that has been bought stops taking money out of the month. */
+  const asked = lines.reduce((sum, wish) => sum + (wish.bought ? 0 : wish.permonth), 0);
   const surplus = Math.max(0, planned - allocated);
   const fromSaving = Math.min(asked, surplus);
   const cap = Math.round(base * WISH_SHARE);
@@ -2733,6 +2761,127 @@ function wishPlan(monthKey = state.moneyMonth || latestMonth()) {
 }
 
 /* ---------- The wishlist on the page ---------- */
+
+/* ---------- Connecting a goal to what bought it ---------- */
+
+/*
+  A goal is money put aside over months; the purchase is one row in a
+  statement. Nothing can join the two except the reader, so this asks.
+
+  Linking does two things: the goal counts what was really paid rather than
+  what was projected, and the payment leaves the budget, because the money for
+  it was put aside months ago and should not land on one week now.
+
+  It does not touch what has been saved, and that is deliberate. The money
+  went either way; a savings total that stopped counting it would rise by the
+  price of the laptop, which would read as a month of unusual thrift on the
+  day you spent four thousand zloty.
+*/
+function linkWish(name, id) {
+  const entry = state.transactions.find((held) => held.id === id);
+  if (!entry || entry.amount >= 0) return false;
+  entry.wish = name;
+  entry.updatedAt = new Date().toISOString();
+  saveTransactions();
+  markBought(name);
+  return true;
+}
+
+function unlinkWish(id) {
+  const entry = state.transactions.find((held) => held.id === id);
+  if (!entry) return false;
+  const name = entry.wish;
+  entry.wish = "";
+  entry.updatedAt = new Date().toISOString();
+  saveTransactions();
+  markBought(name);
+  return true;
+}
+
+/**
+ * Writes "done" onto a wish once what has been paid reaches its price, and
+ * takes it off again if a link is removed.
+ *
+ * It lives in the line rather than being worked out, because the server has
+ * to know: a finished goal must stop taking money out of the daily figure,
+ * and the run that writes the morning text sees the settings and not the
+ * transactions.
+ */
+function markBought(name) {
+  if (!name) return;
+  const paid = liveTransactions()
+    .filter((entry) => entry.wish === name && entry.amount < 0)
+    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+
+  const lines = wishesText().split(/\r?\n/).map((line) => {
+    const at = line.indexOf("=");
+    if (at === -1 || line.slice(0, at).trim() !== name) return line;
+    const price = parseAmount(line.slice(at + 1).replace(/\b(by|from)\s+\d{4}-\d{2}/gi, "").replace(/\bdone\b/gi, ""));
+    const bare = line.replace(/\s*\bdone\b/gi, "");
+    return price !== null && paid >= price ? `${bare} done` : bare;
+  });
+  saveWishes(lines.join("\n"));
+}
+
+function openWishDialog(name) {
+  const dialog = $("wish-dialog");
+  const wrap = $("wish-detail");
+  const wish = wishPlan().wishes.find((one) => one.name === name);
+  if (!dialog || !wrap || !wish) return;
+
+  const title = $("wish-dialog-title");
+  if (title) title.textContent = wish.name;
+
+  const linked = liveTransactions()
+    .filter((entry) => entry.wish === name)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  /* What it could plausibly have been. Spending only, nothing already
+     attached to another goal, newest first: a purchase you are linking is
+     one you have just made. */
+  const candidates = liveTransactions()
+    .filter((entry) => entry.amount < 0 && !entry.wish && (entry.category || "other") !== "transfers")
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 25);
+
+  const row = (entry, action, label) => el(
+    "li",
+    { class: "pick-row" },
+    el("span", { class: "pick-when", text: entry.date.slice(5) }),
+    el("span", { class: "pick-what", text: entry.counterparty || entry.title || entry.description || "-" }),
+    el("span", { class: "pick-sum", text: zloty(entry.amount) }),
+    el("button", {
+      type: "button", class: "link-btn", text: label,
+      onclick: () => { action(entry); moneyChanged(); openWishDialog(name); },
+    })
+  );
+
+  show(wrap, [
+    el("p", { class: "tx-figure", text: zloty(wish.price) }),
+    el("p", { class: "field-hint", text: wish.paid >= wish.price
+      ? `Paid for. ${zloty(wish.paid)} of payments are attached to it.`
+      : wish.paid > 0
+        ? `${zloty(wish.paid)} of it paid so far, ${zloty(wish.price - wish.paid)} still to go. It keeps putting money aside until the rest is attached.`
+        : "Nothing attached to it yet. Find the payment that bought it and the goal is answered." }),
+
+    linked.length
+      ? el("div", {},
+          el("p", { class: "field-label", text: "What has paid for it" }),
+          el("ul", { class: "pick-list" }, linked.map((entry) =>
+            row(entry, (one) => unlinkWish(one.id), "Not this one"))))
+      : null,
+
+    el("p", { class: "field-label", text: linked.length ? "Attach another payment" : "Which payment bought it" }),
+    candidates.length
+      ? el("ul", { class: "pick-list" }, candidates.map((entry) =>
+          row(entry, (one) => linkWish(name, one.id), "This one")))
+      : el("p", { class: "empty", text: "No spending left to attach." }),
+
+    el("p", { class: "field-hint", text: "An attached payment leaves the budget and the day's figure, because the money for it was put aside over months. It is still counted as money that went out, so what has been saved does not jump when you buy something." }),
+  ]);
+
+  openDialog(dialog);
+}
 
 function setupWishes() {
   const form = $("wish-form");
@@ -2799,12 +2948,19 @@ function renderWishes() {
 
   show(wrap, [
     el("ul", { class: "wish-list" }, plan.wishes.map((wish) => {
-      const share = Math.max(0, Math.min(1, wish.price ? wish.saved / wish.price : 0));
+      const towards = wish.paid > 0 ? wish.paid : wish.saved;
+      const share = Math.max(0, Math.min(1, wish.price ? towards / wish.price : 0));
       return el(
         "li",
-        { class: `wish-row${wish.overdue ? " is-late" : ""}${wish.saved >= wish.price ? " is-there" : ""}` },
+        { class: `wish-row${wish.overdue && !wish.bought ? " is-late" : ""}${wish.bought ? " is-bought" : wish.saved >= wish.price ? " is-there" : ""}` },
         el("div", { class: "wish-head" },
-          el("span", { class: "wish-name", text: wish.name }),
+          el("button", {
+            type: "button",
+            class: "wish-name link-btn",
+            "aria-haspopup": "dialog",
+            text: wish.name,
+            onclick: () => openWishDialog(wish.name),
+          }),
           el("span", { class: "wish-price", text: zloty(wish.price) }),
           el("button", {
             type: "button", class: "link-btn wish-drop", text: "Remove",
@@ -2813,9 +2969,13 @@ function renderWishes() {
         el("div", { class: "wish-meter", role: "img",
           "aria-label": `${zloty(wish.saved)} of ${zloty(wish.price)} put by.` },
           el("span", { class: "wish-meter-fill", style: `width:${Math.round(share * 100)}%` })),
-        el("p", { class: "wish-note", text: wish.saved >= wish.price
-          ? `${zloty(wish.price)} put by. Go and get it, then take it off the list.`
-          : `${zloty(wish.saved)} put by, ${zloty(wish.left)} to go at ${zloty(wish.permonth)} a month${wish.overdue ? ", and its month has been and gone" : wish.by ? ` until ${monthName(wish.by)}` : ""}.` })
+        el("p", { class: "wish-note", text: wish.bought
+          ? `Paid for, ${zloty(wish.paid)} attached. Out of the budget: the money for it was put aside over months.`
+          : wish.part
+            ? `${zloty(wish.paid)} of it paid, ${zloty(wish.price - wish.paid)} still to go. Still putting money aside for the rest.`
+            : wish.saved >= wish.price
+              ? `${zloty(wish.price)} put by. Go and get it, then attach the payment.`
+              : `${zloty(wish.saved)} put by, ${zloty(wish.left)} to go at ${zloty(wish.permonth)} a month${wish.overdue ? ", and its month has been and gone" : wish.by ? ` until ${monthName(wish.by)}` : ""}.` })
       );
     })),
 
@@ -2914,15 +3074,22 @@ function setAsideOn(date) {
   const out = liveTransactions()
     .filter((entry) => entry.amount < 0 && entry.date === date && !SPENT_OUT(entry));
 
-  /* One reason left, now that nothing else can be set aside: money moved
-     between your own accounts has not gone anywhere. */
-  const count = out.length;
+  /*
+    Two reasons something can be out of the day's figure: it moved between
+    your own accounts rather than going anywhere, or it bought a saving goal
+    the money was put aside for. Both belong on the card -- a day that reads
+    light while four thousand left the account is a day nobody believes.
+  */
+  const kinds = new Map();
+  out.forEach((entry) => {
+    const why = entry.wish ? `paid for ${entry.wish}` : "moved between your own accounts";
+    kinds.set(why, (kinds.get(why) || 0) + 1);
+  });
+
   return {
     entries: out,
     amount: out.reduce((sum, entry) => sum + Math.abs(entry.amount), 0),
-    why: count === 0 ? [] : [count === 1
-      ? "moved between your own accounts"
-      : `${count} moved between your own accounts`],
+    why: [...kinds].map(([what, count]) => (count === 1 ? what : `${count} ${what}`)),
   };
 }
 
@@ -3742,11 +3909,27 @@ function savingsNow(date = savedTo()) {
     surplus += Math.max(0, planned - allocated) / daysOfMonth(key).total;
   }
 
-  const spent = live.filter(SPENT_OUT).reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  /*
+    Every zloty that left, including the ones that bought a saving goal.
+
+    Those are out of the budget, and that is the whole point of attaching
+    them: the day's figure and the guard stop seeing a purchase that was paid
+    for months in advance. They are not out of the saving. The money went, and
+    a savings total that ignored it would rise by the price of the laptop --
+    buying one reading as a month of unusual thrift.
+
+    So attaching a payment moves nothing here by design. What it moves is the
+    budget, which is the thing that was asked for.
+  */
+  const went = live.filter((entry) => entry.amount < 0 && (entry.category || "other") !== "transfers");
+  const spent = went.reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
+  const onWishes = went
+    .filter((entry) => entry.wish)
+    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
   const unspent = Math.max(0, allowed - spent);
 
   return {
-    from, to: date, allowed, spent, unspent,
+    from, to: date, allowed, spent, unspent, onWishes,
     surplus: Math.round(surplus),
     total: Math.round(surplus) + unspent,
   };

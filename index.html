@@ -525,6 +525,21 @@
 
 <p class="sr-only" role="status" id="live-region"></p>
 
+<!--
+  Connecting a saving goal to the payment that bought it. A goal is money put
+  aside over months; the purchase is one row in a statement. Nothing can join
+  the two except the reader, so this asks them.
+-->
+<dialog class="dialog dialog-tx" id="wish-dialog" aria-labelledby="wish-dialog-title">
+  <div class="dialog-head">
+    <h2 class="dialog-title" id="wish-dialog-title">Saving goal</h2>
+    <button type="button" class="btn btn-icon dialog-close" data-close="wish-dialog">
+      <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+    </button>
+  </div>
+  <div id="wish-detail"></div>
+</dialog>
+
 <dialog class="dialog dialog-tx" id="tx-dialog" aria-labelledby="tx-dialog-title">
   <div class="dialog-form">
     <div class="dialog-head">
