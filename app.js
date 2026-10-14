@@ -26,7 +26,7 @@
 
 /* Shown in the footer so it is always possible to tell, on the device itself,
    which release is actually running. Bump it on every deploy. */
-const APP_VERSION = "2026.10.12-95";
+const APP_VERSION = "2026.10.14-96";
 
 const STORAGE_KEY = "remembre.tasks.v1";
 const PREFS_KEY = "remembre.prefs.v1";
@@ -40,7 +40,6 @@ const CHECKIN_KEY = "remembre.checkins.v1";
 /* The planner's last answer: its note, its warnings, and when it ran. */
 const PLAN_KEY = "remembre.studyplan.v1";
 /* A sitting in progress, so closing the app mid-session does not lose it. */
-const RUNNING_KEY = "remembre.running.v1";
 
 /* A reminder is due at this hour on the day before the task. */
 const REMINDER_HOUR = 17;
@@ -734,6 +733,8 @@ const state = {
   weekStart: "",
   /** Which lesson owns the timetable's single tab stop. */
   lessonFocus: { day: 0, period: 0 },
+  /** Which lesson the lesson dialog is showing, so edits can redraw it. */
+  lessonDialog: null,
   /** The date that owns the calendar grid's single tab stop. */
   focusDate: "",
   editingId: null,
@@ -1190,7 +1191,7 @@ function buildLessonCell(slot, period, dayIndex, start, today, due) {
     due.length
       ? `${due.length} due: ${due.map(describeTask).join("; ")}`
       : null,
-    "Add a task for this lesson",
+    "Open to see what is due on it, and to add something",
   ].filter(Boolean).join(". ");
 
   const focused = state.lessonFocus.day === dayIndex && state.lessonFocus.period === period;
@@ -2236,6 +2237,62 @@ function openDayDialog(iso) {
   $("add-on-day").focus();
 }
 
+/*
+  A lesson, and what is already due on it.
+
+  Tapping one used to open the add form, which answers "what else is due in
+  Economics on Tuesday" with an empty box. The work that is already there is
+  the reason you tapped; adding is a button underneath, as it is on a day.
+
+  The rest of that day is shown under it rather than left out: a test in the
+  period before is the thing that decides whether you can take on anything in
+  this one, and hiding it to keep the dialog tidy would be a lie of omission.
+*/
+function openLessonDialog({ date, period, day, time, subject, label, room }) {
+  const dialog = $("lesson-dialog");
+  const body = $("lesson-dialog-body");
+  if (!dialog || !body) return;
+
+  state.lessonDialog = { date, period, day, time, subject };
+
+  const placed = assignTasksToLessons(date, day);
+  const here = placed.byPeriod.get(period) || [];
+  const elsewhere = tasksOn(date, { filtered: false })
+    .filter((task) => !here.some((one) => one.id === task.id));
+
+  $("lesson-dialog-title").textContent = label || "Lesson";
+
+  const parts = [
+    el("p", { class: "day-dialog-meta", text: [
+      room ? `Room ${room}` : null,
+      `${fmtFullDate.format(fromISO(date))}, period ${period} at ${time}`,
+    ].filter(Boolean).join(" \u00b7 ") }),
+  ];
+
+  if (here.length > 0) {
+    parts.push(el("ul", { class: "task-list" }, here.map((task) => buildTaskRow(task))));
+  } else {
+    parts.push(el("p", { class: "empty", text: "Nothing due in this lesson yet." }));
+  }
+
+  if (elsewhere.length > 0) {
+    parts.push(el("h3", { class: "up-group-title", text: "Elsewhere that day" }));
+    parts.push(el("ul", { class: "task-list" }, elsewhere.map((task) => buildTaskRow(task))));
+  }
+
+  body.replaceChildren(...parts);
+  openDialog(dialog);
+  $("add-on-lesson").focus();
+}
+
+function refreshLessonDialog() {
+  if ($("lesson-dialog").open && state.lessonDialog) {
+    const held = state.lessonDialog;
+    const slot = TIMETABLE_ROWS[held.period] && TIMETABLE_ROWS[held.period][held.day];
+    if (slot) openLessonDialog({ ...held, label: slot.label, room: slot.room });
+  }
+}
+
 function refreshDayDialog() {
   if ($("day-dialog").open && state.dayDialogDate) {
     const active = document.activeElement;
@@ -2268,6 +2325,7 @@ function toggleTaskDone(id, done) {
   saveTasks();
   renderAll();
   refreshDayDialog();
+  refreshLessonDialog();
 
   const hidden = done && !state.showDone;
   announce(
@@ -2919,16 +2977,49 @@ function renderRevise() {
   const report = $("revise-report");
   if (!report) return;
 
+  /*
+    Dismissed, and staying dismissed.
+
+    What the planner changed is worth reading twice, so it is kept rather than
+    flashed. But it was kept for ever: having read it you could not put it
+    away, and it sat under the week until the next instruction replaced it.
+    This is the lid. It clears the report and leaves the box, because the next
+    thing you want after reading what changed is either nothing or to ask for
+    something else.
+  */
+  if (plan.dismissed) {
+    show(report, []);
+    return;
+  }
+
+  const lid = el("button", {
+    type: "button",
+    class: "btn btn-icon revise-hide",
+    title: "Hide this",
+    onclick: dismissRevise,
+  }, el("span", { "aria-hidden": "true", text: "\u00d7" }),
+     el("span", { class: "sr-only", text: "Hide what the planner changed" }));
+
   if (!Array.isArray(plan.changes) || plan.changes.length === 0) {
+    if (!plan.refused) {
+      show(report, []);
+      return;
+    }
     show(report, [
-      plan.refused ? el("p", { class: "revise-refused", text: plan.refused }) : null,
+      el("div", { class: "revise-top" },
+        el("p", { class: "revise-refused", text: plan.refused }),
+        lid),
     ]);
     return;
   }
 
   show(report, [
-    plan.asked ? el("p", { class: "revise-asked", text: `You asked: ${plan.asked}` }) : null,
-    el("p", { class: "revise-label", text: "What changed" }),
+    el("div", { class: "revise-top" },
+      plan.asked
+        ? el("p", { class: "revise-asked", text: `You asked: ${plan.asked}` })
+        : el("p", { class: "revise-label", text: "What changed" }),
+      lid),
+    plan.asked ? el("p", { class: "revise-label", text: "What changed" }) : null,
     el("ul", { class: "revise-changes" }, plan.changes.map((one) => el("li", { text: one }))),
     plan.note ? el("p", { class: "revise-note", text: plan.note }) : null,
     plan.refused ? el("p", { class: "revise-refused", text: plan.refused }) : null,
@@ -2936,6 +3027,16 @@ function renderRevise() {
       ? el("ul", { class: "revise-warnings" }, plan.warnings.map((one) => el("li", { text: one })))
       : null,
   ]);
+}
+
+/** Puts the planner's answer away. The plan it made stays exactly as it is. */
+function dismissRevise() {
+  const plan = planState();
+  writeStore(PLAN_KEY, { ...plan, dismissed: true });
+  renderRevise();
+  announce("What the planner changed has been put away. The plan itself is unchanged.");
+  const box = $("revise-text");
+  if (box) box.focus();
 }
 
 /** Shared by the box and by the argument's own "go and fix it" button. */
@@ -3079,18 +3180,12 @@ function setupSitting() {
   const dialog = $("session-dialog");
   if (!dialog) return;
 
-  $("session-start").addEventListener("click", () => {
-    const id = dialog.dataset.sessionId;
-    closeDialog(dialog);
-    if (id) startSession(id);
-  });
   $("session-defer").addEventListener("click", deferSession);
   $("session-pass").addEventListener("click", passSession);
 
   const plan = $("plan-dialog");
   if (plan) {
     $("plan-schedule").addEventListener("click", schedulePlannedSession);
-    $("plan-start").addEventListener("click", startPlannedSession);
     $("plan-edit").addEventListener("click", () => {
       const id = plan.dataset.taskId;
       closeDialog(plan);
@@ -3098,30 +3193,7 @@ function setupSitting() {
     });
   }
 
-  $("timer-pause").addEventListener("click", () => {
-    const run = running();
-    if (!run) return;
-    if (run.pausedAt) resumeSession();
-    else pauseSession();
-  });
-
-  $("timer-stop").addEventListener("click", () => {
-    const ended = endSession({ finished: false });
-    if (ended) openCheckin({ because: "finished" });
-  });
-
-  $("live-open").addEventListener("click", () => {
-    if (running()) showTimer();
-  });
-
   $("checkin-save").addEventListener("click", saveCheckinFromDialog);
-
-  /*
-    A sitting that was running when the app was last closed is still running:
-    the clock is the wall clock, not a counter, so the only thing to restore is
-    the screen that shows it.
-  */
-  if (running()) showTimer();
 }
 
 function setupCoursework() {
@@ -3928,6 +4000,7 @@ async function aiPlan({ today = todayISO(), quiet = false } = {}) {
     note: String(result.note || "").slice(0, 400),
     warnings: Array.isArray(result.warnings) ? result.warnings.slice(0, 3).map(String) : [],
     by: "ai",
+    dismissed: false,
   });
   renderAll();
   if (!quiet) {
@@ -3996,6 +4069,7 @@ async function aiRevise({ instruction = "", today = todayISO() } = {}) {
     changes: Array.isArray(result.changes) ? result.changes.slice(0, 12).map((one) => String(one).slice(0, 160)) : [],
     refused: String(result.refused || "").slice(0, 300),
     asked: String(instruction || "").slice(0, 400),
+    dismissed: false,
   };
   writeStore(PLAN_KEY, record);
   renderAll();
@@ -4061,129 +4135,28 @@ function layPlan(proposed, today = todayISO()) {
 /* ---------- Sitting down ---------- */
 
 /*
-  A planned session is an intention. This is the part that turns it into an
-  hour that actually happened.
+  A planned session is an intention, and the app's job is to put it in front
+  of you at the hour it was meant for.
 
-  Opening the schoolwork half offers tonight's sitting: start it, or move it
-  to a time later today. Starting it hides the app. Not some of the app -- all
-  of it: for the length of the sitting the screen is a clock and two buttons,
-  because an app that offers you your timetable while you are meant to be
-  writing an essay is the thing you will look at instead of writing the essay.
+  It used to have a clock. You pressed start, the app covered itself over for
+  ninety minutes, and the evening was measured. That is a lovely idea and it
+  is not how anybody studies: reaching for your iPad to press a button before
+  you open a textbook is a step you skip on the third evening, and once it is
+  skipped the measurements are fiction. So there is no clock.
 
-  The run survives a reload and a closed tab, because it is kept by its start
-  time rather than by a counter ticking in memory: how much is left is always
-  worked out from the clock, never accumulated.
+  What is left is the part that worked. A notice an hour before and another as
+  it begins, and when you open the app it asks the only two questions it can
+  actually act on: move it, or let it go. The evening check-in still asks what
+  you did, and you tell it, which was always the honest answer anyway.
 */
 
-/* How often the clock redraws, and how often the lock screen is told. */
-const TIMER_TICK_MS = 1000;
-const LIVE_NOTIFY_MS = 5 * 60 * 1000;
 
-let timerHandle = null;
-let liveNotifiedAt = 0;
-
-function running() {
-  const held = readStore(RUNNING_KEY, null);
-  if (!held || typeof held !== "object" || !held.sessionId || !held.startedAt) return null;
-  const session = liveSessions().find((entry) => entry.id === held.sessionId);
-  if (!session) return null;
-  return {
-    sessionId: held.sessionId,
-    startedAt: held.startedAt,
-    minutes: clampMinutes(held.minutes || session.minutes),
-    pausedAt: held.pausedAt || "",
-    /* Time already banked before the current pause, in milliseconds. */
-    banked: Math.max(0, Number(held.banked) || 0),
-    session,
-  };
-}
 
 /** Milliseconds sat so far, which is the clock's business and nobody else's. */
-function ranMs(run, now = Date.now()) {
-  if (!run) return 0;
-  if (run.pausedAt) return run.banked;
-  const since = now - Date.parse(run.startedAt);
-  return run.banked + Math.max(0, since);
-}
 
-function startSession(id, { now = new Date() } = {}) {
-  const session = liveSessions().find((entry) => entry.id === id);
-  if (!session) return null;
 
-  writeStore(RUNNING_KEY, {
-    sessionId: session.id,
-    startedAt: now.toISOString(),
-    minutes: session.minutes,
-    banked: 0,
-    pausedAt: "",
-  });
-  session.startedAt = now.toISOString();
-  touch(session);
-  saveSessions();
 
-  showTimer();
-  announce(`Started. ${session.minutes} minutes on ${sessionName(session)}.`);
-  return session;
-}
 
-function pauseSession() {
-  const run = running();
-  if (!run || run.pausedAt) return;
-  writeStore(RUNNING_KEY, {
-    sessionId: run.sessionId,
-    startedAt: run.startedAt,
-    minutes: run.minutes,
-    banked: ranMs(run),
-    pausedAt: new Date().toISOString(),
-  });
-  drawTimer();
-  announce("Paused.");
-}
-
-function resumeSession() {
-  const run = running();
-  if (!run || !run.pausedAt) return;
-  writeStore(RUNNING_KEY, {
-    sessionId: run.sessionId,
-    startedAt: new Date().toISOString(),
-    minutes: run.minutes,
-    banked: run.banked,
-    pausedAt: "",
-  });
-  drawTimer();
-  announce("Going again.");
-}
-
-/**
- * Ends the sitting and records what it actually was.
- *
- * `ranMinutes` is the measured time, not the planned time. A sitting stopped
- * after twenty minutes of a ninety-minute evening owes seventy, and the next
- * plan is told so.
- */
-function endSession({ finished = false } = {}) {
-  const run = running();
-  if (!run) return null;
-
-  const minutes = Math.max(0, Math.round(ranMs(run) / 60000));
-  const session = run.session;
-  session.ranMinutes = (session.ranMinutes || 0) + minutes;
-  session.endedAt = new Date().toISOString();
-  /* Done means the evening was seen through, not that the clock was opened. */
-  session.done = finished || session.ranMinutes >= session.minutes * 0.9;
-  touch(session);
-  saveSessions();
-
-  writeStore(RUNNING_KEY, null);
-  clearLive();
-  hideTimer();
-  renderAll();
-
-  announce(session.done
-    ? `Finished. ${minutes} minutes on ${sessionName(session)}.`
-    : `Stopped after ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`);
-  return { session, minutes };
-}
 
 /** The task a hand-made sitting was made for, if it was made for one. */
 function sessionTask(session) {
@@ -4236,16 +4209,6 @@ function markOffered(session) {
 }
 
 function offerSession({ force = false } = {}) {
-  /*
-    A sitting already running is the answer to the question this dialog asks,
-    so it answers it: the clock comes up and nothing else is offered. Returning
-    false here put the daily check-in on top of a running timer, which is the
-    one moment the app has promised to show nothing but the clock.
-  */
-  if (running()) {
-    showTimer();
-    return true;
-  }
   const session = tonight();
   if (!session) return false;
   if (!force && alreadyOffered(session)) return false;
@@ -4390,31 +4353,6 @@ function schedulePlannedSession() {
   return session;
 }
 
-/*
-  Starting now makes the sitting it is about to run. Dated today whatever the
-  box says, because "start now" is not a date: somebody who set the box to
-  Friday and then pressed Start meant to work now, and a sitting filed under
-  Friday that ran on Tuesday is a lie in the record the next plan reads.
-*/
-function startPlannedSession() {
-  const dialog = $("plan-dialog");
-  if (!dialog) return null;
-  const task = findTask(dialog.dataset.taskId);
-  if (!task) return null;
-
-  const now = new Date();
-  const minutes = Number(($("plan-minutes") || {}).value || SESSION_MINUTES);
-  const session = plannedSitting(task, {
-    date: todayISO(),
-    time: `${twoDigits(now.getHours())}:${twoDigits(now.getMinutes())}`,
-    minutes,
-  });
-  state.sessions.push(session);
-  saveSessions();
-  closeDialog(dialog);
-  // startSession draws the clock and nothing else, which is the whole point.
-  return startSession(session.id, { now });
-}
 
 function deferSession() {
   const dialog = $("session-dialog");
@@ -4503,8 +4441,6 @@ function nextFreeEvening(session, today = todayISO()) {
 
 function checkinDue(today = todayISO(), now = new Date()) {
   if (checkinFor(today)) return false;
-  /* Not in the middle of the thing it is asking about. */
-  if (running()) return false;
   const planned = sessionsOn(today);
   if (planned.length === 0) return false;
   /* Not before the evening is over: asking at four o'clock asks about nothing. */
@@ -4615,147 +4551,16 @@ async function readTheDayBack(today, items) {
 
 /* ---------- The clock ---------- */
 
-function showTimer() {
-  const timer = $("timer");
-  if (!timer) return;
-  timer.hidden = false;
-  document.body.classList.add("is-sitting");
-  drawTimer();
-  if (timerHandle === null) timerHandle = window.setInterval(tickTimer, TIMER_TICK_MS);
-  const pause = $("timer-pause");
-  if (pause) pause.focus();
-}
 
-function hideTimer() {
-  const timer = $("timer");
-  if (timer) timer.hidden = true;
-  document.body.classList.remove("is-sitting");
-  if (timerHandle !== null) {
-    window.clearInterval(timerHandle);
-    timerHandle = null;
-  }
-}
 
-function tickTimer() {
-  const run = running();
-  if (!run) {
-    hideTimer();
-    return;
-  }
-  drawTimer(run);
-
-  const left = run.minutes * 60000 - ranMs(run);
-  if (left <= 0) {
-    endSession({ finished: true });
-    openCheckin({ because: "finished" });
-    return;
-  }
-  if (!run.pausedAt && Date.now() - liveNotifiedAt > LIVE_NOTIFY_MS) {
-    liveNotifiedAt = Date.now();
-    tellTheLockScreen(run, left);
-  }
-}
 
 const twoDigits = (n) => String(Math.floor(n)).padStart(2, "0");
 
-function clockWords(ms) {
-  const whole = Math.max(0, Math.round(ms / 1000));
-  const hours = Math.floor(whole / 3600);
-  const minutes = Math.floor((whole % 3600) / 60);
-  const seconds = whole % 60;
-  return hours > 0
-    ? `${hours}:${twoDigits(minutes)}:${twoDigits(seconds)}`
-    : `${twoDigits(minutes)}:${twoDigits(seconds)}`;
-}
-
-/** Minutes, rounded up, for anywhere a second-by-second count would be noise. */
-function minutesLeftWords(ms) {
-  const minutes = Math.max(0, Math.ceil(ms / 60000));
-  if (minutes >= 60) {
-    const hours = Math.floor(minutes / 60);
-    const rest = minutes % 60;
-    return rest === 0 ? `${hours} h left` : `${hours} h ${rest} min left`;
-  }
-  return `${minutes} min left`;
-}
-
-function drawTimer(run = running()) {
-  if (!run) return;
-  const total = run.minutes * 60000;
-  const left = Math.max(0, total - ranMs(run));
-  const share = total > 0 ? Math.min(1, (total - left) / total) : 0;
-
-  const clock = $("timer-clock");
-  if (clock) clock.textContent = clockWords(left);
-
-  const ring = $("timer-ring-run");
-  if (ring) {
-    const circumference = 2 * Math.PI * 54;
-    ring.style.strokeDasharray = String(circumference);
-    ring.style.strokeDashoffset = String(circumference * (1 - share));
-  }
-
-  const what = $("timer-what");
-  if (what) what.textContent = run.pausedAt ? "Paused" : "Studying";
-  const title = $("timer-title");
-  if (title) title.textContent = sessionName(run.session);
-  const note = $("timer-note");
-  if (note) note.textContent = run.session.why || "";
-  const pause = $("timer-pause");
-  if (pause) pause.textContent = run.pausedAt ? "Resume" : "Pause";
-  const left_ = $("timer-left");
-  if (left_) left_.textContent = `${run.minutes} minutes planned. ${minutesLeftWords(left)}.`;
-
-  drawLive(run, left, share);
-}
 
 /* ---------- The live bar ---------- */
 
-/*
-  The nearest thing a web app on an iPad is allowed to a live activity.
 
-  Inside the app this is a real one: a bar pinned to the bottom of the page
-  that counts down wherever the reader goes. On the lock screen it is a
-  notification the service worker replaces every few minutes under one tag, so
-  it updates in place rather than stacking. A web app cannot put a timer in the
-  Dynamic Island -- that API is not open to us -- and saying otherwise in the
-  interface would be a lie the reader finds out at the worst moment.
-*/
-function drawLive(run, left, share) {
-  const bar = $("live-bar");
-  if (!bar) return;
-  /* While the clock is on screen the bar would be the same thing twice. */
-  bar.hidden = !run || document.body.classList.contains("is-sitting");
-  if (bar.hidden) return;
 
-  const clock = $("live-clock");
-  if (clock) clock.textContent = clockWords(left);
-  const title = $("live-title");
-  if (title) title.textContent = run.pausedAt ? "Paused" : "Studying";
-  const note = $("live-note");
-  if (note) note.textContent = sessionName(run.session);
-  const fill = $("live-fill");
-  if (fill) fill.style.width = `${Math.round(share * 100)}%`;
-}
-
-function clearLive() {
-  const bar = $("live-bar");
-  if (bar) bar.hidden = true;
-  liveNotifiedAt = 0;
-  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage({ type: "SESSION_OVER" });
-  }
-}
-
-function tellTheLockScreen(run, left) {
-  if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  navigator.serviceWorker.controller.postMessage({
-    type: "SESSION_TICK",
-    title: `${minutesLeftWords(left)}`,
-    body: sessionName(run.session),
-  });
-}
 
 /**
  * Replaces the planner's own future output with a fresh plan. Sittings already
@@ -5994,12 +5799,18 @@ function setupEvents() {
       openDayDialog(button.dataset.openDay);
       return;
     }
-    state.lessonFocus = { day: Number(button.dataset.day), period: Number(button.dataset.period) };
-    openTaskDialog({
+    const day = Number(button.dataset.day);
+    const period = Number(button.dataset.period);
+    state.lessonFocus = { day, period };
+    const slot = TIMETABLE_ROWS[period] && TIMETABLE_ROWS[period][day];
+    openLessonDialog({
       date: button.dataset.date,
       time: button.dataset.time,
       subject: button.dataset.subject || "",
-      returnFocus: "lesson",
+      day,
+      period,
+      label: slot ? slot.label : "Lesson",
+      room: slot ? slot.room : "",
     });
   });
 
@@ -6056,6 +5867,18 @@ function setupEvents() {
     const date = state.dayDialogDate;
     closeDialog($("day-dialog"));
     openTaskDialog({ date });
+  });
+
+  $("add-on-lesson").addEventListener("click", () => {
+    const held = state.lessonDialog;
+    closeDialog($("lesson-dialog"));
+    if (!held) return;
+    openTaskDialog({
+      date: held.date,
+      time: held.time,
+      subject: held.subject || "",
+      returnFocus: "lesson",
+    });
   });
 
   document.querySelectorAll("[data-close]").forEach((button) => {

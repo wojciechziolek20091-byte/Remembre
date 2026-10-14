@@ -111,9 +111,23 @@ check("dates move with them",
 await page.click("#go-today");
 check("This week comes back", await page.textContent("#period-title"), weekBefore);
 
-console.log("\nadding from a lesson");
+console.log("\nopening a lesson, then adding from it");
 await page.locator('.tt-lesson[data-day="2"][data-period="0"]').click();
+await page.waitForSelector("#lesson-dialog[open]");
+check("a lesson opens itself, not a blank form",
+  await page.evaluate(() => document.getElementById("task-dialog").open), false);
+check("named after the lesson",
+  await page.textContent("#lesson-dialog-title"), "Maths AI HL");
+check("saying where and when it is",
+  /Room R_36 .* period 0 at 08:00/.test(await page.textContent("#lesson-dialog-body")), true,
+  await page.textContent("#lesson-dialog-body"));
+check("and that nothing is due on it yet",
+  /Nothing due in this lesson yet/.test(await page.textContent("#lesson-dialog-body")), true);
+check("with adding offered underneath, not instead",
+  await page.textContent("#add-on-lesson"), "Add homework or a test");
+await page.click("#add-on-lesson");
 await page.waitForSelector("#task-dialog[open]");
+check("which carries the lesson into the form", true, true);
 check("the subject comes from the lesson",
   await page.evaluate(() => document.querySelector('input[name="subject"]:checked').value), "mathematics");
 check("the time comes from the period", await page.inputValue("#task-time"), "08:00");
@@ -123,6 +137,41 @@ check("the date is that weekday in the week on screen",
 check("and the maths follow-ups are already showing",
   await page.locator("#detail-steps fieldset").count(), 1);
 await page.keyboard.press("Escape");
+
+{
+  /* The point of the change: what is already due is the first thing shown. */
+  const already = await page.evaluate(async () => {
+    const at = (day, period) => document.querySelector(`.tt-lesson[data-day="${day}"][data-period="${period}"]`);
+    const day = at(2, 0).dataset.date;
+    state.tasks = [
+      normaliseTask({ id: "here", title: "Vectors exercise", type: "homework", subject: "mathematics",
+        course: "mathematics", date: day, time: "08:00",
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+      normaliseTask({ id: "later", title: "Polish reading", type: "homework", subject: "polish",
+        course: "polish", date: day, time: "",
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    ];
+    saveTasks();
+    renderAll();
+    at(2, 0).click();
+    const body = document.getElementById("lesson-dialog-body");
+    const headings = [...body.querySelectorAll(".up-group-title")].map((n) => n.textContent);
+    const lists = [...body.querySelectorAll(".task-list")].map((list) =>
+      [...list.querySelectorAll(".task-open")].map((n) => n.textContent));
+    return { headings, lists, empty: /Nothing due in this lesson yet/.test(body.textContent) };
+  });
+  check("the work already on the lesson is what it opens with", already.lists[0], ["Vectors exercise"]);
+  check("so it does not claim the lesson is empty", already.empty, false);
+  check("the rest of that day is under it, not left out", already.headings, ["Elsewhere that day"]);
+  check("with the task that is not on this lesson in it", already.lists[1], ["Polish reading"]);
+
+  await page.evaluate(() => {
+    closeDialog(document.getElementById("lesson-dialog"));
+    state.tasks = [];
+    saveTasks();
+    renderAll();
+  });
+}
 
 console.log("\nlesson keyboard");
 await page.locator('.tt-lesson[data-day="0"][data-period="3"]').focus();
@@ -1662,47 +1711,29 @@ console.log("\nsitting down");
   check("and pins it so the planner leaves it alone", later.pinned, true);
   check("and closes the dialog", later.open, false);
 
-  const run = await page.evaluate(() => {
-    const started = startSession("tonight", { now: new Date(Date.now() - 20 * 60000) });
-    const timer = document.getElementById("timer");
-    return {
-      started: Boolean(started),
-      shown: timer.hidden === false,
-      coveringEverything: document.body.classList.contains("is-sitting"),
-      clock: document.getElementById("timer-clock").textContent,
-      title: document.getElementById("timer-title").textContent,
-    };
-  });
-  check("starting it runs the clock", run.started, true);
-  check("which is all there is on the screen", run.shown && run.coveringEverything, true);
-  check("counting down from the time already sat", run.clock, "40:00");
-  check("and naming the work", run.title, "Economics IA: Write the commentary");
-
-  const paused = await page.evaluate(() => {
-    pauseSession();
-    const first = document.getElementById("timer-clock").textContent;
-    const held = JSON.parse(localStorage.getItem("remembre.running.v1"));
-    return { first, banked: Math.round(held.banked / 60000), label: document.getElementById("timer-pause").textContent };
-  });
-  check("pausing banks what has been sat so far", paused.banked, 20);
-  check("and the button offers the way back", paused.label, "Resume");
-
-  const ended = await page.evaluate(() => {
-    const result = endSession({ finished: false });
-    const session = liveSessions().find((entry) => entry.id === "tonight");
-    return {
-      minutes: result.minutes,
-      ran: session.ranMinutes,
-      done: session.done,
-      running: localStorage.getItem("remembre.running.v1"),
-      timerHidden: document.getElementById("timer").hidden,
-    };
-  });
-  check("stopping early records the minutes that actually happened", ended.minutes, 20);
-  check("and keeps them on the sitting", ended.ran, 20);
-  check("twenty minutes of an hour is not a sitting done", ended.done, false);
-  check("the clock stops being the screen", ended.timerHidden, true);
-  check("and nothing is left running", ended.running, "null");
+  /*
+    There used to be a clock here, and three blocks of tests for it. The
+    evening is not measured any more -- the app says when it is meant to
+    start and the check-in asks what actually happened -- so what is left to
+    test is that nothing offers to start one.
+  */
+  const nostart = await page.evaluate(() => ({
+    sessionStart: Boolean(document.getElementById("session-start")),
+    planStart: Boolean(document.getElementById("plan-start")),
+    timer: Boolean(document.getElementById("timer")),
+    bar: Boolean(document.getElementById("live-bar")),
+    starter: typeof window.startSession,
+    acts: [...document.querySelectorAll("#session-dialog .dialog-actions button")]
+      .map((n) => n.textContent.trim()),
+  }));
+  check("there is no clock to start", nostart.timer, false);
+  check("nor a bar counting one down", nostart.bar, false);
+  check("nor anything that starts one", nostart.starter, "undefined");
+  check("the evening dialog does not offer to", nostart.sessionStart, false);
+  check("and neither does the one on a task", nostart.planStart, false);
+  check("what it offers is moving it or letting it go",
+    nostart.acts.filter((t) => !/^\u00d7|Close/.test(t)).join(" | "),
+    "Schedule it | Pass (not recommended)", JSON.stringify(nostart.acts));
 }
 
 {
@@ -1949,7 +1980,6 @@ console.log("\ntapping something in Upcoming");
       pinned: session.pinned,
       name: sessionName(session),
       open: $("plan-dialog").open === true,
-      running: Boolean(running()),
     };
   });
   check("scheduling makes one sitting", made.count, 1);
@@ -1960,32 +1990,8 @@ console.log("\ntapping something in Upcoming");
   check("left where it was put, not for the planner to move", made.pinned, true);
   check("and it knows its own name", made.name, "Economics IA");
   check("the dialog closes", made.open, false);
-  check("and nothing has started running", made.running, false);
-
-  // Starting now: the clock, and nothing but the clock.
-  await page.click("#upcoming-list .up-btn");
-  await page.click("#plan-start");
-  const went = await page.evaluate(() => {
-    const run = running();
-    const session = liveSessions().find((entry) => entry.id === run.sessionId);
-    return {
-      running: Boolean(run),
-      date: session.date,
-      taskId: session.taskId,
-      started: Boolean(session.startedAt),
-      timer: $("timer").hidden === false,
-      open: $("plan-dialog").open === true,
-    };
-  });
-  check("starting now runs a sitting", went.running, true);
-  check("dated today whatever the box said", went.date, await page.evaluate(() => todayISO()));
-  check("still against the task", went.taskId, "ia");
-  check("marked as actually begun", went.started, true);
-  check("the timer is what is on screen", went.timer, true);
-  check("and the dialog is gone", went.open, false);
 
   await page.evaluate(() => {
-    endSession({ finished: false });
     state.sessions = [];
     state.tasks = [];
     saveSessions();
@@ -2089,6 +2095,30 @@ console.log("\ntelling the planner what to change");
     `${addDays(todayISO(), 4)}|ai`,
   ].sort());
   check("the planner's old sitting is gone and the new one is in", after.dates, expected);
+
+  /* Read once and put away. It used to sit under the week for ever. */
+  const lid = await page.evaluate(() => Boolean(document.querySelector(".revise-hide")));
+  check("the answer comes with a way to put it away", lid, true);
+
+  const hidden = await page.evaluate(() => {
+    document.querySelector(".revise-hide").click();
+    return {
+      report: document.getElementById("revise-report").textContent.trim(),
+      panel: document.getElementById("revise-panel").hidden,
+      box: Boolean(document.getElementById("revise-text")),
+      sessions: liveSessions().map((s) => `${s.date}|${s.by}`).sort(),
+    };
+  });
+  check("hiding it clears what the planner said", hidden.report, "");
+  check("but leaves the box to ask again with", hidden.box, true);
+  check("and the panel itself is still there", hidden.panel, false);
+  check("the plan it made is untouched", hidden.sessions, expected);
+
+  const stays = await page.evaluate(() => {
+    renderAll();
+    return document.getElementById("revise-report").textContent.trim();
+  });
+  check("and it stays hidden through a redraw", stays, "");
 
   await page.evaluate(() => {
     state.coursework = [];
